@@ -23,8 +23,12 @@ const status = document.getElementById("uploadStatus");
 const resultsContainer = document.getElementById("results");
 
 /************************************
- * UPDATE PROCESS BUTTON STATE
+ * STATUS AND BUTTON UPDATE FUNCTIONS
  ************************************/
+function updateStatus(message) {
+  status.textContent = message || 'Ready';
+}
+
 function updateProcessButtonState() {
   const hasEligibility = !!eligData;
   const hasReportData = !!reportData;
@@ -103,7 +107,6 @@ const DateHandler = {
  ************************************/
 function normalizeMemberID(id) {
   if (!id) return '';
-  // Remove all spaces, leading zeros, set to lowercase
   return String(id).replace(/\s+/g, '').replace(/^0+/, '').toLowerCase();
 }
 
