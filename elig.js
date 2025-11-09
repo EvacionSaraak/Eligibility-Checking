@@ -584,20 +584,37 @@ function renderResults(results, eligMap) {
 /************************************
  * DOM READY/EVENTS
  ************************************/
-document.addEventListener('DOMContentLoaded', function () {
-  // Elements
+    document.addEventListener("DOMContentLoaded", () => {
+  // ===== Elements =====
+  const checkbox = document.getElementById("filterDamanThiqa");
+  const status = document.getElementById("filterStatus");
   const reportInput = document.getElementById("reportFileInput");
   const eligInput = document.getElementById("eligibilityFileInput");
   const processBtn = document.getElementById("processBtn");
   const exportInvalidBtn = document.getElementById("exportInvalidBtn");
   const resultsContainer = document.getElementById("results");
-  // Optional checkbox to toggle Daman/Thiqa filtering (add this checkbox to your HTML)
-  const filterToggle = document.getElementById("filterDamanThiqa");
 
-  updateProcessButtonState();
-  updateStatus('Ready to process files');
-  info("--- Eligibility Checker Initialized (report-only) ---");
+  if (!reportInput) error("Element #reportFileInput not found in DOM.");
+  if (!eligInput) error("Element #eligibilityFileInput not found in DOM.");
+  if (!processBtn) error("Element #processBtn not found in DOM.");
+  if (!exportInvalidBtn) error("Element #exportInvalidBtn not found in DOM.");
 
+  // ===== Daman/Thiqa toggle status =====
+  if (checkbox && status) {
+    const updateStatusToggle = () => {
+      if (checkbox.checked) {
+        status.textContent = "ON";
+        status.classList.add("active");
+      } else {
+        status.textContent = "OFF";
+        status.classList.remove("active");
+      }
+    };
+    checkbox.addEventListener("change", updateStatusToggle);
+    updateStatusToggle();
+  }
+
+  // ===== File Inputs =====
   if (reportInput) {
     reportInput.addEventListener('change', async (e) => {
       const file = e.target.files[0];
@@ -617,8 +634,6 @@ document.addEventListener('DOMContentLoaded', function () {
         if (exportInvalidBtn) exportInvalidBtn.disabled = true;
       }
     });
-  } else {
-    error("Element #reportFileInput not found in DOM.");
   }
 
   if (eligInput) {
@@ -638,22 +653,14 @@ document.addEventListener('DOMContentLoaded', function () {
         if (exportInvalidBtn) exportInvalidBtn.disabled = true;
       }
     });
-  } else {
-    error("Element #eligibilityFileInput not found in DOM.");
   }
 
+  // ===== Process Button =====
   if (processBtn) {
     processBtn.addEventListener('click', async function () {
-      if (!eligData) {
-        updateStatus('Missing eligibility file');
-        alert('Please upload eligibility file first');
-        return;
-      }
-      if (!reportData) {
-        updateStatus('Missing report file');
-        alert('Please upload patient report file');
-        return;
-      }
+      if (!eligData) { updateStatus('Missing eligibility file'); alert('Please upload eligibility file first'); return; }
+      if (!reportData) { updateStatus('Missing report file'); alert('Please upload patient report file'); return; }
+
       try {
         updateStatus('Processing...');
         usedEligibilities.clear();
@@ -663,8 +670,8 @@ document.addEventListener('DOMContentLoaded', function () {
         let results = validateReportClaims(reportData, eligMap);
         info("--- Raw Validation Results ---", `count: ${results.length}`);
 
-        // Optional Daman/Thiqa filter: when toggled ON, only keep claims whose provider includes daman or thiqa
-        const filterOn = !!(filterToggle && filterToggle.checked);
+        // Optional Daman/Thiqa filter
+        const filterOn = !!(checkbox && checkbox.checked);
         if (filterOn) {
           logGroupCollapsed('[Filter] Applying Daman/Thiqa filter', () => {
             info('Filter ON — only claims with provider/package/payer that includes "daman" or "thiqa" will be kept.');
@@ -678,7 +685,7 @@ document.addEventListener('DOMContentLoaded', function () {
           info('[Filter] Daman/Thiqa filter is OFF — all validated claims will be shown.');
         }
 
-        window.lastValidationResults = results; // filtered or not, per toggle
+        window.lastValidationResults = results;
         renderResults(results, eligMap);
         updateStatus(`Processed ${results.length} claims`);
 
@@ -692,20 +699,21 @@ document.addEventListener('DOMContentLoaded', function () {
         error('Processing error:', error);
       }
     });
-  } else {
-    error("Element #processBtn not found in DOM.");
   }
 
+  // ===== Export Button =====
   if (exportInvalidBtn) {
     exportInvalidBtn.addEventListener('click', function () {
       if (!window.lastValidationResults) {
         alert('Please run the validation first.');
         return;
       }
-      // Export uses the last filtered results (respects Daman/Thiqa filter)
       exportInvalidEntries(window.lastValidationResults);
     });
-  } else {
-    error("Element #exportInvalidBtn not found in DOM.");
   }
+
+  // ===== Initialize =====
+  updateProcessButtonState();
+  updateStatus('Ready to process files');
+  info("--- Eligibility Checker Initialized (report-only) ---");
 });
