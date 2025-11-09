@@ -946,18 +946,25 @@ async function handleFileUpload(event, type) {
 async function handleProcessClick() {
   if (!eligData) {
     updateStatus('Error: Missing eligibility file');
-    return alert('Please upload eligibility file first');
+    alert('Please upload eligibility file first');
+    return;
+  }
+
+  if (!xlsData || xlsData.length === 0) {
+    updateStatus('Error: Missing report data');
+    alert('Please upload a report file first');
+    return;
   }
 
   try {
     updateStatus('Processing...');
     usedEligibilities.clear();
-
     const eligMap = prepareEligibilityMap(eligData);
-
+    const filteredResults = validateReportClaims(xlsData, eligMap);
     window.lastValidationResults = filteredResults;
     renderResults(filteredResults, eligMap);
-    updateStatus(`Processed ${filteredResults.length} claims`);
+
+    updateStatus(`Processed ${filteredResults.length} claims successfully`);
   } catch (error) {
     console.error('Processing error:', error);
     updateStatus('Processing failed');
