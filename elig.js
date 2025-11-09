@@ -11,46 +11,24 @@ const DATE_KEYS = ['Date', 'On'];
 const MONTHS = ["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"];
 
 // Application state
-let xmlData = null;
 let xlsData = null;
 let eligData = null;
 const usedEligibilities = new Set();
 
 // DOM Elements
-const xmlInput = document.getElementById("xmlFileInput");
 const reportInput = document.getElementById("reportFileInput");
 const eligInput = document.getElementById("eligibilityFileInput");
 const processBtn = document.getElementById("processBtn");
 const exportInvalidBtn = document.getElementById("exportInvalidBtn");
 const status = document.getElementById("uploadStatus");
 const resultsContainer = document.getElementById("results");
-const xmlGroup = document.getElementById("xmlReportInputGroup");
 const reportGroup = document.getElementById("reportInputGroup");
-const xmlRadio = document.querySelector('input[name="reportSource"][value="xml"]');
 const xlsRadio = document.querySelector('input[name="reportSource"][value="xls"]');
 
 /*************************
  * RADIO BUTTON HANDLING *
  *************************/
-function handleReportSourceChange() {
-  const isXmlMode = xmlRadio.checked;
-
-  xmlGroup.style.display = isXmlMode ? 'block' : 'none';
-  reportGroup.style.display = isXmlMode ? 'none' : 'block';
-
-  if (isXmlMode) {
-    xlsData = null;
-    reportInput.value = '';
-  } else {
-    xmlData = null;
-    xmlInput.value = '';
-  }
-
-  updateStatus();
-}
-
 function initializeRadioButtons() {
-  xmlRadio.addEventListener('change', handleReportSourceChange);
   xlsRadio.addEventListener('change', handleReportSourceChange);
   handleReportSourceChange();
 }
@@ -333,53 +311,6 @@ function isServiceCategoryValid(serviceCategory, consultationStatus, rawPackage)
   return { valid: true };
 }
 
-function validateXmlClaims(xmlClaims, eligMap) {
-  console.log(`Validating ${xmlClaims.length} XML claims`);
-  return xmlClaims.map(claim => {
-    const claimDate = DateHandler.parse(claim.encounterStart);
-    const formattedDate = DateHandler.format(claimDate);
-    const memberID = claim.memberID;
-
-    // Check for leading zero in original memberID
-    const hasLeadingZero = memberID.match(/^0+\d+$/);
-
-    const eligibility = findEligibilityForClaim(eligMap, claimDate, memberID, claim.clinicians);
-
-    let status = 'invalid';
-    const remarks = [];
-
-    if (hasLeadingZero) {
-      remarks.push('Member ID has a leading zero; claim marked as invalid.');
-    }
-
-    if (!eligibility) {
-      remarks.push(`No matching eligibility found for ${memberID} on ${formattedDate}`);
-    } else if (eligibility.Status?.toLowerCase() !== 'eligible') {
-      remarks.push(`Eligibility status: ${eligibility.Status}`);
-    } else if (!checkClinicianMatch(claim.clinicians, eligibility.Clinician)) {
-      status = 'unknown';
-      remarks.push('Clinician mismatch');
-    } else if (!hasLeadingZero) {
-      // Only mark as valid if there is no leading zero
-      status = 'valid';
-    }
-    // If hasLeadingZero, status remains 'invalid'
-
-    return {
-      claimID: claim.claimID,
-      memberID: claim.memberID,
-      encounterStart: formattedDate,
-      clinician: eligibility?.['Clinician'] || '',
-      serviceCategory: eligibility?.['Service Category'] || '',
-      consultationStatus: eligibility?.['Consultation Status'] || '',
-      status: eligibility?.Status || '',
-      remarks,
-      finalStatus: status,
-      fullEligibilityRecord: eligibility
-    };
-  });
-}
-
 function validateReportClaims(reportData, eligMap) {
   console.log(`Validating ${reportData.length} report rows`);
 
@@ -478,7 +409,7 @@ function validateReportClaims(reportData, eligMap) {
   return results.filter(r => r);
 }
 
-// --- Put this helper above validateXmlClaims / validateReportClaims ---
+// --- Put this helper above validateReportClaims ---
 function logNoEligibilityMatch(sourceType, claimSummary, memberID, parsedClaimDate, claimClinicians, eligMap) {
   try {
     const normalizedID = normalizeMemberID(memberID);
@@ -519,21 +450,6 @@ function logNoEligibilityMatch(sourceType, claimSummary, memberID, parsedClaimDa
 /*********************
  * FILE PARSING FUNCTIONS *
  *********************/
-async function parseXmlFile(file) {
-  console.log(`Parsing XML file: ${file.name}`);
-  const text = await file.text();
-  const xmlDoc = new DOMParser().parseFromString(text, "application/xml");
-
-  const claims = Array.from(xmlDoc.querySelectorAll("Claim")).map(claim => ({
-    claimID: claim.querySelector("ID")?.textContent.trim() || '',
-    memberID: claim.querySelector("MemberID")?.textContent.trim() || '',
-    encounterStart: claim.querySelector("Encounter Start")?.textContent.trim(),
-    clinicians: Array.from(claim.querySelectorAll("Clinician")).map(c => c.textContent.trim())
-  }));
-
-  return { claims };
-}
-
 async function parseExcelFile(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -744,14 +660,12 @@ function renderResults(results, eligMap) {
   const table = document.createElement('table');
   table.className = 'shared-table';
 
-  const isXmlMode = xmlRadio.checked;
   const thead = document.createElement('thead');
   thead.innerHTML = `
     <tr>
       <th>Claim ID</th>
       <th>Member ID</th>
       <th>Encounter Date</th>
-      ${!isXmlMode ? '<th>Package</th><th>Provider</th>' : ''}
       <th>Clinician</th>
       <th>Service Category</th>
       <th>Status</th>
@@ -804,7 +718,6 @@ function renderResults(results, eligMap) {
       <td>${result.claimID}</td>
       <td>${result.memberID}</td>
       <td>${result.encounterStart}</td>
-      ${!isXmlMode ? `<td class="description-col">${result.packageName}</td><td class="description-col">${result.provider}</td>` : ''}
       <td class="description-col">${result.clinician}</td>
       <td class="description-col">${result.serviceCategory}</td>
       <td class="description-col">${statusBadge}</td>
@@ -949,7 +862,7 @@ function updateStatus(message) {
 
 function updateProcessButtonState() {
   const hasEligibility = !!eligData;
-  const hasReportData = xmlRadio.checked ? !!xmlData : !!xlsData;
+  const hasReportData = !!xlsData;
   processBtn.disabled = !hasEligibility || !hasReportData;
   exportInvalidBtn.disabled = !hasEligibility || !hasReportData;
 }
@@ -1003,12 +916,7 @@ async function handleFileUpload(event, type) {
   try {
     updateStatus(`Loading ${type} file...`);
 
-    if (type === 'xml') {
-      xmlData = await parseXmlFile(file);
-      updateStatus(`Loaded ${xmlData.claims.length} XML claims`);
-      lastReportWasCSV = false;
-    } 
-    else if (type === 'eligibility') {
+    if (type === 'eligibility') {
       eligData = await parseExcelFile(file);
       updateStatus(`Loaded ${eligData.length} eligibility records`);
       lastReportWasCSV = false;
@@ -1046,16 +954,6 @@ async function handleProcessClick() {
     usedEligibilities.clear();
 
     const eligMap = prepareEligibilityMap(eligData);
-    const results = xmlRadio.checked ? validateXmlClaims(xmlData.claims, eligMap) : validateReportClaims(xlsData, eligMap);
-
-    // Only filter for Daman/Thiqa if report mode
-    let filteredResults = results;
-    if (!xmlRadio.checked) {
-      filteredResults = results.filter(r => {
-        const provider = (r.provider || r.insuranceCompany || r.packageName || r['Payer Name'] || r['Insurance Company'] || '').toString().toLowerCase();
-        return provider.includes('daman') || provider.includes('thiqa');
-      });
-    }
 
     window.lastValidationResults = filteredResults;
     renderResults(filteredResults, eligMap);
@@ -1079,7 +977,6 @@ function handleExportInvalidClick() {
  * INITIALIZATION *
  ********************/
 function initializeEventListeners() {
-  xmlInput.addEventListener('change', (e) => handleFileUpload(e, 'xml'));
   reportInput.addEventListener('change', (e) => handleFileUpload(e, 'report'));
   eligInput.addEventListener('change', (e) => handleFileUpload(e, 'eligibility'));
   processBtn.addEventListener('click', handleProcessClick);
