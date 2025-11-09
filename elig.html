@@ -9,9 +9,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <script src="elig.js"></script>
   <style>
-    body {
-      background-color: #f7f9fc;
-    }
+    body { background-color: #f7f9fc; }
     .page-title {
       color: #0056b3;
       margin-top: 24px;
@@ -28,13 +26,8 @@
       margin-bottom: 25px;
       color: #333;
     }
-    .form-label {
-      font-weight: 500;
-      color: #333;
-    }
-    .input-group-text {
-      background: #e7eaf1;
-    }
+    .form-label { font-weight: 500; color: #333; }
+    .input-group-text { background: #e7eaf1; }
     .file-upload-area {
       padding: 24px;
       background: #fff;
@@ -43,30 +36,35 @@
       border: 1px solid #e3e8ee;
       margin-bottom: 18px;
     }
-    .btn-primary, .btn-secondary {
-      min-width: 150px;
+    .btn-primary, .btn-secondary { min-width: 150px; }
+    #uploadStatus { min-height: 24px; }
+    #results { padding-bottom: 32px; }
+    .step-number { font-weight: 600; color: #0056b3; margin-right: 6px; }
+    .filter-toggle-area {
+      background: #f0f5ff;
+      border: 1px solid #ccd6eb;
+      border-radius: 6px;
+      padding: 10px 14px;
+      margin: 10px 0 18px;
+      text-align: center;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.05);
     }
-    #uploadStatus {
-      min-height: 24px;
+    .filter-status {
+      display: inline-block;
+      margin-left: 8px;
+      font-size: 0.9rem;
+      padding: 3px 8px;
+      border-radius: 12px;
+      background: #adb5bd;
+      color: #fff;
     }
-    #results {
-      padding-bottom: 32px;
-    }
-    .step-number {
-      font-weight: 600;
-      color: #0056b3;
-      margin-right: 6px;
+    .filter-status.active {
+      background: #198754;
     }
     @media (max-width: 600px) {
-      .btn-primary, .btn-secondary {
-        min-width: 100px;
-      }
-      .file-upload-area {
-        padding: 14px;
-      }
-      #explanation {
-        padding: 13px;
-      }
+      .btn-primary, .btn-secondary { min-width: 100px; }
+      .file-upload-area { padding: 14px; }
+      #explanation { padding: 13px; }
     }
   </style>
 </head>
@@ -76,9 +74,9 @@
 
     <!-- Explanation Box -->
     <div id="explanation" class="mb-4 mt-3">
-      <b>Welcome!</b> This is a simple tool for checking patient eligibility. Please follow the steps below. If you have any difficulty, ask for help—no technical expertise required.
+      <b>Welcome!</b> This is a simple tool for checking patient eligibility.
       <ul class="mb-0 mt-2">
-        <li><span class="step-number">1.</span>Upload your patient report (from Clinicpro, Odoo, or InstaHMS).</li>
+        <li><span class="step-number">1.</span>Upload your patient report (Clinicpro, Odoo, or InstaHMS).</li>
         <li><span class="step-number">2.</span>Upload the Eligibility XLSX file.</li>
         <li><span class="step-number">3.</span>Click <b>Process</b> to check eligibility.</li>
         <li><span class="step-number">4.</span>Click <b>Export Invalid Rows</b> to download a list of patients not eligible.</li>
@@ -101,6 +99,15 @@
             <input type="file" class="form-control" id="eligibilityFileInput" accept=".xlsx">
           </div>
         </div>
+      </div>
+
+      <!-- Daman/Thiqa Filter Toggle -->
+      <div class="filter-toggle-area">
+        <label class="form-check-label">
+          <input class="form-check-input me-2" type="checkbox" id="filterDamanThiqa">
+          Show only <b>Daman / Thiqa</b> claims
+        </label>
+        <span id="filterStatus" class="filter-status">OFF</span>
       </div>
 
       <div class="d-flex gap-2 mb-2 justify-content-center">
