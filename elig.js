@@ -977,7 +977,6 @@ function handleExportInvalidClick() {
  * INITIALIZATION *
  ********************/
 function initializeEventListeners() {
-  reportInput.addEventListener('change', (e) => handleFileUpload(e, 'report'));
   eligInput.addEventListener('change', (e) => handleFileUpload(e, 'eligibility'));
   processBtn.addEventListener('click', handleProcessClick);
   exportInvalidBtn.addEventListener('click', handleExportInvalidClick);
