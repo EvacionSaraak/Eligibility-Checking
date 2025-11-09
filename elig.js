@@ -14,11 +14,27 @@ let reportData = null;
 let eligData = null;
 const usedEligibilities = new Set();
 
-// Utility functions used anywhere
+/************************************
+ * UTILITY / LOGGING HELPERS
+ ************************************/
 function updateStatus(message) {
   const status = document.getElementById("uploadStatus");
   if (status) status.textContent = message || 'Ready';
 }
+
+function logGroupCollapsed(title, fn) {
+  try {
+    console.groupCollapsed(title);
+    fn();
+    console.groupEnd();
+  } catch (err) {
+    console.error('Logging helper error:', err);
+  }
+}
+
+function info(...args) { console.info('[elig] ', ...args); }
+function warn(...args) { console.warn('[elig] ', ...args); }
+function error(...args) { console.error('[elig] ', ...args); }
 
 function updateProcessButtonState() {
   const processBtn = document.getElementById("processBtn");
@@ -103,6 +119,18 @@ function normalizeMemberID(id) {
   return String(id).replace(/\s+/g, '').replace(/^0+/, '').toLowerCase();
 }
 
+function normalizeClinician(name) {
+  if (!name) return '';
+  return String(name).trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function checkClinicianMatch(claimClinicians, eligClinician) {
+  // if eligibility doesn't specify clinician or claim has none, consider it a match
+  if (!eligClinician || !claimClinicians?.length) return true;
+  const normElig = normalizeClinician(eligClinician);
+  return claimClinicians.some(c => normalizeClinician(c) === normElig);
+}
+
 /************************************
  * HEADER DETECTION / DATA NORMALIZATION
  ************************************/
@@ -119,6 +147,7 @@ function normalizeReportData(rawData) {
       claimID: isInsta ? row['Pri. Claim No'] || '' :
                 isOdoo ? row['Pri. Claim ID'] || '' :
                 row['ClaimID'] || '',
+      // normalize memberID early so matching is consistent
       memberID: normalizeMemberID(memberID),
       claimDate: isInsta ? row['Encounter Date'] || '' :
                  isOdoo ? row['Adm/Reg. Date'] || '' :
@@ -165,7 +194,8 @@ function prepareEligibilityMap(eligData) {
       'Clinician': e['Clinician'],
       'Payer Name': e['Payer Name'],
       'Service Category': e['Service Category'],
-      'Package Name': e['Package Name']
+      'Package Name': e['Package Name'],
+      'Department': e['Department'] || e['Clinic'] || ''
     };
     eligMap.get(memberID).push(eligRecord);
   });
@@ -175,39 +205,63 @@ function prepareEligibilityMap(eligData) {
 function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians = []) {
   const normalizedID = normalizeMemberID(memberID);
   const eligList = eligMap.get(normalizedID) || [];
+
   if (!eligList.length) {
-    console.warn(`No eligibility match for Member ID: ${memberID} (normalized: ${normalizedID})`);
+    logGroupCollapsed(`[Diagnostics] No eligibility records for ${memberID} (normalized: ${normalizedID})`, () => {
+      warn('No eligibility records found in eligMap for this member ID.');
+    });
     return null;
   }
-  console.log(`Eligibility candidates for ${normalizedID}:`, eligList);
+
+  logGroupCollapsed(`[Diagnostics] Searching eligibilities for ${memberID} (normalized: ${normalizedID})`, () => {
+    info('Claim date object:', claimDate, 'Formatted:', DateHandler.format(claimDate));
+    info('Claim clinicians:', claimClinicians);
+    eligList.forEach((elig, idx) => {
+      info(`#${idx+1}`, {
+        'Eligibility Request Number': elig['Eligibility Request Number'],
+        'Answered On': elig['Answered On'],
+        'Status': elig['Status'],
+        'Clinician': elig['Clinician'],
+        'Service Category': elig['Service Category'],
+        'Package Name': elig['Package Name'],
+        'Department': elig['Department']
+      });
+    });
+  });
+
   for (const elig of eligList) {
     const eligDate = DateHandler.parse(elig["Answered On"]);
-    console.log(`Claim Date: ${claimDate} (${DateHandler.format(claimDate)}), Eligibility Date: ${elig["Answered On"]} (${DateHandler.format(eligDate)})`);
     if (!DateHandler.isSameDay(claimDate, eligDate)) {
-      console.log("Date mismatch for claim vs eligibility");
+      info('Skipping eligibility (date mismatch):', elig['Eligibility Request Number'], elig["Answered On"]);
       continue;
     }
+
+    // Clinician matching using normalization
     const eligClinician = (elig.Clinician || '').trim();
-    if (eligClinician && claimClinicians.length && !claimClinicians.includes(eligClinician)) {
-      console.log("Clinician mismatch for claim vs eligibility");
+    if (eligClinician && claimClinicians.length && !checkClinicianMatch(claimClinicians, eligClinician)) {
+      info('Skipping eligibility (clinician mismatch):', elig['Eligibility Request Number'], 'elig clinician:', eligClinician);
       continue;
     }
+
     const serviceCategory = (elig['Service Category'] || '').trim();
     const consultationStatus = (elig['Consultation Status'] || '').trim();
     const department = (elig.Department || elig.Clinic || '').toLowerCase();
     const categoryCheck = isServiceCategoryValid(serviceCategory, consultationStatus, department);
     if (!categoryCheck.valid) {
-      console.log("Service category mismatch for claim vs eligibility");
+      info('Skipping eligibility (category/package mismatch):', elig['Eligibility Request Number'], categoryCheck.reason || '');
       continue;
     }
+
     if ((elig.Status || '').trim().toLowerCase() !== 'eligible') {
-      console.log(`Eligibility status is not 'eligible' (was: '${elig.Status}')`);
+      info('Skipping eligibility (status not eligible):', elig['Eligibility Request Number'], elig.Status);
       continue;
     }
-    console.log("Valid eligibility match found.");
+
+    info('Eligibility matched:', elig['Eligibility Request Number']);
     return elig;
   }
-  console.warn(`No full eligibility match for memberID: ${memberID} (${normalizedID}) on date: ${claimDate}`);
+
+  warn(`No matching eligibility passed all checks for member ${memberID} on ${DateHandler.format(claimDate)}`);
   return null;
 }
 
@@ -247,7 +301,7 @@ function validateReportClaims(reportData, eligMap) {
     const claimDate = DateHandler.parse(claimDateRaw, { preferMDY: lastReportWasCSV });
     const formattedDate = DateHandler.format(claimDate);
 
-    const isVVIP = memberID.startsWith('(vvip)');
+    const isVVIP = String(memberID || '').toLowerCase().startsWith('(vvip)');
     if (isVVIP) {
       return {
         claimID: row.claimID,
@@ -265,28 +319,31 @@ function validateReportClaims(reportData, eligMap) {
         fullEligibilityRecord: null
       };
     }
-    const hasLeadingZero = memberID.match(/^0+\d+$/);
-    const eligibility = findEligibilityForClaim(eligMap, claimDate, memberID, [row.clinician]);
+
+    const hasLeadingZero = String(memberID || '').match(/^0+\d+$/);
+    const eligibility = findEligibilityForClaim(eligMap, claimDate, memberID, [row.clinician].filter(Boolean));
     let status = 'invalid';
     const remarks = [];
 
     if (!eligibility) {
       remarks.push(`No matching eligibility found for ${memberID} on ${formattedDate}`);
-      console.warn('Eligibility not found:', { memberID, claimDateRaw, formattedDate, clinician: row.clinician });
+      warn('Eligibility not found:', { memberID, claimDateRaw, formattedDate, clinician: row.clinician });
     } else if ((eligibility.Status || '').trim().toLowerCase() !== 'eligible') {
       remarks.push(`Eligibility status: ${eligibility.Status}`);
-      console.log("Eligibility status not eligible:", eligibility.Status);
+      info('Eligibility status not eligible:', eligibility.Status);
     } else {
       const serviceCategory = eligibility['Service Category']?.trim() || '';
       const consultationStatus = eligibility['Consultation Status']?.trim()?.toLowerCase() || '';
       const matchesCategory = isServiceCategoryValid(serviceCategory, consultationStatus, row.department || row.clinic).valid;
       if (!matchesCategory) {
         remarks.push(`Invalid for category: ${serviceCategory}, department: ${row.department || row.clinic}`);
-        console.log('Service category mismatch for claim:', serviceCategory, row.department || row.clinic);
+        info('Service category mismatch for claim:', serviceCategory, row.department || row.clinic);
       } else if (!hasLeadingZero) {
         status = 'valid';
       }
     }
+
+    if (hasLeadingZero) remarks.push('Member ID has a leading zero; claim marked as invalid.');
 
     return {
       claimID: row.claimID,
@@ -391,11 +448,15 @@ async function parseCsvFile(file) {
 }
 
 function exportInvalidEntries(results) {
+  // When the results passed are already filtered (by Daman/Thiqa toggle during processing),
+  // the export will respect that filtered set.
   const invalidEntries = results.filter(r => r && r.finalStatus === 'invalid');
+
   if (invalidEntries.length === 0) {
     alert('No invalid entries to export.');
     return;
   }
+
   const exportData = invalidEntries.map(entry => ({
     'Claim ID': entry.claimID,
     'Member ID': entry.memberID,
@@ -420,6 +481,11 @@ function exportInvalidEntries(results) {
  * RENDERING RESULTS
  ************************************/
 function renderResults(results, eligMap) {
+  const resultsContainer = document.getElementById("results");
+  if (!resultsContainer) {
+    warn('#results container not found');
+    return;
+  }
   resultsContainer.innerHTML = '';
 
   if (!results || results.length === 0) {
@@ -434,14 +500,14 @@ function renderResults(results, eligMap) {
   const table = document.createElement('table');
   table.className = 'shared-table';
 
-  const isXmlMode = xmlRadio.checked;
+  // This script is report-only, so xmlRadio is not used here. Keep column rendering consistent.
   const thead = document.createElement('thead');
   thead.innerHTML = `
     <tr>
       <th>Claim ID</th>
       <th>Member ID</th>
       <th>Encounter Date</th>
-      ${!isXmlMode ? '<th>Package</th><th>Provider</th>' : ''}
+      <th>Package</th><th>Provider</th>
       <th>Clinician</th>
       <th>Service Category</th>
       <th>Status</th>
@@ -455,11 +521,8 @@ function renderResults(results, eligMap) {
   const statusCounts = { valid: 0, invalid: 0, unknown: 0 };
 
   results.forEach((result, index) => {
-    // Skip rows where Member ID is missing/empty
-    if (!result.memberID || result.memberID.trim() === '') return;
+    if (!result.memberID || String(result.memberID).trim() === '') return;
 
-    // Ignore claims whose status is "Not Seen" (check report status, eligibility status, or general status)
-    // (trim + lowercase so " Not Seen " / "not seen" also match)
     const statusToCheck = (result.claimStatus || result.status || result.fullEligibilityRecord?.Status || '')
       .toString()
       .trim()
@@ -467,7 +530,6 @@ function renderResults(results, eligMap) {
 
     if (statusToCheck === 'not seen') return;
 
-    // Count statuses safely
     if (result.finalStatus && statusCounts.hasOwnProperty(result.finalStatus)) {
       statusCounts[result.finalStatus]++;
     }
@@ -485,16 +547,16 @@ function renderResults(results, eligMap) {
 
     let detailsCell = '<div class="source-note">N/A</div>';
     if (result.fullEligibilityRecord?.['Eligibility Request Number']) {
-      detailsCell = `<button class="details-btn eligibility-details" data-index="${index}">${result.fullEligibilityRecord['Eligibility Request Number']}</button>`;
+      detailsCell = `<div class="source-note">${result.fullEligibilityRecord['Eligibility Request Number']}</div>`;
     } else if (eligMap && eligMap.has && eligMap.has(result.memberID)) {
-      detailsCell = `<button class="details-btn show-all-eligibilities" data-member="${result.memberID}" data-clinicians="${(result.clinicians || [result.clinician || '']).join(',')}">View All</button>`;
+      detailsCell = `<div class="source-note">Elig records: ${eligMap.get(result.memberID).length}</div>`;
     }
 
     row.innerHTML = `
       <td>${result.claimID}</td>
       <td>${result.memberID}</td>
       <td>${result.encounterStart}</td>
-      ${!isXmlMode ? `<td class="description-col">${result.packageName}</td><td class="description-col">${result.provider}</td>` : ''}
+      <td class="description-col">${result.packageName}</td><td class="description-col">${result.provider}</td>
       <td class="description-col">${result.clinician}</td>
       <td class="description-col">${result.serviceCategory}</td>
       <td class="description-col">${statusBadge}</td>
@@ -517,24 +579,24 @@ function renderResults(results, eligMap) {
     <span class="invalid">${statusCounts.invalid} invalid</span>
   `;
   resultsContainer.prepend(summary);
-
-  // initEligibilityModal(results, eligMap);
 }
 
 /************************************
  * DOM READY/EVENTS
  ************************************/
 document.addEventListener('DOMContentLoaded', function () {
-  // Now all elements exist!
+  // Elements
   const reportInput = document.getElementById("reportFileInput");
   const eligInput = document.getElementById("eligibilityFileInput");
   const processBtn = document.getElementById("processBtn");
   const exportInvalidBtn = document.getElementById("exportInvalidBtn");
   const resultsContainer = document.getElementById("results");
+  // Optional checkbox to toggle Daman/Thiqa filtering (add this checkbox to your HTML)
+  const filterToggle = document.getElementById("filterDamanThiqa");
 
   updateProcessButtonState();
   updateStatus('Ready to process files');
-  console.log("--- Eligibility Checker Initialized ---");
+  info("--- Eligibility Checker Initialized (report-only) ---");
 
   if (reportInput) {
     reportInput.addEventListener('change', async (e) => {
@@ -545,18 +607,18 @@ document.addEventListener('DOMContentLoaded', function () {
         lastReportWasCSV = file.name.toLowerCase().endsWith('.csv');
         const rawData = lastReportWasCSV ? await parseCsvFile(file) : await parseExcelFile(file);
         reportData = normalizeReportData(rawData).filter(r => r.claimID && String(r.claimID).trim() !== '');
-        console.log("--- Report File Uploaded ---", file.name, reportData);
+        info("--- Report File Uploaded ---", file.name, `rows: ${reportData.length}`);
         updateStatus(`Loaded ${reportData.length} report rows`);
         updateProcessButtonState();
       } catch (error) {
         updateStatus("Error loading report file");
-        console.error('Report file error:', error);
+        error('Report file error:', error);
         if (processBtn) processBtn.disabled = true;
         if (exportInvalidBtn) exportInvalidBtn.disabled = true;
       }
     });
   } else {
-    console.error("Element #reportFileInput not found in DOM.");
+    error("Element #reportFileInput not found in DOM.");
   }
 
   if (eligInput) {
@@ -566,18 +628,18 @@ document.addEventListener('DOMContentLoaded', function () {
       try {
         updateStatus("Loading eligibility file...");
         eligData = await parseExcelFile(file);
-        console.log("--- Eligibility File Uploaded ---", file.name, eligData);
+        info("--- Eligibility File Uploaded ---", file.name, `rows: ${eligData.length}`);
         updateStatus(`Loaded ${eligData.length} eligibility records`);
         updateProcessButtonState();
       } catch (error) {
         updateStatus("Error loading eligibility file");
-        console.error('Eligibility file error:', error);
+        error('Eligibility file error:', error);
         if (processBtn) processBtn.disabled = true;
         if (exportInvalidBtn) exportInvalidBtn.disabled = true;
       }
     });
   } else {
-    console.error("Element #eligibilityFileInput not found in DOM.");
+    error("Element #eligibilityFileInput not found in DOM.");
   }
 
   if (processBtn) {
@@ -596,24 +658,42 @@ document.addEventListener('DOMContentLoaded', function () {
         updateStatus('Processing...');
         usedEligibilities.clear();
         const eligMap = prepareEligibilityMap(eligData);
-        console.log("--- Eligibility Map Keys ---", Array.from(eligMap.keys()));
+        info("--- Eligibility Map Keys ---", Array.from(eligMap.keys()));
+
         let results = validateReportClaims(reportData, eligMap);
-        console.log("--- Pre-filtered Validation Results ---"); results.forEach((r, idx) => console.log(`[${idx}]`, r));
-        window.lastValidationResults = results;
+        info("--- Raw Validation Results ---", `count: ${results.length}`);
+
+        // Optional Daman/Thiqa filter: when toggled ON, only keep claims whose provider includes daman or thiqa
+        const filterOn = !!(filterToggle && filterToggle.checked);
+        if (filterOn) {
+          logGroupCollapsed('[Filter] Applying Daman/Thiqa filter', () => {
+            info('Filter ON — only claims with provider/package/payer that includes "daman" or "thiqa" will be kept.');
+          });
+          results = results.filter(r => {
+            const provider = (r.provider || r.insuranceCompany || r.packageName || r['Payer Name'] || r['Insurance Company'] || '').toString().toLowerCase();
+            return provider.includes('daman') || provider.includes('thiqa');
+          });
+          info(`[Filter] ${results.length} claims remain after Daman/Thiqa filter.`);
+        } else {
+          info('[Filter] Daman/Thiqa filter is OFF — all validated claims will be shown.');
+        }
+
+        window.lastValidationResults = results; // filtered or not, per toggle
         renderResults(results, eligMap);
         updateStatus(`Processed ${results.length} claims`);
+
         if (results.length === 0) {
-          console.warn("No claims processed! Check input files and mapping logic.");
+          warn("No claims processed! Check input files and mapping logic.");
           updateStatus('Troubleshooting: No processed claims. See console for details.');
         }
       } catch (error) {
         updateStatus('Processing failed');
         if (resultsContainer) resultsContainer.innerHTML = `<div class="error">${error.message}</div>`;
-        console.error('Processing error:', error);
+        error('Processing error:', error);
       }
     });
   } else {
-    console.error("Element #processBtn not found in DOM.");
+    error("Element #processBtn not found in DOM.");
   }
 
   if (exportInvalidBtn) {
@@ -622,9 +702,10 @@ document.addEventListener('DOMContentLoaded', function () {
         alert('Please run the validation first.');
         return;
       }
+      // Export uses the last filtered results (respects Daman/Thiqa filter)
       exportInvalidEntries(window.lastValidationResults);
     });
   } else {
-    console.error("Element #exportInvalidBtn not found in DOM.");
+    error("Element #exportInvalidBtn not found in DOM.");
   }
 });
