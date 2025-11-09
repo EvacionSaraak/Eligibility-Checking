@@ -3,45 +3,121 @@
 <head>
   <meta charset="UTF-8">
   <title>Eligibility Checker</title>
+  <!-- Bootstrap CSS -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
   <link rel="stylesheet" href="tables.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <style>
+    body {
+      background-color: #f7f9fc;
+    }
+    .page-title {
+      color: #0056b3;
+      margin-top: 24px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      text-align: center;
+    }
+    #explanation {
+      background: #eef3fa;
+      border-radius: 8px;
+      border: 1px solid #dee2e6;
+      box-shadow: 0 2px 6px rgba(0,0,0,.03);
+      padding: 18px;
+      margin-bottom: 25px;
+      color: #333;
+    }
+    .form-label {
+      font-weight: 500;
+      color: #333;
+    }
+    .input-group-text {
+      background: #e7eaf1;
+    }
+    .file-upload-area {
+      padding: 24px;
+      background: #fff;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,.04);
+      border: 1px solid #e3e8ee;
+      margin-bottom: 18px;
+    }
+    .btn-primary, .btn-secondary {
+      min-width: 150px;
+    }
+    #uploadStatus {
+      min-height: 24px;
+    }
+    #results {
+      padding-bottom: 32px;
+    }
+    .step-number {
+      font-weight: 600;
+      color: #0056b3;
+      margin-right: 6px;
+    }
+    @media (max-width: 600px) {
+      .btn-primary, .btn-secondary {
+        min-width: 100px;
+      }
+      .file-upload-area {
+        padding: 14px;
+      }
+      #explanation {
+        padding: 13px;
+      }
+    }
+  </style>
 </head>
 <body>
-  <h1>Eligibility Checker</h1>
-  <!-- Explanation Box -->
-  <div id="explanation" style="border:1px solid #ccc; border-radius:6px; padding:16px; background:#f8f8fa; margin-bottom:20px;">
-    <p>To be filled.</p>
+  <div class="container" style="max-width: 600px;">
+    <h1 class="page-title">Eligibility Checker</h1>
+
+    <!-- Explanation Box -->
+    <div id="explanation" class="mb-4 mt-3">
+      <b>Welcome!</b> This is a simple tool for checking patient eligibility. Please follow the steps below. If you have any difficulty, ask for help—no technical expertise required.
+      <ul class="mb-0 mt-2">
+        <li><span class="step-number">1.</span>Upload your patient report (from Clinicpro, Odoo, or InstaHMS).</li>
+        <li><span class="step-number">2.</span>Upload the Eligibility XLSX file.</li>
+        <li><span class="step-number">3.</span>Click <b>Process</b> to check eligibility.</li>
+        <li><span class="step-number">4.</span>Click <b>Export Invalid Rows</b> to download a list of patients not eligible.</li>
+      </ul>
+    </div>
+
+    <form>
+      <div class="file-upload-area mb-3">
+        <div class="mb-4">
+          <label for="reportFileInput" class="form-label">Upload Patient Report (Clinicpro, Odoo, or InstaHMS):</label>
+          <div class="input-group">
+            <span class="input-group-text"><i class="bi bi-file-earmark-excel"></i></span>
+            <input type="file" class="form-control" id="reportFileInput" multiple accept=".xls,.xlsx,.csv">
+          </div>
+        </div>
+        <div class="mb-3">
+          <label for="eligibilityFileInput" class="form-label">Upload Eligibility XLSX:</label>
+          <div class="input-group">
+            <span class="input-group-text"><i class="bi bi-file-earmark-spreadsheet"></i></span>
+            <input type="file" class="form-control" id="eligibilityFileInput" accept=".xlsx">
+          </div>
+        </div>
+      </div>
+
+      <div class="d-flex gap-2 mb-2 justify-content-center">
+        <button type="button" id="processBtn" class="btn btn-primary" disabled>
+          <i class="bi bi-play-fill"></i> Process
+        </button>
+        <button type="button" id="exportInvalidBtn" class="btn btn-secondary" disabled>
+          <i class="bi bi-arrow-down-circle"></i> Export Invalid Rows
+        </button>
+      </div>
+      <div id="uploadStatus" class="mt-2 text-primary fs-6 text-center"></div>
+    </form>
+
+    <div id="results" style="margin-top:24px;"></div>
   </div>
 
-  <div>
-    <label>
-      <input type="radio" name="reportSource" value="xls" checked>
-      Upload Report (Clinicpro, Odoo, or InstaHMS)
-    </label>
-    <label>
-      <input type="radio" name="reportSource" value="xml">
-      Upload XML Report
-    </label>
-  </div>
-  <br>
-  <div id="xmlReportInputGroup">
-    <label for="xmlFileInput">Upload XML Report:</label>
-    <input type="file" id="xmlFileInput" accept=".xml"/>
-  </div>
-  <div id="reportInputGroup" style="display:none;">
-    <label for="reportInputGroup">Upload Report (Clinicpro, Odoo, or InstaHMS):</label>
-    <input type="file" id="reportFileInput" multiple accept=".xls,.xlsx,.csv" />
-  </div>
-  <div id="eligibilityInputGroup" style="margin-top:10px;">
-    <label for="eligibilityFileInput">Upload Eligibility XLSX:</label>
-    <input type="file" id="eligibilityFileInput" accept=".xlsx"/>
-  </div>
-  <div>
-    <button id="processBtn" disabled>Process</button>
-    <button id="exportInvalidBtn" disabled>Export Invalid Rows</button>
-  </div>
-  <div id="uploadStatus" style="margin-top:12px; color:#0074D9;"></div>
-  <div id="results" style="margin-top:20px;"></div>
+  <!-- Bootstrap Icons CDN -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
   <script src="checker_elig.js"></script>
   <script src="table_clipboard.js"></script>
 </body>
