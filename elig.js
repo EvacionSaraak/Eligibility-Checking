@@ -417,6 +417,103 @@ function exportInvalidEntries(results) {
 }
 
 /************************************
+ * RENDERING RESULTS
+ ************************************/
+function renderResults(results, eligMap) {
+  const resultsContainer = document.getElementById("results");
+  resultsContainer.innerHTML = '';
+  if (!results || results.length === 0) {
+    resultsContainer.innerHTML = '<div class="no-results">No claims to display</div>';
+    return;
+  }
+
+  const tableContainer = document.createElement('div');
+  tableContainer.className = 'analysis-results';
+  tableContainer.style.overflowX = 'auto';
+
+  const table = document.createElement('table');
+  table.className = 'shared-table table table-bordered table-sm';
+
+  const thead = document.createElement('thead');
+  thead.innerHTML = `
+    <tr>
+      <th>Claim ID</th>
+      <th>Member ID</th>
+      <th>Encounter Date</th>
+      <th>Package</th>
+      <th>Provider</th>
+      <th>Clinician</th>
+      <th>Service Category</th>
+      <th>Status</th>
+      <th class="wrap-col">Remarks</th>
+      <th>Details</th>
+    </tr>
+  `;
+  table.appendChild(thead);
+
+  const tbody = document.createElement('tbody');
+  const statusCounts = { valid: 0, invalid: 0, unknown: 0 };
+
+  results.forEach((result, index) => {
+    if (!result.memberID || result.memberID.trim() === '') return;
+
+    const statusToCheck = (result.claimStatus || result.status || result.fullEligibilityRecord?.Status || '')
+      .toString().trim().toLowerCase();
+    if (statusToCheck === 'not seen') return;
+
+    if (result.finalStatus && statusCounts.hasOwnProperty(result.finalStatus)) {
+      statusCounts[result.finalStatus]++;
+    }
+
+    const row = document.createElement('tr');
+    row.className = result.finalStatus;
+
+    const statusBadge = result.status
+      ? `<span class="status-badge ${result.status.toLowerCase() === 'eligible' ? 'eligible' : 'ineligible'}">${result.status}</span>`
+      : '';
+
+    const remarksHTML = result.remarks && result.remarks.length > 0
+      ? result.remarks.map(r => `<div>${r}</div>`).join('')
+      : '<div class="source-note">No remarks</div>';
+
+    let detailsCell = '<div class="source-note">N/A</div>';
+    if (result.fullEligibilityRecord?.['Eligibility Request Number']) {
+      detailsCell = `<button class="details-btn eligibility-details" data-index="${index}">${result.fullEligibilityRecord['Eligibility Request Number']}</button>`;
+    } else if (eligMap && eligMap.has && eligMap.has(result.memberID)) {
+      detailsCell = `<button class="details-btn show-all-eligibilities" data-member="${result.memberID}" data-clinicians="${result.clinician || ''}">View All</button>`;
+    }
+
+    row.innerHTML = `
+      <td>${result.claimID}</td>
+      <td>${result.memberID}</td>
+      <td>${result.encounterStart}</td>
+      <td class="description-col">${result.packageName}</td>
+      <td class="description-col">${result.provider}</td>
+      <td class="description-col">${result.clinician}</td>
+      <td class="description-col">${result.serviceCategory}</td>
+      <td class="description-col">${statusBadge}</td>
+      <td class="wrap-col">${remarksHTML}</td>
+      <td>${detailsCell}</td>
+    `;
+    tbody.appendChild(row);
+  });
+
+  table.appendChild(tbody);
+  tableContainer.appendChild(table);
+  resultsContainer.appendChild(tableContainer);
+
+  const summary = document.createElement('div');
+  summary.className = 'loaded-count';
+  summary.innerHTML = `
+    Processed ${results.length} claims: 
+    <span class="valid">${statusCounts.valid} valid</span>, 
+    <span class="unknown">${statusCounts.unknown} unknown</span>, 
+    <span class="invalid">${statusCounts.invalid} invalid</span>
+  `;
+  resultsContainer.prepend(summary);
+}
+
+/************************************
  * DOM READY/EVENTS
  ************************************/
 document.addEventListener('DOMContentLoaded', function () {
