@@ -1,0 +1,22 @@
+{
+  "facilities": [
+    { "name": "Ivory Medical Center", "license": "MF4456" },
+    { "name": "Lauretta Medical Center", "license": "MF4706" },
+    { "name": "Majestic Dental Center", "license": "MF1901" },
+    { "name": "Nazek Medical Center", "license": "MF5009" },
+    { "name": "Nazek Pharmacy", "license": "PF4005" },
+    { "name": "New Look Medical Center (AD)", "license": "MF4957" },
+    { "name": "New Look Medical Center (Extra Mall Branch 1)", "license": "MF5090" },
+    { "name": "New Look Medical Center (Al Khabisi Branch 2)", "license": "MF5020" },
+    { "name": "New Look Medical Center (Al Yahar Branch 3)", "license": "MF5357" },
+    { "name": "New Look Pharmacy", "license": "PF3076" },
+    { "name": "Scandcare", "license": "MF456" },
+    { "name": "Talat Medical Center", "license": "MF494" },
+    { "name": "True Life Pharmacy", "license": "PF4000" },
+    { "name": "True Life Primary Care Center", "license": "MF7003" },
+    { "name": "True Life Primary Care Center (Al Wagan Branch 1)", "license": "MF7231" },
+    { "name": "Wldy Medical Center", "license": "MF5339" },
+    { "name": "Brashov Pharmacy", "license": "PF5131" },
+    { "name": "Emirates Medical Center", "license": "MF232" }
+  ]
+}
