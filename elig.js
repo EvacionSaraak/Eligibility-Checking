@@ -420,8 +420,8 @@ function exportInvalidEntries(results) {
  * RENDERING RESULTS
  ************************************/
 function renderResults(results, eligMap) {
-  const resultsContainer = document.getElementById("results");
   resultsContainer.innerHTML = '';
+
   if (!results || results.length === 0) {
     resultsContainer.innerHTML = '<div class="no-results">No claims to display</div>';
     return;
@@ -432,16 +432,16 @@ function renderResults(results, eligMap) {
   tableContainer.style.overflowX = 'auto';
 
   const table = document.createElement('table');
-  table.className = 'shared-table table table-bordered table-sm';
+  table.className = 'shared-table';
 
+  const isXmlMode = xmlRadio.checked;
   const thead = document.createElement('thead');
   thead.innerHTML = `
     <tr>
       <th>Claim ID</th>
       <th>Member ID</th>
       <th>Encounter Date</th>
-      <th>Package</th>
-      <th>Provider</th>
+      ${!isXmlMode ? '<th>Package</th><th>Provider</th>' : ''}
       <th>Clinician</th>
       <th>Service Category</th>
       <th>Status</th>
@@ -455,12 +455,19 @@ function renderResults(results, eligMap) {
   const statusCounts = { valid: 0, invalid: 0, unknown: 0 };
 
   results.forEach((result, index) => {
+    // Skip rows where Member ID is missing/empty
     if (!result.memberID || result.memberID.trim() === '') return;
 
+    // Ignore claims whose status is "Not Seen" (check report status, eligibility status, or general status)
+    // (trim + lowercase so " Not Seen " / "not seen" also match)
     const statusToCheck = (result.claimStatus || result.status || result.fullEligibilityRecord?.Status || '')
-      .toString().trim().toLowerCase();
+      .toString()
+      .trim()
+      .toLowerCase();
+
     if (statusToCheck === 'not seen') return;
 
+    // Count statuses safely
     if (result.finalStatus && statusCounts.hasOwnProperty(result.finalStatus)) {
       statusCounts[result.finalStatus]++;
     }
@@ -468,7 +475,7 @@ function renderResults(results, eligMap) {
     const row = document.createElement('tr');
     row.className = result.finalStatus;
 
-    const statusBadge = result.status
+    const statusBadge = result.status 
       ? `<span class="status-badge ${result.status.toLowerCase() === 'eligible' ? 'eligible' : 'ineligible'}">${result.status}</span>`
       : '';
 
@@ -480,15 +487,14 @@ function renderResults(results, eligMap) {
     if (result.fullEligibilityRecord?.['Eligibility Request Number']) {
       detailsCell = `<button class="details-btn eligibility-details" data-index="${index}">${result.fullEligibilityRecord['Eligibility Request Number']}</button>`;
     } else if (eligMap && eligMap.has && eligMap.has(result.memberID)) {
-      detailsCell = `<button class="details-btn show-all-eligibilities" data-member="${result.memberID}" data-clinicians="${result.clinician || ''}">View All</button>`;
+      detailsCell = `<button class="details-btn show-all-eligibilities" data-member="${result.memberID}" data-clinicians="${(result.clinicians || [result.clinician || '']).join(',')}">View All</button>`;
     }
 
     row.innerHTML = `
       <td>${result.claimID}</td>
       <td>${result.memberID}</td>
       <td>${result.encounterStart}</td>
-      <td class="description-col">${result.packageName}</td>
-      <td class="description-col">${result.provider}</td>
+      ${!isXmlMode ? `<td class="description-col">${result.packageName}</td><td class="description-col">${result.provider}</td>` : ''}
       <td class="description-col">${result.clinician}</td>
       <td class="description-col">${result.serviceCategory}</td>
       <td class="description-col">${statusBadge}</td>
@@ -511,6 +517,8 @@ function renderResults(results, eligMap) {
     <span class="invalid">${statusCounts.invalid} invalid</span>
   `;
   resultsContainer.prepend(summary);
+
+  // initEligibilityModal(results, eligMap);
 }
 
 /************************************
