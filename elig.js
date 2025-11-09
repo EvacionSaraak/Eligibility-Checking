@@ -610,6 +610,15 @@ reportInput.addEventListener('change', async (e) => {
     lastReportWasCSV = file.name.toLowerCase().endsWith('.csv');
     const rawData = lastReportWasCSV ? await parseCsvFile(file) : await parseExcelFile(file);
     reportData = normalizeReportData(rawData).filter(r => r.claimID && String(r.claimID).trim() !== '');
+
+    // Troubleshooting Print
+    console.log("--- Report File Uploaded ---");
+    console.log("Raw file:", file.name);
+    console.log("Parsed reportData:", reportData);
+    if (reportData.length === 0) {
+      console.warn("No rows parsed from report file.");
+      updateStatus("No rows found in report file.");
+    }
     updateStatus(`Loaded ${reportData.length} report rows`);
     updateProcessButtonState();
   } catch (error) {
@@ -626,6 +635,15 @@ eligInput.addEventListener('change', async (e) => {
   try {
     updateStatus("Loading eligibility file...");
     eligData = await parseExcelFile(file);
+
+    // Troubleshooting Print
+    console.log("--- Eligibility File Uploaded ---");
+    console.log("Raw file:", file.name);
+    console.log("Parsed eligData:", eligData);
+    if (eligData.length === 0) {
+      console.warn("No rows parsed from eligibility file.");
+      updateStatus("No rows found in eligibility file.");
+    }
     updateStatus(`Loaded ${eligData.length} eligibility records`);
     updateProcessButtonState();
   } catch (error) {
@@ -651,16 +669,38 @@ processBtn.addEventListener('click', async () => {
     updateStatus('Processing...');
     usedEligibilities.clear();
     const eligMap = prepareEligibilityMap(eligData);
+
+    // Troubleshooting Print - show eligibility map keys
+    console.log("--- Eligibility Map ---");
+    console.log("Member IDs:", Array.from(eligMap.keys()));
+
     let results = validateReportClaims(reportData, eligMap);
 
-    results = results.filter(r => {
-      const provider = (r.provider || r.insuranceCompany || r.packageName || '').toString().toLowerCase();
-      return provider.includes('daman') || provider.includes('thiqa');
+    // Troubleshooting Print - raw results before any filter
+    console.log("--- Pre-filtered Validation Results ---");
+    results.forEach((r, idx) => {
+      console.log(`[${idx}]`, r);
     });
+
+    // REMOVE any overly aggressive filtering for troubleshooting!
+    // results = results.filter(r => {
+    //   const provider = (r.provider || r.insuranceCompany || r.packageName || '').toString().toLowerCase();
+    //   return provider.includes('daman') || provider.includes('thiqa');
+    // });
+
+    // Troubleshooting Print - after filter (if any)
+    // console.log("--- Post-filtered Validation Results ---");
+    // results.forEach((r, idx) => {
+    //   console.log(`[${idx}]`, r);
+    // });
 
     window.lastValidationResults = results;
     renderResults(results, eligMap);
     updateStatus(`Processed ${results.length} claims`);
+    if (results.length === 0) {
+      console.warn("No claims processed! Check input files and mapping logic.");
+      status.innerHTML = '<span style="color:red;">Troubleshooting: No processed claims. See console for details.</span>';
+    }
   } catch (error) {
     updateStatus('Processing failed');
     resultsContainer.innerHTML = `<div class="error">${error.message}</div>`;
@@ -682,4 +722,6 @@ exportInvalidBtn.addEventListener('click', () => {
 document.addEventListener('DOMContentLoaded', () => {
   updateProcessButtonState();
   updateStatus('Ready to process files');
+  // Troubleshooting Print
+  console.log("--- Eligibility Checker Initialized ---");
 });
