@@ -584,7 +584,7 @@ function renderResults(results, eligMap) {
 /************************************
  * DOM READY/EVENTS
  ************************************/
-    document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", () => {
   // ===== Elements =====
   const checkbox = document.getElementById("filterDamanThiqa");
   const status = document.getElementById("filterStatus");
@@ -594,12 +594,7 @@ function renderResults(results, eligMap) {
   const exportInvalidBtn = document.getElementById("exportInvalidBtn");
   const resultsContainer = document.getElementById("results");
 
-  if (!reportInput) error("Element #reportFileInput not found in DOM.");
-  if (!eligInput) error("Element #eligibilityFileInput not found in DOM.");
-  if (!processBtn) error("Element #processBtn not found in DOM.");
-  if (!exportInvalidBtn) error("Element #exportInvalidBtn not found in DOM.");
-
-  // ===== Daman/Thiqa toggle status =====
+  // ===== Checkbox status display =====
   if (checkbox && status) {
     const updateStatusToggle = () => {
       if (checkbox.checked) {
@@ -614,22 +609,30 @@ function renderResults(results, eligMap) {
     updateStatusToggle();
   }
 
-  // ===== File Inputs =====
+  // ===== File input listeners =====
   if (reportInput) {
-    reportInput.addEventListener('change', async (e) => {
+    reportInput.addEventListener("change", async (e) => {
       const file = e.target.files[0];
       if (!file) return;
       try {
         updateStatus("Loading report file...");
-        lastReportWasCSV = file.name.toLowerCase().endsWith('.csv');
-        const rawData = lastReportWasCSV ? await parseCsvFile(file) : await parseExcelFile(file);
-        reportData = normalizeReportData(rawData).filter(r => r.claimID && String(r.claimID).trim() !== '');
-        info("--- Report File Uploaded ---", file.name, `rows: ${reportData.length}`);
+        lastReportWasCSV = file.name.toLowerCase().endsWith(".csv");
+        const rawData = lastReportWasCSV
+          ? await parseCsvFile(file)
+          : await parseExcelFile(file);
+        reportData = normalizeReportData(rawData).filter(
+          (r) => r.claimID && String(r.claimID).trim() !== ""
+        );
+        info(
+          "--- Report File Uploaded ---",
+          file.name,
+          `rows: ${reportData.length}`
+        );
         updateStatus(`Loaded ${reportData.length} report rows`);
         updateProcessButtonState();
-      } catch (error) {
+      } catch (err) {
         updateStatus("Error loading report file");
-        error('Report file error:', error);
+        error("Report file error:", err);
         if (processBtn) processBtn.disabled = true;
         if (exportInvalidBtn) exportInvalidBtn.disabled = true;
       }
@@ -637,32 +640,44 @@ function renderResults(results, eligMap) {
   }
 
   if (eligInput) {
-    eligInput.addEventListener('change', async (e) => {
+    eligInput.addEventListener("change", async (e) => {
       const file = e.target.files[0];
       if (!file) return;
       try {
         updateStatus("Loading eligibility file...");
         eligData = await parseExcelFile(file);
-        info("--- Eligibility File Uploaded ---", file.name, `rows: ${eligData.length}`);
+        info(
+          "--- Eligibility File Uploaded ---",
+          file.name,
+          `rows: ${eligData.length}`
+        );
         updateStatus(`Loaded ${eligData.length} eligibility records`);
         updateProcessButtonState();
-      } catch (error) {
+      } catch (err) {
         updateStatus("Error loading eligibility file");
-        error('Eligibility file error:', error);
+        error("Eligibility file error:", err);
         if (processBtn) processBtn.disabled = true;
         if (exportInvalidBtn) exportInvalidBtn.disabled = true;
       }
     });
   }
 
-  // ===== Process Button =====
+  // ===== Process button =====
   if (processBtn) {
-    processBtn.addEventListener('click', async function () {
-      if (!eligData) { updateStatus('Missing eligibility file'); alert('Please upload eligibility file first'); return; }
-      if (!reportData) { updateStatus('Missing report file'); alert('Please upload patient report file'); return; }
+    processBtn.addEventListener("click", async () => {
+      if (!eligData) {
+        updateStatus("Missing eligibility file");
+        alert("Please upload eligibility file first");
+        return;
+      }
+      if (!reportData) {
+        updateStatus("Missing report file");
+        alert("Please upload patient report file");
+        return;
+      }
 
       try {
-        updateStatus('Processing...');
+        updateStatus("Processing...");
         usedEligibilities.clear();
         const eligMap = prepareEligibilityMap(eligData);
         info("--- Eligibility Map Keys ---", Array.from(eligMap.keys()));
@@ -670,42 +685,63 @@ function renderResults(results, eligMap) {
         let results = validateReportClaims(reportData, eligMap);
         info("--- Raw Validation Results ---", `count: ${results.length}`);
 
-        // Optional Daman/Thiqa filter
-        const filterOn = !!(checkbox && checkbox.checked);
+        // ===== Safe Daman/Thiqa filter =====
+        const filterOn = checkbox?.checked ?? false;
+
         if (filterOn) {
-          logGroupCollapsed('[Filter] Applying Daman/Thiqa filter', () => {
-            info('Filter ON — only claims with provider/package/payer that includes "daman" or "thiqa" will be kept.');
+          logGroupCollapsed("[Filter] Applying Daman/Thiqa filter", () => {
+            info(
+              'Filter ON — only claims with provider/package/payer that includes "daman" or "thiqa" will be kept.'
+            );
           });
-          results = results.filter(r => {
-            const provider = (r.provider || r.insuranceCompany || r.packageName || r['Payer Name'] || r['Insurance Company'] || '').toString().toLowerCase();
-            return provider.includes('daman') || provider.includes('thiqa');
+
+          results = results.filter((r) => {
+            const provider = (
+              r.provider ||
+              r.insuranceCompany ||
+              r.packageName ||
+              r["Payer Name"] ||
+              r["Insurance Company"] ||
+              ""
+            )
+              .toString()
+              .toLowerCase();
+            return provider.includes("daman") || provider.includes("thiqa");
           });
-          info(`[Filter] ${results.length} claims remain after Daman/Thiqa filter.`);
+
+          info(
+            `[Filter] ${results.length} claims remain after Daman/Thiqa filter.`
+          );
         } else {
-          info('[Filter] Daman/Thiqa filter is OFF — all validated claims will be shown.');
+          info(
+            "[Filter] Daman/Thiqa filter is OFF — all validated claims will be shown."
+          );
         }
 
+        // ===== Save results for export =====
         window.lastValidationResults = results;
         renderResults(results, eligMap);
         updateStatus(`Processed ${results.length} claims`);
 
         if (results.length === 0) {
-          warn("No claims processed! Check input files and mapping logic.");
-          updateStatus('Troubleshooting: No processed claims. See console for details.');
+          warn(
+            "No claims processed! Check input files, normalization, and provider fields."
+          );
         }
-      } catch (error) {
-        updateStatus('Processing failed');
-        if (resultsContainer) resultsContainer.innerHTML = `<div class="error">${error.message}</div>`;
-        error('Processing error:', error);
+      } catch (err) {
+        updateStatus("Processing failed");
+        if (resultsContainer)
+          resultsContainer.innerHTML = `<div class="error">${err.message}</div>`;
+        error("Processing error:", err);
       }
     });
   }
 
-  // ===== Export Button =====
+  // ===== Export button =====
   if (exportInvalidBtn) {
-    exportInvalidBtn.addEventListener('click', function () {
+    exportInvalidBtn.addEventListener("click", () => {
       if (!window.lastValidationResults) {
-        alert('Please run the validation first.');
+        alert("Please run the validation first.");
         return;
       }
       exportInvalidEntries(window.lastValidationResults);
@@ -714,6 +750,6 @@ function renderResults(results, eligMap) {
 
   // ===== Initialize =====
   updateProcessButtonState();
-  updateStatus('Ready to process files');
+  updateStatus("Ready to process files");
   info("--- Eligibility Checker Initialized (report-only) ---");
 });
