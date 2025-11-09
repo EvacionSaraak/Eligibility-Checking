@@ -1,6 +1,6 @@
 /*******************************
  * Eligibility Checker - elig.js
- * Adapted to work with elig.html (reportFileInput, eligibilityFileInput, filterDamanThiqa, etc.)
+ * Fixed DOM initialization timing (query DOM on init)
  *******************************/
 
 const SERVICE_PACKAGE_RULES = {
@@ -12,7 +12,6 @@ const SERVICE_PACKAGE_RULES = {
 const DATE_KEYS = ['Date', 'On'];
 const MONTHS = ["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"];
 
-// Normalized rules for case-insensitive lookup
 const NORMALIZED_SERVICE_PACKAGE_RULES = {};
 Object.keys(SERVICE_PACKAGE_RULES).forEach(k => {
   NORMALIZED_SERVICE_PACKAGE_RULES[k.trim().toLowerCase()] = SERVICE_PACKAGE_RULES[k];
@@ -24,15 +23,15 @@ let xlsData = null;
 let lastReportWasCSV = false;
 const usedEligibilities = new Set();
 
-// DOM
-const reportInput = document.getElementById('reportFileInput');
-const eligInput = document.getElementById('eligibilityFileInput');
-const processBtn = document.getElementById('processBtn');
-const exportInvalidBtn = document.getElementById('exportInvalidBtn');
-const statusEl = document.getElementById('uploadStatus');
-const resultsContainer = document.getElementById('results');
-const filterCheckbox = document.getElementById('filterDamanThiqa');
-const filterStatus = document.getElementById('filterStatus');
+// DOM references (initialized later)
+let reportInput = null;
+let eligInput = null;
+let processBtn = null;
+let exportInvalidBtn = null;
+let statusEl = null;
+let resultsContainer = null;
+let filterCheckbox = null;
+let filterStatus = null;
 
 /***********************
  * Utility / DateFuncs *
@@ -341,6 +340,7 @@ function normalizeReportData(rawData) {
  * Rendering / Modal UI
  *****************************/
 function renderResults(results, eligMap) {
+  if (!resultsContainer) return;
   resultsContainer.innerHTML = '';
   if (!results || results.length === 0) {
     resultsContainer.innerHTML = '<div class="no-results">No claims to display</div>';
@@ -364,7 +364,6 @@ function renderResults(results, eligMap) {
   results.forEach((res, i) => {
     if (!res || !res.memberID || String(res.memberID).trim() === '') return;
 
-    // apply Daman/Thiqa filter if enabled
     if (filterOn) {
       const p = (res.insuranceCompany || res.packageName || '').toLowerCase();
       if (!p.includes('daman') && !p.includes('thiqa')) return;
@@ -414,7 +413,8 @@ function renderResults(results, eligMap) {
 }
 
 function initModalHandlers(results, eligMap) {
-  // create modal if missing
+  if (!resultsContainer) return;
+
   if (!document.getElementById('modalOverlay')) {
     const modalHtml = `
       <div id="modalOverlay" style="display:none;position:fixed;z-index:9999;left:0;top:0;width:100vw;height:100vh;background:rgba(0,0,0,0.35);">
@@ -428,7 +428,6 @@ function initModalHandlers(results, eligMap) {
     document.getElementById('modalOverlay').onclick = (e) => { if (e.target.id === 'modalOverlay') hideModal(); };
   }
 
-  // wire buttons
   document.querySelectorAll('.details-btn').forEach(btn => {
     btn.onclick = function() {
       if (this.classList.contains('eligibility-details')) {
@@ -630,9 +629,7 @@ function onFilterToggle() {
   const on = filterCheckbox && filterCheckbox.checked;
   filterStatus.textContent = on ? 'ON' : 'OFF';
   filterStatus.classList.toggle('active', on);
-  // If results already rendered, re-render using last results
   if (window.lastValidationResults) {
-    // Need eligMap to show "View All" buttons; rebuild from eligData
     const eligMap = eligData ? prepareEligibilityMap(eligData) : new Map();
     renderResults(window.lastValidationResults, eligMap);
   }
@@ -642,11 +639,23 @@ function onFilterToggle() {
  * Initialization
  *********************/
 function initializeEventListeners() {
+  // Query the DOM when it's ready (fixes earlier null refs)
+  reportInput = document.getElementById('reportFileInput');
+  eligInput = document.getElementById('eligibilityFileInput');
+  processBtn = document.getElementById('processBtn');
+  exportInvalidBtn = document.getElementById('exportInvalidBtn');
+  statusEl = document.getElementById('uploadStatus');
+  resultsContainer = document.getElementById('results');
+  filterCheckbox = document.getElementById('filterDamanThiqa');
+  filterStatus = document.getElementById('filterStatus');
+
   if (eligInput) eligInput.addEventListener('change', (e) => handleFileUpload(e, 'eligibility'));
   if (reportInput) reportInput.addEventListener('change', (e) => handleFileUpload(e, 'report'));
   if (processBtn) processBtn.addEventListener('click', handleProcessClick);
   if (exportInvalidBtn) exportInvalidBtn.addEventListener('click', () => exportInvalidEntries(window.lastValidationResults || []));
   if (filterCheckbox) filterCheckbox.addEventListener('change', onFilterToggle);
+
+  // initialize filter UI
   if (filterStatus) onFilterToggle();
 }
 
