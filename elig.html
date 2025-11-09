@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Eligibility Checker</title>
+  <link rel="stylesheet" href="tables.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+</head>
+<body>
+  <h1>Eligibility Checker</h1>
+  <!-- Explanation Box -->
+  <div id="explanation" style="border:1px solid #ccc; border-radius:6px; padding:16px; background:#f8f8fa; margin-bottom:20px;">
+    <p>To be filled.</p>
+  </div>
+
+  <div>
+    <label>
+      <input type="radio" name="reportSource" value="xls" checked>
+      Upload Report (Clinicpro, Odoo, or InstaHMS)
+    </label>
+    <label>
+      <input type="radio" name="reportSource" value="xml">
+      Upload XML Report
+    </label>
+  </div>
+  <br>
+  <div id="xmlReportInputGroup">
+    <label for="xmlFileInput">Upload XML Report:</label>
+    <input type="file" id="xmlFileInput" accept=".xml"/>
+  </div>
+  <div id="reportInputGroup" style="display:none;">
+    <label for="reportInputGroup">Upload Report (Clinicpro, Odoo, or InstaHMS):</label>
+    <input type="file" id="reportFileInput" multiple accept=".xls,.xlsx,.csv" />
+  </div>
+  <div id="eligibilityInputGroup" style="margin-top:10px;">
+    <label for="eligibilityFileInput">Upload Eligibility XLSX:</label>
+    <input type="file" id="eligibilityFileInput" accept=".xlsx"/>
+  </div>
+  <div>
+    <button id="processBtn" disabled>Process</button>
+    <button id="exportInvalidBtn" disabled>Export Invalid Rows</button>
+  </div>
+  <div id="uploadStatus" style="margin-top:12px; color:#0074D9;"></div>
+  <div id="results" style="margin-top:20px;"></div>
+  <script src="checker_elig.js"></script>
+  <script src="table_clipboard.js"></script>
+</body>
+</html>
