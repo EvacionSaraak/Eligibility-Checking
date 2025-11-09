@@ -63,22 +63,22 @@ const DateHandler = {
   },
   format: function(date) {
     if (!(date instanceof Date) || isNaN(date)) return '';
-    const d = date.getUTCDate().toString().padStart(2, '0');
-    const m = (date.getUTCMonth() + 1).toString().padStart(2, '0');
-    const y = date.getUTCFullYear();
+    const d = date.getDate().toString().padStart(2, '0'); // LOCAL date
+    const m = (date.getMonth() + 1).toString().padStart(2, '0'); // LOCAL month
+    const y = date.getFullYear();
     return `${d}/${m}/${y}`;
   },
-  isSameDay: function(date1, date2) {
+  isSameDay: function(date1, date2) { // LOCAL comparison
     if (!date1 || !date2) return false;
-    return date1.getUTCDate() === date2.getUTCDate() &&
-           date1.getUTCMonth() === date2.getUTCMonth() &&
-           date1.getUTCFullYear() === date2.getUTCFullYear();
+    return date1.getFullYear() === date2.getFullYear() &&
+           date1.getMonth() === date2.getMonth() &&
+           date1.getDate() === date2.getDate();
   },
   _parseExcelDate: function(serial) {
     const utcDays = Math.floor(serial) - 25569;
     const ms = utcDays * 86400 * 1000;
     const date = new Date(ms);
-    return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+    return new Date(date.getFullYear(), date.getMonth(), date.getDate()); // LOCAL
   },
   _parseStringDate: function(dateStr, preferMDY = false) {
     if (dateStr.includes(' ')) dateStr = dateStr.split(' ')[0];
@@ -89,24 +89,24 @@ const DateHandler = {
       const year = parseInt(dmyMdyMatch[3], 10);
 
       if (part1 > 12 && part2 <= 12) {
-        return new Date(Date.UTC(year, part2 - 1, part1));
+        return new Date(year, part2 - 1, part1);
       } else if (part2 > 12 && part1 <= 12) {
-        return new Date(Date.UTC(year, part1 - 1, part2));
+        return new Date(year, part1 - 1, part2);
       } else {
         if (preferMDY) {
-          return new Date(Date.UTC(year, part1 - 1, part2));
+          return new Date(year, part1 - 1, part2);
         } else {
-          return new Date(Date.UTC(year, part2 - 1, part1));
+          return new Date(year, part2 - 1, part1);
         }
       }
     }
     const textMatch = dateStr.match(/^(\d{1,2})[\/\- ]([a-z]{3,})[\/\- ](\d{2,4})$/i);
     if (textMatch) {
       const monthIndex = MONTHS.indexOf(textMatch[2].toLowerCase().substr(0, 3));
-      if (monthIndex >= 0) return new Date(Date.UTC(textMatch[3], monthIndex, textMatch[1]));
+      if (monthIndex >= 0) return new Date(textMatch[3], monthIndex, textMatch[1]);
     }
     const isoMatch = dateStr.match(/^(\d{4})[\/\-](\d{2})[\/\-](\d{2})$/);
-    if (isoMatch) return new Date(Date.UTC(isoMatch[1], isoMatch[2] - 1, isoMatch[3]));
+    if (isoMatch) return new Date(isoMatch[1], isoMatch[2] - 1, isoMatch[3]);
     return null;
   }
 };
@@ -138,17 +138,17 @@ function normalizeReportData(rawData) {
   const isInsta = rawData[0]?.hasOwnProperty('Pri. Claim No');
   const isOdoo = rawData[0]?.hasOwnProperty('Pri. Claim ID');
   return rawData.map(row => {
-    let memberID =
+    const rawMemberID =
       isInsta ? row['Pri. Patient Insurance Card No'] :
       isOdoo ? row['Pri. Member ID'] :
-      row['PatientCardID'];
-    if (!memberID) memberID = '';
+      row['PatientCardID'] || '';
+    const memberID = normalizeMemberID(rawMemberID);
     return {
       claimID: isInsta ? row['Pri. Claim No'] || '' :
-                isOdoo ? row['Pri. Claim ID'] || '' :
-                row['ClaimID'] || '',
-      // normalize memberID early so matching is consistent
-      memberID: normalizeMemberID(memberID),
+               isOdoo ? row['Pri. Claim ID'] || '' :
+               row['ClaimID'] || '',
+      rawMemberID, // <-- save original
+      memberID,
       claimDate: isInsta ? row['Encounter Date'] || '' :
                  isOdoo ? row['Adm/Reg. Date'] || '' :
                  row['ClaimDate'] || '',
@@ -171,7 +171,7 @@ function normalizeReportData(rawData) {
 }
 
 /************************************
- * ELIGIBILITY MATCHING AND VALIDATION FUNCTIONS
+ * Prepare Eligibility Map
  ************************************/
 function prepareEligibilityMap(eligData) {
   const eligMap = new Map();
@@ -188,6 +188,7 @@ function prepareEligibilityMap(eligData) {
     const eligRecord = {
       'Eligibility Request Number': e['Eligibility Request Number'],
       'Card Number / DHA Member ID': rawID,
+      rawMemberID: rawID, // Added for leading-zero checks
       'Answered On': e['Answered On'],
       'Ordered On': e['Ordered On'],
       'Status': e['Status'],
@@ -195,6 +196,7 @@ function prepareEligibilityMap(eligData) {
       'Payer Name': e['Payer Name'],
       'Service Category': e['Service Category'],
       'Package Name': e['Package Name'],
+      'Consultation Status': e['Consultation Status'] || '',
       'Department': e['Department'] || e['Clinic'] || ''
     };
     eligMap.get(memberID).push(eligRecord);
@@ -202,6 +204,9 @@ function prepareEligibilityMap(eligData) {
   return eligMap;
 }
 
+/************************************
+ * Find Eligibility for a Claim
+ ************************************/
 function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians = []) {
   const normalizedID = normalizeMemberID(memberID);
   const eligList = eligMap.get(normalizedID) || [];
@@ -236,7 +241,7 @@ function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians =
       continue;
     }
 
-    // Clinician matching using normalization
+    // Clinician matching
     const eligClinician = (elig.Clinician || '').trim();
     if (eligClinician && claimClinicians.length && !checkClinicianMatch(claimClinicians, eligClinician)) {
       info('Skipping eligibility (clinician mismatch):', elig['Eligibility Request Number'], 'elig clinician:', eligClinician);
@@ -244,7 +249,7 @@ function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians =
     }
 
     const serviceCategory = (elig['Service Category'] || '').trim();
-    const consultationStatus = (elig['Consultation Status'] || '').trim();
+    const consultationStatus = (elig['Consultation Status'] || '').trim().toLowerCase();
     const department = (elig.Department || elig.Clinic || '').toLowerCase();
     const categoryCheck = isServiceCategoryValid(serviceCategory, consultationStatus, department);
     if (!categoryCheck.valid) {
@@ -265,12 +270,17 @@ function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians =
   return null;
 }
 
+/************************************
+ * Service Category Validation
+ ************************************/
 function isServiceCategoryValid(serviceCategory, consultationStatus, rawPackage) {
   if (!serviceCategory) return { valid: true };
+
   const category = serviceCategory.trim().toLowerCase();
   const pkgRaw = rawPackage || '';
   const pkg = pkgRaw.toLowerCase();
-  if (category === 'consultation' && consultationStatus?.toLowerCase() === 'elective') {
+
+  if (category === 'consultation' && consultationStatus === 'elective') {
     const disallowed = ['dental', 'physio', 'diet', 'occupational', 'speech'];
     if (disallowed.some(term => pkg.includes(term))) {
       return {
@@ -280,27 +290,35 @@ function isServiceCategoryValid(serviceCategory, consultationStatus, rawPackage)
     }
     return { valid: true };
   }
-  const allowedKeywords = SERVICE_PACKAGE_RULES[serviceCategory];
+
+  const allowedKeywords = SERVICE_PACKAGE_RULES[category];
   if (allowedKeywords && allowedKeywords.length > 0) {
-    if (pkg && !allowedKeywords.some(keyword => pkg.includes(keyword))) {
+    if (pkg && !allowedKeywords.some(keyword => pkg.includes(keyword.toLowerCase()))) {
       return {
         valid: false,
         reason: `${serviceCategory} requires related package. Found: "${pkgRaw}"`
       };
     }
   }
+
   return { valid: true };
 }
 
+/************************************
+ * Validate Report Claims
+ ************************************/
 function validateReportClaims(reportData, eligMap) {
   if (!reportData) return [];
+
   return reportData.map(row => {
     if (!row.claimID) return null;
+
     const memberID = row.memberID;
     const claimDateRaw = row.claimDate;
     const claimDate = DateHandler.parse(claimDateRaw, { preferMDY: lastReportWasCSV });
     const formattedDate = DateHandler.format(claimDate);
 
+    // VVIP bypass
     const isVVIP = String(memberID || '').toLowerCase().startsWith('(vvip)');
     if (isVVIP) {
       return {
@@ -320,7 +338,8 @@ function validateReportClaims(reportData, eligMap) {
       };
     }
 
-    const hasLeadingZero = String(memberID || '').match(/^0+\d+$/);
+    // Leading zero check using rawMemberID
+    const hasLeadingZero = String(row.rawMemberID || '').match(/^0+\d+$/);
     const eligibility = findEligibilityForClaim(eligMap, claimDate, memberID, [row.clinician].filter(Boolean));
     let status = 'invalid';
     const remarks = [];
