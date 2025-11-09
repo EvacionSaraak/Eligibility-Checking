@@ -10,6 +10,12 @@ const SERVICE_PACKAGE_RULES = {
 const DATE_KEYS = ['Date', 'On'];
 const MONTHS = ["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"];
 
+// Create a normalized version of the rules for case-insensitive lookup
+const NORMALIZED_SERVICE_PACKAGE_RULES = {};
+Object.keys(SERVICE_PACKAGE_RULES).forEach(k => {
+  NORMALIZED_SERVICE_PACKAGE_RULES[k.trim().toLowerCase()] = SERVICE_PACKAGE_RULES[k];
+});
+
 // Application state
 let xlsData = null;
 let eligData = null;
@@ -29,8 +35,17 @@ const xlsRadio = document.querySelector('input[name="reportSource"][value="xls"]
  * RADIO BUTTON HANDLING *
  *************************/
 function initializeRadioButtons() {
-  xlsRadio.addEventListener('change', handleReportSourceChange);
-  handleReportSourceChange();
+  if (xlsRadio) {
+    xlsRadio.addEventListener('change', handleReportSourceChange);
+    handleReportSourceChange();
+  }
+}
+
+function handleReportSourceChange() {
+  // This function existed in original code context; keep it defensive
+  if (!reportGroup) return;
+  const useXls = xlsRadio && xlsRadio.checked;
+  reportGroup.style.display = useXls ? 'block' : 'block';
 }
 
 /*************************
@@ -40,7 +55,7 @@ let lastReportWasCSV = false;
 const DateHandler = {
   parse: function(input, options = {}) {
     const preferMDY = !!options.preferMDY;
-    if (!input) return null;
+    if (!input && input !== 0) return null;
     if (input instanceof Date) return isNaN(input) ? null : input;
     if (typeof input === 'number') return this._parseExcelDate(input);
 
@@ -69,48 +84,62 @@ const DateHandler = {
   },
 
   _parseExcelDate: function(serial) {
+    // Excel serial -> UTC midnight
     const utcDays = Math.floor(serial) - 25569;
     const ms = utcDays * 86400 * 1000;
     const date = new Date(ms);
-    // Return UTC midnight
     return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
   },
 
-  // PATCHED: Always parse string dates as UTC
+  // Always parse string dates as UTC and handle two-digit years
   _parseStringDate: function(dateStr, preferMDY = false) {
+    if (!dateStr || typeof dateStr !== 'string') return null;
+
     if (dateStr.includes(' ')) {
       dateStr = dateStr.split(' ')[0];
     }
-    // Matches DD/MM/YYYY or MM/DD/YYYY (ambiguous). We'll disambiguate using preferMDY flag
+
+    // Matches DD/MM/YYYY or MM/DD/YYYY (ambiguous)
     const dmyMdyMatch = dateStr.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
     if (dmyMdyMatch) {
       const part1 = parseInt(dmyMdyMatch[1], 10);
       const part2 = parseInt(dmyMdyMatch[2], 10);
-      const year = parseInt(dmyMdyMatch[3], 10);
+      let year = parseInt(dmyMdyMatch[3], 10);
+      if (year < 100) year += 2000;
 
       if (part1 > 12 && part2 <= 12) {
-        return new Date(Date.UTC(year, part2 - 1, part1)); // dmy
+        // dmy
+        return new Date(Date.UTC(year, part2 - 1, part1));
       } else if (part2 > 12 && part1 <= 12) {
-        return new Date(Date.UTC(year, part1 - 1, part2)); // mdy (rare)
+        // mdy
+        return new Date(Date.UTC(year, part1 - 1, part2));
       } else {
         if (preferMDY) {
-          return new Date(Date.UTC(year, part1 - 1, part2)); // MM/DD/YYYY UTC
+          return new Date(Date.UTC(year, part1 - 1, part2));
         } else {
-          return new Date(Date.UTC(year, part2 - 1, part1)); // DD/MM/YYYY UTC
+          return new Date(Date.UTC(year, part2 - 1, part1));
         }
       }
     }
 
-    // Matches 30-Jun-2025 or 30 Jun 2025
+    // Matches 30-Jun-2025 or 30 Jun 2025 (or 30-Jun-25)
     const textMatch = dateStr.match(/^(\d{1,2})[\/\- ]([a-z]{3,})[\/\- ](\d{2,4})$/i);
     if (textMatch) {
+      const day = parseInt(textMatch[1], 10);
+      let year = parseInt(textMatch[3], 10);
+      if (year < 100) year += 2000;
       const monthIndex = MONTHS.indexOf(textMatch[2].toLowerCase().substr(0, 3));
-      if (monthIndex >= 0) return new Date(Date.UTC(textMatch[3], monthIndex, textMatch[1]));
+      if (monthIndex >= 0) return new Date(Date.UTC(year, monthIndex, day));
     }
 
     // ISO: 2025-07-01
     const isoMatch = dateStr.match(/^(\d{4})[\/\-](\d{2})[\/\-](\d{2})$/);
-    if (isoMatch) return new Date(Date.UTC(isoMatch[1], isoMatch[2] - 1, isoMatch[3]));
+    if (isoMatch) {
+      const y = parseInt(isoMatch[1], 10);
+      const mo = parseInt(isoMatch[2], 10);
+      const d = parseInt(isoMatch[3], 10);
+      return new Date(Date.UTC(y, mo - 1, d));
+    }
     return null;
   }
 };
@@ -119,65 +148,13 @@ const DateHandler = {
  * DATA NORMALIZATION FUNCTIONS *
  *****************************/
 function normalizeMemberID(id) {
-  if (!id) return '';
+  if (id === null || id === undefined) return '';
   return String(id).trim().replace(/^0+/, '');
 }
 
 function normalizeClinician(name) {
   if (!name) return '';
   return name.trim().toLowerCase().replace(/\s+/g, ' ');
-}
-
-// Finds the correct header row within the first `maxScan` rows of a sheet (array-of-arrays)
-// Returns an object with the detected headerRowIndex, normalized headers array, and rows as objects
-function findHeaderRowFromArrays(allRows, maxScan = 10) {
-  if (!Array.isArray(allRows) || allRows.length === 0) { return { headerRowIndex: -1, headers: [], rows: [] }; }
-
-  // tokens that commonly appear in the header rows for the supported file types
-  const tokens = [
-    'pri. claim no', 'pri claim no', 'claimid', 'claim id', 'pri. claim id', 'pri claim id',
-    'center name', 'card number', 'card number / dha member id', 'member id', 'patientcardid',
-    'pri. patient insurance card no', 'institution', 'facility id', 'mr no.', 'pri. claim id'
-  ];
-
-  const scanLimit = Math.min(maxScan, allRows.length);
-  let bestIndex = 0;
-  let bestScore = 0;
-
-  for (let i = 0; i < scanLimit; i++) {
-    const row = allRows[i] || [];
-    const joined = row.map(c => (c === null || c === undefined) ? '' : String(c)).join(' ').toLowerCase();
-
-    let score = 0;
-    for (const t of tokens) { if (joined.includes(t)) score++; }
-
-    // prefer a row that contains multiple token hits; tie-breaker: earlier row wins
-    if (score > bestScore) {
-      bestScore = score;
-      bestIndex = i;
-    }
-  }
-
-  // If we found no meaningful header row, default to first row (index 0)
-  const headerRowIndex = bestScore > 0 ? bestIndex : 0;
-  const rawHeaderRow = allRows[headerRowIndex] || [];
-
-  // normalize headers (trim strings)
-  const headers = rawHeaderRow.map(h => (h === null || h === undefined) ? '' : String(h).trim());
-
-  // assemble data rows (everything after headerRowIndex)
-  const dataRows = allRows.slice(headerRowIndex + 1);
-
-  // convert to array of objects using detected headers
-  const rows = dataRows.map(rowArray => {
-    const obj = {};
-    for (let c = 0; c < headers.length; c++) {
-      const key = headers[c] || `Column${c+1}`;
-      obj[key] = rowArray[c] === undefined || rowArray[c] === null ? '' : rowArray[c];
-    }
-    return obj;
-  });
-  return { headerRowIndex, headers, rows };
 }
 
 /*******************************
@@ -193,24 +170,26 @@ function prepareEligibilityMap(eligData) {
       e['_5'] ||
       e['MemberID'] ||
       e['Member ID'] ||
-      e['Patient Insurance Card No'];
+      e['Patient Insurance Card No'] ||
+      e['PatientCardID'];
 
-    if (!rawID) return;
+    if (!rawID && rawID !== 0) return;
 
-    const memberID = normalizeMemberID(rawID); // ✅ only strips leading zeroes
+    const memberID = normalizeMemberID(rawID); // normalized key
 
     if (!eligMap.has(memberID)) eligMap.set(memberID, []);
 
     const eligRecord = {
       'Eligibility Request Number': e['Eligibility Request Number'],
-      'Card Number / DHA Member ID': rawID, // preserve original for display
+      'Card Number / DHA Member ID': rawID,
       'Answered On': e['Answered On'],
       'Ordered On': e['Ordered On'],
       'Status': e['Status'],
       'Clinician': e['Clinician'],
       'Payer Name': e['Payer Name'],
       'Service Category': e['Service Category'],
-      'Package Name': e['Package Name']
+      'Package Name': e['Package Name'],
+      'Department': e['Department'] || e['Clinic'] || ''
     };
 
     eligMap.get(memberID).push(eligRecord);
@@ -220,27 +199,31 @@ function prepareEligibilityMap(eligData) {
 }
 
 function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians = []) {
-  const normalizedID = String(memberID || '').trim();
-  const eligList = eligMap.get(normalizedID) || []; // PATCHED: use Map.get
+  const normalizedID = normalizeMemberID(memberID);
+  const eligList = eligMap.get(normalizedID) || [];
 
   if (!eligList.length) return null;
 
   console.log(`[Diagnostics] Searching eligibilities for member "${memberID}" (normalized: "${normalizedID}")`);
   console.log(`[Diagnostics] Claim date: ${claimDate} (${DateHandler.format(claimDate)}), Claim clinicians: ${JSON.stringify(claimClinicians)}`);
 
+  // Ensure claimClinicians is an array of non-empty strings
+  const claimCliniciansFiltered = Array.isArray(claimClinicians)
+    ? claimClinicians.filter(Boolean).map(c => (typeof c === 'string' ? c.trim() : String(c).trim()))
+    : [];
+
   for (const elig of eligList) {
     console.log(`[Diagnostics] Checking eligibility ${elig["Eligibility Request Number"] || "(unknown)"}:`);
 
     const eligDate = DateHandler.parse(elig["Answered On"]);
-    // PATCHED: use isSameDay, which now compares UTC days
     if (!DateHandler.isSameDay(claimDate, eligDate)) {
       console.log(`  ❌ Date mismatch: claim ${DateHandler.format(claimDate)} vs elig ${DateHandler.format(eligDate)}`);
       continue;
     }
 
     const eligClinician = (elig.Clinician || '').trim();
-    if (eligClinician && claimClinicians.length && !claimClinicians.includes(eligClinician)) {
-      console.log(`  ❌ Clinician mismatch: claim clinicians ${JSON.stringify(claimClinicians)} vs elig clinician "${eligClinician}"`);
+    if (eligClinician && claimCliniciansFiltered.length && !checkClinicianMatch(claimCliniciansFiltered, eligClinician)) {
+      console.log(`  ❌ Clinician mismatch: claim clinicians ${JSON.stringify(claimCliniciansFiltered)} vs elig clinician "${eligClinician}"`);
       continue;
     }
 
@@ -260,6 +243,8 @@ function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians =
     }
 
     console.log(`  ✅ Eligibility match found: ${elig["Eligibility Request Number"]}`);
+    // Mark as used
+    if (elig["Eligibility Request Number"]) usedEligibilities.add(elig["Eligibility Request Number"]);
     return elig;
   }
 
@@ -279,12 +264,12 @@ function checkClinicianMatch(claimClinicians, eligClinician) {
 function isServiceCategoryValid(serviceCategory, consultationStatus, rawPackage) {
   if (!serviceCategory) return { valid: true };
 
-  const category = serviceCategory.trim().toLowerCase();
+  const categoryLower = serviceCategory.trim().toLowerCase();
   const pkgRaw = rawPackage || '';
   const pkg = pkgRaw.toLowerCase();
 
-  // Consultation rule: allow anything EXCEPT the restricted types
-  if (category === 'consultation' && consultationStatus?.toLowerCase() === 'elective') {
+  // Consultation rule: allow anything EXCEPT the restricted types when elective
+  if (categoryLower === 'consultation' && consultationStatus?.toLowerCase() === 'elective') {
     const disallowed = ['dental', 'physio', 'diet', 'occupational', 'speech'];
     if (disallowed.some(term => pkg.includes(term))) {
       return {
@@ -295,10 +280,9 @@ function isServiceCategoryValid(serviceCategory, consultationStatus, rawPackage)
     return { valid: true };
   }
 
-  // Check other rules based on category
-  const allowedKeywords = SERVICE_PACKAGE_RULES[serviceCategory];
+  // Use normalized rule map
+  const allowedKeywords = NORMALIZED_SERVICE_PACKAGE_RULES[categoryLower];
   if (allowedKeywords && allowedKeywords.length > 0) {
-    // If package name is present, at least one keyword must match
     if (pkg && !allowedKeywords.some(keyword => pkg.includes(keyword))) {
       return {
         valid: false,
@@ -307,7 +291,6 @@ function isServiceCategoryValid(serviceCategory, consultationStatus, rawPackage)
     }
   }
 
-  // If no special rule or package is empty, accept
   return { valid: true };
 }
 
@@ -345,8 +328,12 @@ function validateReportClaims(reportData, eligMap) {
     // Check for leading zero in original memberID
     const hasLeadingZero = memberID.match(/^0+\d+$/);
 
+    // Build clinicians array for lookup
+    const claimClinicians = [];
+    if (row.clinician) claimClinicians.push(row.clinician);
+
     // Proceed with normal eligibility lookup
-    const eligibility = findEligibilityForClaim(eligMap, claimDate, memberID, [row.clinician]);
+    const eligibility = findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians);
     let status = 'invalid';
     const remarks = [];
     const department = (row.department || row.clinic || '').toLowerCase();
@@ -370,10 +357,10 @@ function validateReportClaims(reportData, eligMap) {
         },
         memberID,
         claimDate,
-        [row.clinician],
+        claimClinicians,
         eligMap
       );
-    } else if (eligibility.Status?.toLowerCase() !== 'eligible') {
+    } else if ((eligibility.Status || '').toLowerCase() !== 'eligible') {
       remarks.push(`Eligibility status: ${eligibility.Status}`);
     } else {
       const serviceCategory = eligibility['Service Category']?.trim() || '';
@@ -409,11 +396,11 @@ function validateReportClaims(reportData, eligMap) {
   return results.filter(r => r);
 }
 
-// --- Put this helper above validateReportClaims ---
+// --- Helper logger ---
 function logNoEligibilityMatch(sourceType, claimSummary, memberID, parsedClaimDate, claimClinicians, eligMap) {
   try {
     const normalizedID = normalizeMemberID(memberID);
-    const eligList = eligMap.get(normalizedID) || []; // PATCHED: use Map.get
+    const eligList = eligMap.get(normalizedID) || [];
 
     console.groupCollapsed(`[Diagnostics] No eligibility match (${sourceType}) — member: "${memberID}" (normalized: "${normalizedID}")`);
     console.log('Claim / row summary:', claimSummary);
@@ -471,7 +458,7 @@ async function parseExcelFile(file) {
         let foundHeaders = false;
 
         while (headerRow < allRows.length && !foundHeaders) {
-          const currentRow = allRows[headerRow].map(c => String(c).trim());
+          const currentRow = (allRows[headerRow] || []).map(c => String(c).trim());
 
           // Skip likely title rows
           if (isLikelyTitleRow(currentRow)) {
@@ -480,9 +467,10 @@ async function parseExcelFile(file) {
           }
 
           // Check for known headers
-          if (currentRow.some(cell => cell.includes('Pri. Claim No')) ||
-              currentRow.some(cell => cell.includes('Pri. Claim ID')) ||
-              currentRow.some(cell => cell.includes('Card Number / DHA Member ID'))) {
+          if (currentRow.some(cell => cell.toLowerCase().includes('pri. claim no')) ||
+              currentRow.some(cell => cell.toLowerCase().includes('pri. claim id')) ||
+              currentRow.some(cell => cell.toLowerCase().includes('card number / dha member id')) ||
+              currentRow.some(cell => cell.toLowerCase().includes('claimid')) ) {
             foundHeaders = true;
             break;
           }
@@ -500,7 +488,7 @@ async function parseExcelFile(file) {
         if (!foundHeaders) headerRow = 0;
 
         // Trim headers
-        const headers = allRows[headerRow].map(h => String(h).trim());
+        const headers = (allRows[headerRow] || []).map(h => String(h).trim());
         console.log(`Headers: ${headers}`);
 
         // Extract data rows
@@ -538,15 +526,27 @@ async function parseCsvFile(file) {
         const sheet = workbook.Sheets[workbook.SheetNames[0]];
         const allRows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
 
-        // Dynamically detect header row by scanning first 5 rows
+        // Dynamically detect header row by scanning first 10 rows
         let headerRowIndex = -1;
-        for (let i = 0; i < 5; i++) {
+        for (let i = 0; i < Math.min(10, allRows.length); i++) {
           const row = allRows[i];
           if (!row) continue;
           const joined = row.join(',').toLowerCase();
-          if (joined.includes('pri. claim no') || joined.includes('claimid') || joined.includes('claim id')) {
+          if (joined.includes('pri. claim no') || joined.includes('claimid') || joined.includes('claim id') || joined.includes('pri. claim id')) {
             headerRowIndex = i;
             break;
+          }
+        }
+
+        // If not found, fallback to first row that has >=3 non-empty cells
+        if (headerRowIndex === -1) {
+          for (let i = 0; i < Math.min(10, allRows.length); i++) {
+            const row = allRows[i] || [];
+            const nonEmpty = row.filter(c => String(c).trim() !== '').length;
+            if (nonEmpty >= 3) {
+              headerRowIndex = i;
+              break;
+            }
           }
         }
 
@@ -570,9 +570,8 @@ async function parseCsvFile(file) {
         const uniqueRows = [];
 
         const claimIdHeader = headers.find(h =>
-          h.toLowerCase().replace(/\s+/g, '') === 'claimid' ||
-          h.toLowerCase().includes('claim')  // fallback if no exact match
-        );
+          h && h.toString().toLowerCase().replace(/\s+/g, '') === 'claimid'
+        ) || headers.find(h => h && h.toString().toLowerCase().includes('claim'));
 
         if (!claimIdHeader) throw new Error("Could not find a Claim ID column");
 
@@ -596,6 +595,8 @@ async function parseCsvFile(file) {
 }
 
 function normalizeReportData(rawData) {
+  if (!Array.isArray(rawData)) return [];
+
   // Check if data is from InstaHMS (has 'Pri. Claim No' header)
   const isInsta = rawData[0]?.hasOwnProperty('Pri. Claim No');
   const isOdoo = rawData[0]?.hasOwnProperty('Pri. Claim ID');
@@ -609,33 +610,32 @@ function normalizeReportData(rawData) {
         claimDate: row['Encounter Date'] || '',
         clinician: row['Clinician License'] || '',
         department: row['Department'] || '',
-        packageName: row['Pri. Payer Name'] || '', // ✅ shown in table as "Package"
+        packageName: row['Pri. Payer Name'] || '', // shown in table as "Package"
         insuranceCompany: row['Pri. Payer Name'] || '',
         claimStatus: row['Codification Status'] || ''
       };
     } else if (isOdoo) {
-      // InstaHMS report format
+      // Odoo report format
       return {
         claimID: row['Pri. Claim ID'] || '',
         memberID: row['Pri. Member ID'] || '',
         claimDate: row['Adm/Reg. Date'] || '',
         clinician: row['Admitting License'] || '',
         department: row['Admitting Department'] || '',
-        //packageName: row['Pri. Sponsor'] || '',
         insuranceCompany: row['Pri. Plan Type'] || '',
         claimStatus: row['Codification Status'] || ''
       };
     } else {
-      // ClinicPro report format (starts from row 1)
+      // ClinicPro / generic report format
       return {
-        claimID: row['ClaimID'] || '',
-        memberID: row['PatientCardID'] || '', // patient ID for eligibility match
-        claimDate: row['ClaimDate'] || '',
-        clinician: row['Clinician License'] || '',
-        packageName: row['Insurance Company'] || '', // ✅ shown in table as "Package"
+        claimID: row['ClaimID'] || row['Pri. Claim No'] || '',
+        memberID: row['PatientCardID'] || row['Patient Insurance Card No'] || '',
+        claimDate: row['ClaimDate'] || row['Encounter Date'] || '',
+        clinician: row['Clinician License'] || row['Clinician'] || '',
+        packageName: row['Insurance Company'] || '', // shown in table as "Package"
         insuranceCompany: row['Insurance Company'] || '',
-        department: row['Clinic'] || '',
-        claimStatus: row['VisitStatus'] || ''
+        department: row['Clinic'] || row['Department'] || '',
+        claimStatus: row['VisitStatus'] || row['Codification Status'] || ''
       };
     }
   });
@@ -644,7 +644,6 @@ function normalizeReportData(rawData) {
 /********************
  * UI RENDERING FUNCTIONS *
  ********************/
-// renderResults: no normalization of memberID in button data attributes
 function renderResults(results, eligMap) {
   resultsContainer.innerHTML = '';
 
@@ -682,8 +681,7 @@ function renderResults(results, eligMap) {
     // Skip rows where Member ID is missing/empty
     if (!result.memberID || result.memberID.trim() === '') return;
 
-    // Ignore claims whose status is "Not Seen" (check report status, eligibility status, or general status)
-    // (trim + lowercase so " Not Seen " / "not seen" also match)
+    // Ignore claims whose status is "Not Seen"
     const statusToCheck = (result.claimStatus || result.status || result.fullEligibilityRecord?.Status || '')
       .toString()
       .trim()
@@ -707,19 +705,24 @@ function renderResults(results, eligMap) {
       ? result.remarks.map(r => `<div>${r}</div>`).join('')
       : '<div class="source-note">No remarks</div>';
 
+    // Details cell: either a single eligibility button or a 'View All' button
     let detailsCell = '<div class="source-note">N/A</div>';
     if (result.fullEligibilityRecord?.['Eligibility Request Number']) {
-      detailsCell = `<button class="details-btn eligibility-details" data-index="${index}">${result.fullEligibilityRecord['Eligibility Request Number']}</button>`;
-    } else if (eligMap && eligMap.has && eligMap.has(result.memberID)) {
-      detailsCell = `<button class="details-btn show-all-eligibilities" data-member="${result.memberID}" data-clinicians="${(result.clinicians || [result.clinician || '']).join(',')}">View All</button>`;
+      detailsCell = `<button class="details-btn eligibility-details" data-index="${index}" aria-label="Eligibility details">${escapeHtml(result.fullEligibilityRecord['Eligibility Request Number'])}</button>`;
+    } else {
+      // If there are eligibilities in map for this member, show View All
+      const normId = normalizeMemberID(result.memberID);
+      if (eligMap && typeof eligMap.has === 'function' && eligMap.has(normId)) {
+        detailsCell = `<button class="details-btn show-all-eligibilities" data-member="${escapeAttr(result.memberID)}">View All</button>`;
+      }
     }
 
     row.innerHTML = `
-      <td>${result.claimID}</td>
-      <td>${result.memberID}</td>
-      <td>${result.encounterStart}</td>
-      <td class="description-col">${result.clinician}</td>
-      <td class="description-col">${result.serviceCategory}</td>
+      <td>${escapeHtml(result.claimID)}</td>
+      <td>${escapeHtml(result.memberID)}</td>
+      <td>${escapeHtml(result.encounterStart)}</td>
+      <td class="description-col">${escapeHtml(result.clinician)}</td>
+      <td class="description-col">${escapeHtml(result.serviceCategory)}</td>
       <td class="description-col">${statusBadge}</td>
       <td class="wrap-col">${remarksHTML}</td>
       <td>${detailsCell}</td>
@@ -744,7 +747,21 @@ function renderResults(results, eligMap) {
   initEligibilityModal(results, eligMap);
 }
 
-function initEligibilityModal(results) {
+// Simple HTML escape helpers for safety in injected strings
+function escapeHtml(s) {
+  if (s === null || s === undefined) return '';
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#x27;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+function escapeAttr(s) {
+  return escapeHtml(s).replace(/"/g, '&quot;');
+}
+
+function initEligibilityModal(results, eligMap) {
   // Ensure modal exists
   if (!document.getElementById("modalOverlay")) {
     const modalHtml = `
@@ -781,35 +798,45 @@ function initEligibilityModal(results) {
     };
   }
 
-  // Attach click handlers
-  document.querySelectorAll(".eligibility-details").forEach(btn => {
+  // Event delegation for details buttons
+  resultsContainer.querySelectorAll('.details-btn').forEach(btn => {
     btn.onclick = function() {
-      const index = parseInt(this.dataset.index, 10);
-      const result = results[index];
-      if (!result?.fullEligibilityRecord) return;
-
-      console.log("Clicked eligibility data:", result.fullEligibilityRecord);
-
-      const record = result.fullEligibilityRecord;
-      const tableHtml = `
-        <h3>Eligibility Details</h3>
-        <div style="overflow-x:auto;">
-          <table style="width:100%;border-collapse:collapse;">
-            <tr><th style="text-align:left;padding:6px;border-bottom:1px solid #ccc;">Eligibility Request Number</th><td style="padding:6px;border-bottom:1px solid #ccc;">${record["Eligibility Request Number"] || ''}</td></tr>
-            <tr><th style="text-align:left;padding:6px;border-bottom:1px solid #ccc;">Card Number / DHA Member ID</th><td style="padding:6px;border-bottom:1px solid #ccc;">${record["Card Number / DHA Member ID"] || ''}</td></tr>
-            <tr><th style="text-align:left;padding:6px;border-bottom:1px solid #ccc;">Answered On</th><td style="padding:6px;border-bottom:1px solid #ccc;">${record["Answered On"] || ''}</td></tr>
-            <tr><th style="text-align:left;padding:6px;border-bottom:1px solid #ccc;">Ordered On</th><td style="padding:6px;border-bottom:1px solid #ccc;">${record["Ordered On"] || ''}</td></tr>
-            <tr><th style="text-align:left;padding:6px;border-bottom:1px solid #ccc;">Status</th><td style="padding:6px;border-bottom:1px solid #ccc;">${record["Status"] || ''}</td></tr>
-            <tr><th style="text-align:left;padding:6px;border-bottom:1px solid #ccc;">Clinician</th><td style="padding:6px;border-bottom:1px solid #ccc;">${record["Clinician"] || ''}</td></tr>
-            <tr><th style="text-align:left;padding:6px;border-bottom:1px solid #ccc;">Payer Name</th><td style="padding:6px;border-bottom:1px solid #ccc;">${record["Payer Name"] || ''}</td></tr>
-            <tr><th style="text-align:left;padding:6px;border-bottom:1px solid #ccc;">Service Category</th><td style="padding:6px;border-bottom:1px solid #ccc;">${record["Service Category"] || ''}</td></tr>
-            <tr><th style="text-align:left;padding:6px;">Package Name</th><td style="padding:6px;">${record["Package Name"] || ''}</td></tr>
-          </table>
-        </div>
-      `;
-
-      document.getElementById("modalTable").innerHTML = tableHtml;
-      document.getElementById("modalOverlay").style.display = "block";
+      // single eligibility button
+      if (this.classList.contains('eligibility-details')) {
+        const index = parseInt(this.dataset.index, 10);
+        const result = results[index];
+        if (!result?.fullEligibilityRecord) return;
+        const html = formatEligibilityDetails(result.fullEligibilityRecord, result.memberID);
+        document.getElementById("modalTable").innerHTML = html;
+        document.getElementById("modalOverlay").style.display = "block";
+      } else if (this.classList.contains('show-all-eligibilities')) {
+        const member = this.dataset.member;
+        const normalizedID = normalizeMemberID(member);
+        const eligList = eligMap.get(normalizedID) || [];
+        if (!eligList.length) {
+          document.getElementById("modalTable").innerHTML = `<div>No eligibilities found for ${escapeHtml(member)}</div>`;
+          document.getElementById("modalOverlay").style.display = "block";
+          return;
+        }
+        // Build a table with all eligibilities
+        let html = `<h3>All Eligibilities for ${escapeHtml(member)}</h3>`;
+        html += '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;">';
+        html += '<thead><tr><th style="text-align:left;padding:6px;border-bottom:1px solid #ccc;">#</th><th style="text-align:left;padding:6px;border-bottom:1px solid #ccc;">Eligibility Request Number</th><th style="text-align:left;padding:6px;border-bottom:1px solid #ccc;">Answered On</th><th style="text-align:left;padding:6px;border-bottom:1px solid #ccc;">Status</th><th style="text-align:left;padding:6px;border-bottom:1px solid #ccc;">Clinician</th><th style="text-align:left;padding:6px;border-bottom:1px solid #ccc;">Service Category</th><th style="text-align:left;padding:6px;border-bottom:1px solid #ccc;">Package Name</th></tr></thead><tbody>';
+        eligList.forEach((rec, idx) => {
+          html += '<tr>';
+          html += `<td style="padding:6px;border-bottom:1px solid #eee;">${idx+1}</td>`;
+          html += `<td style="padding:6px;border-bottom:1px solid #eee;">${escapeHtml(rec['Eligibility Request Number'] || '')}</td>`;
+          html += `<td style="padding:6px;border-bottom:1px solid #eee;">${escapeHtml(rec['Answered On'] || rec['Ordered On'] || '')}</td>`;
+          html += `<td style="padding:6px;border-bottom:1px solid #eee;">${escapeHtml(rec['Status'] || '')}</td>`;
+          html += `<td style="padding:6px;border-bottom:1px solid #eee;">${escapeHtml(rec['Clinician'] || '')}</td>`;
+          html += `<td style="padding:6px;border-bottom:1px solid #eee;">${escapeHtml(rec['Service Category'] || '')}</td>`;
+          html += `<td style="padding:6px;border-bottom:1px solid #eee;">${escapeHtml(rec['Package Name'] || '')}</td>`;
+          html += '</tr>';
+        });
+        html += '</tbody></table></div>';
+        document.getElementById("modalTable").innerHTML = html;
+        document.getElementById("modalOverlay").style.display = "block";
+      }
     };
   });
 }
@@ -820,30 +847,36 @@ function hideModal() {
 }
 
 function formatEligibilityDetails(record, memberID) {
-  // Using existing eligibility-details table class
+  if (!record) return '<div>No details available</div>';
+
   let html = `
     <div class="form-row">
-      <strong>Member:</strong> ${memberID}
-      <span class="status-badge ${record.Status.toLowerCase() === 'eligible' ? 'eligible' : 'ineligible'}">
-        ${record.Status}
+      <strong>Member:</strong> ${escapeHtml(memberID)}
+      <span class="status-badge ${((record.Status||'').toLowerCase() === 'eligible') ? 'eligible' : 'ineligible'}" style="margin-left:10px;">
+        ${escapeHtml(record.Status || '')}
       </span>
     </div>
-    <table class="eligibility-details">
+    <table class="eligibility-details" style="width:100%;border-collapse:collapse;margin-top:12px;">
       <tbody>
   `;
 
   Object.entries(record).forEach(([key, value]) => {
-    if (!value && value !== 0) return;
+    if ((value === null || value === undefined || value === '') && value !== 0) return;
 
-    // Format dates using existing date-value class
-    if (key.includes('Date') || key.includes('On')) {
-      value = `<span class="date-value">${DateHandler.format(DateHandler.parse(value)) || value}</span>`;
+    let displayed = value;
+    // Format dates
+    if (DATE_KEYS.some(k => key.includes(k)) || key.toLowerCase().includes('answered') || key.toLowerCase().includes('ordered')) {
+      const parsed = DateHandler.parse(value);
+      displayed = parsed ? DateHandler.format(parsed) : value;
+      displayed = escapeHtml(displayed);
+    } else {
+      displayed = escapeHtml(displayed);
     }
 
     html += `
       <tr>
-        <th>${key}</th>
-        <td>${value}</td>
+        <th style="text-align:left;padding:6px;border-bottom:1px solid #eee;width:30%">${escapeHtml(key)}</th>
+        <td style="padding:6px;border-bottom:1px solid #eee;">${displayed}</td>
       </tr>
     `;
   });
@@ -857,22 +890,20 @@ function formatEligibilityDetails(record, memberID) {
 }
 
 function updateStatus(message) {
-  status.textContent = message || 'Ready';
+  if (status) status.textContent = message || 'Ready';
 }
 
 function updateProcessButtonState() {
   const hasEligibility = !!eligData;
   const hasReportData = !!xlsData;
-  processBtn.disabled = !hasEligibility || !hasReportData;
-  exportInvalidBtn.disabled = !hasEligibility || !hasReportData;
+  if (processBtn) processBtn.disabled = !hasEligibility || !hasReportData;
+  if (exportInvalidBtn) exportInvalidBtn.disabled = !hasEligibility || !hasReportData;
 }
-
 
 /************************
  * EXPORT FUNCTIONALITY *
  ************************/
 function exportInvalidEntries(results) {
-  // Filter only invalid entries
   const invalidEntries = results.filter(r => r && r.finalStatus === 'invalid');
 
   if (invalidEntries.length === 0) {
@@ -880,7 +911,6 @@ function exportInvalidEntries(results) {
     return;
   }
 
-  // Map data to plain objects for export
   const exportData = invalidEntries.map(entry => ({
     'Claim ID': entry.claimID,
     'Member ID': entry.memberID,
@@ -892,19 +922,16 @@ function exportInvalidEntries(results) {
     'Consultation Status': entry.consultationStatus || '',
     'Eligibility Status': entry.status || '',
     'Final Status': entry.finalStatus,
-    'Remarks': entry.remarks.join('; ')
+    'Remarks': (entry.remarks || []).join('; ')
   }));
 
-  // Create a new workbook and worksheet
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.json_to_sheet(exportData);
 
   XLSX.utils.book_append_sheet(wb, ws, 'Invalid Claims');
 
-  // Generate XLSX file and trigger download
   XLSX.writeFile(wb, `invalid_claims_${new Date().toISOString().slice(0,10)}.xlsx`);
 }
-
 
 /********************
  * EVENT HANDLERS *
@@ -922,7 +949,6 @@ async function handleFileUpload(event, type) {
       lastReportWasCSV = false;
     }
     else {
-      // if report is CSV, mark the global flag so downstream parsing prefers MDY
       lastReportWasCSV = file.name.toLowerCase().endsWith('.csv');
 
       const rawData = lastReportWasCSV
@@ -968,7 +994,7 @@ async function handleProcessClick() {
   } catch (error) {
     console.error('Processing error:', error);
     updateStatus('Processing failed');
-    resultsContainer.innerHTML = `<div class="error">${error.message}</div>`;
+    if (resultsContainer) resultsContainer.innerHTML = `<div class="error">${escapeHtml(error.message || String(error))}</div>`;
   }
 }
 
@@ -984,9 +1010,10 @@ function handleExportInvalidClick() {
  * INITIALIZATION *
  ********************/
 function initializeEventListeners() {
-  eligInput.addEventListener('change', (e) => handleFileUpload(e, 'eligibility'));
-  processBtn.addEventListener('click', handleProcessClick);
-  exportInvalidBtn.addEventListener('click', handleExportInvalidClick);
+  if (eligInput) eligInput.addEventListener('change', (e) => handleFileUpload(e, 'eligibility'));
+  if (reportInput) reportInput.addEventListener('change', (e) => handleFileUpload(e, 'report'));
+  if (processBtn) processBtn.addEventListener('click', handleProcessClick);
+  if (exportInvalidBtn) exportInvalidBtn.addEventListener('click', handleExportInvalidClick);
   initializeRadioButtons();
 }
 
