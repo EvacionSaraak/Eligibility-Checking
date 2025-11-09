@@ -566,8 +566,8 @@ function updateStatus(message) {
 function updateProcessButtonState() {
   const hasEligibility = !!eligData;
   const hasReportData = !!reportData;
-  processBtn.disabled = !hasEligibility || !hasReportData;
-  exportInvalidBtn.disabled = !hasEligibility || !hasReportData;
+  processBtn.disabled = !(hasEligibility && hasReportData);
+  exportInvalidBtn.disabled = !(hasEligibility && hasReportData);
 }
 
 /************************************
@@ -602,29 +602,41 @@ function exportInvalidEntries(results) {
 /************************************
  * EVENT HANDLERS
  ************************************/
-async function handleFileUpload(event, type) {
-  const file = event.target.files[0];
+reportInput.addEventListener('change', async (e) => {
+  const file = e.target.files[0];
   if (!file) return;
   try {
-    updateStatus(`Loading ${type} file...`);
-    if (type === 'eligibility') {
-      eligData = await parseExcelFile(file);
-      updateStatus(`Loaded ${eligData.length} eligibility records`);
-    } else {
-      lastReportWasCSV = file.name.toLowerCase().endsWith('.csv');
-      const rawData = lastReportWasCSV
-        ? await parseCsvFile(file) : await parseExcelFile(file);
-      reportData = normalizeReportData(rawData).filter(r => r.claimID && String(r.claimID).trim() !== '');
-      updateStatus(`Loaded ${reportData.length} report rows`);
-    }
+    updateStatus("Loading report file...");
+    lastReportWasCSV = file.name.toLowerCase().endsWith('.csv');
+    const rawData = lastReportWasCSV ? await parseCsvFile(file) : await parseExcelFile(file);
+    reportData = normalizeReportData(rawData).filter(r => r.claimID && String(r.claimID).trim() !== '');
+    updateStatus(`Loaded ${reportData.length} report rows`);
     updateProcessButtonState();
   } catch (error) {
-    updateStatus(`Error loading ${type} file`);
-    console.error(`${type} file error:`, error);
+    updateStatus("Error loading report file");
+    console.error('Report file error:', error);
+    processBtn.disabled = true;
+    exportInvalidBtn.disabled = true;
   }
-}
+});
 
-async function handleProcessClick() {
+eligInput.addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  try {
+    updateStatus("Loading eligibility file...");
+    eligData = await parseExcelFile(file);
+    updateStatus(`Loaded ${eligData.length} eligibility records`);
+    updateProcessButtonState();
+  } catch (error) {
+    updateStatus("Error loading eligibility file");
+    console.error('Eligibility file error:', error);
+    processBtn.disabled = true;
+    exportInvalidBtn.disabled = true;
+  }
+});
+
+processBtn.addEventListener('click', async () => {
   if (!eligData) {
     updateStatus('Missing eligibility file');
     alert('Please upload eligibility file first');
@@ -641,7 +653,6 @@ async function handleProcessClick() {
     const eligMap = prepareEligibilityMap(eligData);
     let results = validateReportClaims(reportData, eligMap);
 
-    // Filter Daman/Thiqa only if required (example logic)
     results = results.filter(r => {
       const provider = (r.provider || r.insuranceCompany || r.packageName || '').toString().toLowerCase();
       return provider.includes('daman') || provider.includes('thiqa');
@@ -655,27 +666,20 @@ async function handleProcessClick() {
     resultsContainer.innerHTML = `<div class="error">${error.message}</div>`;
     console.error('Processing error:', error);
   }
-}
+});
 
-function handleExportInvalidClick() {
+exportInvalidBtn.addEventListener('click', () => {
   if (!window.lastValidationResults) {
     alert('Please run the validation first.');
     return;
   }
   exportInvalidEntries(window.lastValidationResults);
-}
+});
 
 /************************************
  * INITIALIZATION
  ************************************/
-function initializeEventListeners() {
-  reportInput.addEventListener('change', (e) => handleFileUpload(e, 'report'));
-  eligInput.addEventListener('change', (e) => handleFileUpload(e, 'eligibility'));
-  processBtn.addEventListener('click', handleProcessClick);
-  exportInvalidBtn.addEventListener('click', handleExportInvalidClick);
-}
-
 document.addEventListener('DOMContentLoaded', () => {
-  initializeEventListeners();
+  updateProcessButtonState();
   updateStatus('Ready to process files');
 });
