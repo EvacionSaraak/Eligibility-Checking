@@ -23,6 +23,16 @@ const status = document.getElementById("uploadStatus");
 const resultsContainer = document.getElementById("results");
 
 /************************************
+ * UPDATE PROCESS BUTTON STATE
+ ************************************/
+function updateProcessButtonState() {
+  const hasEligibility = !!eligData;
+  const hasReportData = !!reportData;
+  processBtn.disabled = !(hasEligibility && hasReportData);
+  exportInvalidBtn.disabled = !(hasEligibility && hasReportData);
+}
+
+/************************************
  * DATE HANDLING UTILITIES
  ************************************/
 let lastReportWasCSV = false;
@@ -93,6 +103,7 @@ const DateHandler = {
  ************************************/
 function normalizeMemberID(id) {
   if (!id) return '';
+  // Remove all spaces, leading zeros, set to lowercase
   return String(id).replace(/\s+/g, '').replace(/^0+/, '').toLowerCase();
 }
 
@@ -239,6 +250,18 @@ function isServiceCategoryValid(serviceCategory, consultationStatus, rawPackage)
     }
   }
   return { valid: true };
+}
+
+/************************************
+ * UI RENDERING & STATUS
+ ************************************/
+function renderResults(results, eligMap) {
+  resultsContainer.innerHTML = '';
+  if (!results || results.length === 0) {
+    resultsContainer.innerHTML = '<div class="no-results">No claims to display</div>';
+    return;
+  }
+  // ... modal & table rendering as before ...
 }
 
 /************************************
@@ -397,19 +420,36 @@ function validateReportClaims(reportData, eligMap) {
 }
 
 /************************************
- * UI RENDERING & STATUS (partial)
+ * EXPORT FUNCTIONALITY
  ************************************/
-function renderResults(results, eligMap) {
-  resultsContainer.innerHTML = '';
-  if (!results || results.length === 0) {
-    resultsContainer.innerHTML = '<div class="no-results">No claims to display</div>';
+function exportInvalidEntries(results) {
+  const invalidEntries = results.filter(r => r && r.finalStatus === 'invalid');
+  if (invalidEntries.length === 0) {
+    alert('No invalid entries to export.');
     return;
   }
-  // ... [rest of renderResults, modal functions, status functions as before] ...
+  const exportData = invalidEntries.map(entry => ({
+    'Claim ID': entry.claimID,
+    'Member ID': entry.memberID,
+    'Encounter Date': entry.encounterStart,
+    'Package Name': entry.packageName || '',
+    'Provider': entry.provider || '',
+    'Clinician': entry.clinician || '',
+    'Service Category': entry.serviceCategory || '',
+    'Consultation Status': entry.consultationStatus || '',
+    'Eligibility Status': entry.status || '',
+    'Final Status': entry.finalStatus,
+    'Remarks': entry.remarks.join('; ')
+  }));
+
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.json_to_sheet(exportData);
+  XLSX.utils.book_append_sheet(wb, ws, 'Invalid Claims');
+  XLSX.writeFile(wb, `invalid_claims_${new Date().toISOString().slice(0,10)}.xlsx`);
 }
 
 /************************************
- * EVENTS, EXPORT, INIT
+ * EVENT HANDLERS
  ************************************/
 reportInput.addEventListener('change', async (e) => {
   const file = e.target.files[0];
