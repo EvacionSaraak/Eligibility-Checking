@@ -1,0 +1,503 @@
+/* tables.css */
+/* === BASE AND LAYOUT === */
+body {
+  font-family: Arial, sans-serif;
+  padding: 20px;
+  margin: auto;
+}
+
+.hidden {
+  display: none !important;
+}
+
+/* === MODE & PANEL SPACING === */
+#mode-selector {
+  margin-bottom: 30px;
+}
+
+#lookup-panel .section,
+#analysis-panel .section {
+  margin-bottom: 24px;
+}
+
+#results {
+  margin-top: 20px;
+  overflow-x: auto;
+}
+
+/* === FORM ELEMENTS === */
+.form-row {
+  margin-bottom: 16px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+input[type="text"],
+input[type="number"],
+input[type="file"],
+button {
+  font-size: 14px;
+  border-radius: 4px;
+}
+
+input[type="text"],
+input[type="number"],
+input[type="file"] {
+  padding: 6px 8px;
+  border: 1px solid #ccc;
+}
+
+button {
+  padding: 6px 12px;
+  background-color: #f0f0f0;
+  border: 1px solid #ccc;
+  cursor: pointer;
+}
+
+button:disabled {
+  background-color: #eee;
+  cursor: not-allowed;
+}
+
+.calc-output {
+  font-weight: bold;
+  margin-left: 12px;
+}
+
+/* === TABLE STYLING === */
+table {
+  width: 100%;
+  min-width: 900px;
+  border-collapse: collapse;
+  font-size: 14px;
+  background: #fff;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+  margin-bottom: 12px;
+  table-layout: auto;
+}
+
+th, td {
+  padding: 8px 10px;
+  border: 1px solid #ccc;
+  text-align: left;
+  vertical-align: middle;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 300px;
+}
+
+th {
+  background-color: #f4f4f4;
+  font-weight: bold;
+}
+
+tr.selected {
+  background-color: #d0ebff !important;
+  font-weight: bold;
+}
+
+.description-col {
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  max-width: 600px;
+}
+
+td.copied {
+  background-color: #c5f6c7;
+  transition: background-color 0.3s ease;
+}
+
+td.last-copied {
+  outline: 2px solid #4caf50;
+  outline-offset: -2px;
+}
+
+/* === VALIDITY ROW COLORS === */
+.valid         { background: #d5ffd9; }
+.thiqa-only    { background: #e1e9ff; }
+.daman-only    { background: #f3e1ff; }
+.unknown       { background: #ffffbf; }
+.invalid       { background: #ffd6d6; }
+
+/* === UTILITY TEXT STYLES === */
+.loaded-count {
+  margin-bottom: 10px;
+  font-weight: bold;
+}
+
+.source-note {
+  color: #888;
+}
+
+#error-box,
+.error-box {
+  background-color: #ffdddd;
+  border: 1px solid #ff5c5c;
+  padding: 12px;
+  margin-top: 12px;
+  color: #a30000;
+  border-radius: 4px;
+}
+
+#messageBox {
+  color: red;
+  font-weight: bold;
+  margin-top: 10px;
+}
+
+/* === EXPLANATION BOX === */
+#explanationBox {
+  background-color: #f0f8ff;
+  border: 1px solid #99c;
+  padding: 15px;
+  margin-bottom: 20px;
+  border-radius: 5px;
+  color: #333;
+  font-family: Arial, sans-serif;
+  max-width: 900px;
+  margin: auto;
+}
+
+/* === MODAL COMPONENTS === */
+/* default (visible) modal — you can choose flex or block, depending on centering styles */
+.modal {
+  display: none;
+  position: fixed;
+  z-index: 999;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  justify-content: center;
+  align-items: center;
+  background: rgba(0,0,0,0.5);
+}
+
+.modal-content {
+  background: #fff;
+  margin: 2vh auto;
+  padding: 20px;
+  border-radius: 8px;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.2);
+  width: fit-content;
+  max-height: 90vh;
+  overflow-y: auto;
+  min-width: 320px;
+  position: relative;
+}
+
+/* only when we explicitly hide it */
+.modal.hidden {
+  display: none !important;
+}
+
+/* PRIORITY: MODAL WIDTH FOR ELIGIBILITY */
+.modal-content.eligibility-modal {
+  min-width: 80vw !important;
+  max-width: 95vw !important;
+  width: auto;
+}
+
+.modal-content.draggable {
+  cursor: move;
+  user-select: none;
+}
+
+.close {
+  position: absolute;
+  right: 12px;
+  top: 12px;
+  font-size: 24px;
+  cursor: pointer;
+  color: #888;
+  transition: color 0.2s;
+}
+
+.close:hover {
+  color: #333;
+}
+
+#licenseHistoryText {
+  font-family: monospace;
+  background: #f6f8fa;
+  padding: 1em;
+  border-radius: 4px;
+  white-space: pre;
+  word-break: break-word;
+  max-height: 60vh;
+  max-width: 80vw;
+  overflow: auto;
+  resize: both;
+  box-sizing: border-box;
+}
+
+/* === MODAL LICENSE TABLE === */
+.modal-license-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 1em;
+}
+
+.modal-license-table th,
+.modal-license-table td {
+  border: 1px solid #eee;
+  padding: 0.5em 1em;
+  text-align: left;
+}
+
+.modal-license-table th {
+  background: #f6f8fa;
+  font-weight: bold;
+}
+
+/* === ELIGIBILITY DETAILS TABLE === */
+.eligibility-details {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1rem 0;
+  font-size: 0.9em;
+}
+
+.eligibility-details th,
+.eligibility-details td {
+  border: 1px solid #ddd;
+  padding: 8px 12px;
+  text-align: left;
+  vertical-align: top;
+  white-space: normal;
+}
+
+.eligibility-details th {
+  background-color: #f4f4f4;
+  white-space: nowrap;
+  width: 30%;
+  font-weight: bold;
+}
+
+.eligibility-details tr:nth-child(even) {
+  background-color: #f9f9f9;
+}
+
+.eligibility-details tr:hover {
+  background-color: #f0f0f0;
+}
+
+.eligibility-details .date-value {
+  font-family: monospace;
+  white-space: nowrap;
+}
+
+/* === ACTION BUTTONS === */
+.details-btn {
+  padding: 2px 10px;
+  font-size: 13px;
+  border-radius: 4px;
+  border: 1px solid #bbb;
+  background: #f6f8fa;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.details-btn:hover {
+  background: #eaeaea;
+}
+
+.details-btn.eligibility-details {
+  background-color: #e6f7ff;
+  border-color: #91d5ff;
+  color: #1890ff;
+}
+
+.details-btn.eligibility-details:hover {
+  background-color: #bae7ff;
+}
+
+/* === ANALYSIS RESULTS === */
+.analysis-results table {
+  width: 98vw;
+  max-width: 1400px;
+  table-layout: fixed;
+  margin: 0 auto;
+}
+
+.analysis-results th,
+.analysis-results td {
+  padding: 4px 6px;
+  font-size: 0.95em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.analysis-results th.package-price,
+.analysis-results td.package-price {
+  width: 72px; min-width: 56px;
+}
+.analysis-results th.unit-price,
+.analysis-results td.unit-price {
+  width: 62px; min-width: 48px;
+}
+.analysis-results th.delete-effective-date,
+.analysis-results td.delete-effective-date {
+  width: 82px; min-width: 64px;
+}
+.analysis-results th.included-thiqa,
+.analysis-results td.included-thiqa,
+.analysis-results th.included-basic,
+.analysis-results td.included-basic {
+  width: 54px; min-width: 44px;
+}
+
+/* === TOOLTIP FIX === */
+table, tbody, tr, td {
+  overflow: visible !important;
+  position: relative;
+  z-index: 0;
+}
+
+.tooltip-parent {
+  display: inline-flex;
+  align-items: center;
+  position: relative;
+  z-index: 1;
+  cursor: pointer;
+}
+
+.tooltip-parent .tooltip-text {
+  visibility: hidden;
+  width: max-content;
+  background-color: #222;
+  color: #fff;
+  text-align: center;
+  border-radius: 4px;
+  padding: 2px 6px;
+  position: absolute;
+  z-index: 10;
+  bottom: 125%;
+  left: 50%;
+  transform: translateX(-50%);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  pointer-events: none;
+  font-size: 0.9em;
+  white-space: nowrap;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+}
+
+.tooltip-parent:hover .tooltip-text,
+.tooltip-parent:focus .tooltip-text {
+  visibility: visible;
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.license-badge {
+  display: inline-block;
+  background: #ddeeff;
+  color: #1d3b69;
+  border-radius: 3px;
+  padding: 1px 6px;
+  font-size: 1em;
+  margin: 0 2px;
+  border: 1px solid #b2c6df;
+}
+
+/* === STATUS BADGES === */
+.status-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 0.8em;
+  font-weight: bold;
+  text-transform: uppercase;
+}
+
+.status-badge.eligible {
+  background-color: #d5ffd9;
+  color: #0a6b16;
+}
+
+.status-badge.ineligible {
+  background-color: #ffd6d6;
+  color: #a30000;
+}
+
+/* === SCROLLABLE MODAL CONTENT === */
+.modal-scrollable {
+  max-height: 80vh;
+  overflow-y: auto;
+  padding-right: 8px;
+}
+
+/* === RESPONSIVE TWEAKS === */
+@media (max-width: 768px) {
+  .modal-content.eligibility-modal {
+    min-width: 95vw !important;
+    margin: 2vh 10px;
+    padding: 15px;
+  }
+
+  .eligibility-details th,
+  .eligibility-details td {
+    padding: 6px 8px;
+    font-size: 0.85em;
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .eligibility-details th {
+    background-color: #f4f4f4;
+    margin-top: 4px;
+  }
+
+  .eligibility-details tr {
+    margin-bottom: 8px;
+    display: block;
+    border: 1px solid #ddd;
+  }
+}
+
+/* === SHARED TABLE — PRIORITY PRESERVED & IMPROVED WRAPPING === */
+.shared-table {
+  font-size: 0.85em;
+  width: 100%;
+  table-layout: fixed; /* Fix column widths for better layout control */
+  border-collapse: collapse;
+  border: 1px solid #ccc;
+}
+
+.shared-table th,
+.shared-table td {
+  padding: 6px 8px;
+  white-space: normal; /* Allow wrapping */
+  overflow-wrap: break-word;
+  word-break: break-word;
+  text-overflow: ellipsis;
+  border: 1px solid #ccc;
+  vertical-align: top;
+  max-width: 300px;
+  text-align: left;
+}
+
+/* Wrap long text in columns meant to expand */
+.shared-table .wrap-col {
+  max-width: 180px; /* Adjust width as needed */
+  white-space: normal;
+  word-break: break-word;
+}
+
+.shared-table .description-col {
+  max-width: 300px;
+  white-space: normal;
+  word-break: break-word;
+}
+
+/* Optional min-width to avoid overly narrow columns */
+.shared-table th,
+.shared-table td {
+  min-width: 80px;
+}
