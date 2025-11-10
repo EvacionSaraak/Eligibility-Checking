@@ -164,25 +164,47 @@ function findHeaderRowFromArrays(allRows, maxScan = 10) {
  * ELIGIBILITY MATCHING FUNCTIONS (from first)
  *******************************/
 function prepareEligibilityMap(eligArray) {
-    if (!eligArray || eligArray.length === 0) return new Map();
-    const headers = eligArray[0];
-    const eligMap = new Map();
-    eligArray.forEach((record, index) => {
-        if (index === 0) return;
-        const normalizedRecord = {};
-        for (const key in headers) {
-            const headerName = headers[key].trim();
-            if (headerName) normalizedRecord[headerName] = record[key] || '';
-        }
-        const rawMemberID = String(normalizedRecord['memberID'] || normalizedRecord['Policy1'] || normalizedRecord['Card Number / DHA Member ID'] || '').trim();
-        if (!rawMemberID) return;
-        const memberID = normalizeMemberID(rawMemberID);
-        if (!memberID) return;
-        eligMap.set(memberID, normalizedRecord);
-    });
-    console.log("Elig Map:");
-    console.log(eligMap);
-    return eligMap;
+  // Accepts array-of-objects (what XLSX.utils.sheet_to_json returns)
+  if (!Array.isArray(eligArray) || eligArray.length === 0) return new Map();
+  const eligMap = new Map();
+
+  // candidate fields commonly used for member ID in various sheets
+  const idCandidates = [
+    'Card Number / DHA Member ID',
+    'Card Number',
+    'MemberID',
+    'Member ID',
+    'Patient Insurance Card No',
+    'Policy1',
+    'Policy 1',
+    'Card Number / DHA Member ID' // duplicate kept intentionally for robustness
+  ];
+
+  eligArray.forEach(record => {
+    if (!record || typeof record !== 'object') return;
+
+    // find raw member id from any known header
+    let rawMemberID = '';
+    for (const k of idCandidates) {
+      if (Object.prototype.hasOwnProperty.call(record, k) && record[k] !== '' && record[k] !== null && record[k] !== undefined) {
+        rawMemberID = String(record[k]).trim();
+        if (rawMemberID) break;
+      }
+    }
+    if (!rawMemberID) return;
+
+    const memberID = normalizeMemberID(rawMemberID);
+    if (!memberID) return;
+
+    // Build a normalized eligibility record copy (preserve fields for display)
+    const eligRecord = Object.assign({}, record);
+
+    if (!eligMap.has(memberID)) eligMap.set(memberID, []);
+    eligMap.get(memberID).push(eligRecord);
+  });
+
+  console.log("Elig Map:", eligMap);
+  return eligMap;
 }
 
 function checkClinicianMatch(claimClinicians, eligClinician) {
