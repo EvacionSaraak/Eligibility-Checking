@@ -397,11 +397,31 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
     const memberID = String(row.memberID || row['Pri. Member ID'] || row['PatientCardID'] || '').trim();
     if (!memberID) continue;
 
-    const insuranceCompany = String(
-      row['Insurance Company'] ||
-      row['Pri. Sponsor'] ||
-      ''
-    ).trim();
+    // Determine provider/insurance based on report type
+    let insurance;
+    switch (reportType) {
+      case 'Odoo':
+      case 'Insta':
+        insurance = String(row['Pri. Sponsor'] || '').trim();
+        break;
+      case 'Clinicpro':
+        insurance = String(row['Insurance Company'] || '').trim();
+        break;
+      default:
+        insurance = String(row.insuranceCompany || '').trim();
+    }
+
+    // Only log details for the first 3 rows
+    if (i < 3) {
+      console.log(`\n--- Row ${i + 1} ---`);
+      console.log(`ClaimID: ${claimID}, MemberID: ${memberID}, Insurance: ${insurance}`);
+
+      // Show all eligibilities for this member
+      const allEligForMember = eligMap.get(memberID) || [];
+      console.log('All eligibilities for this member:', allEligForMember);
+    }
+
+    if (!insurance) continue;
 
     const claimDateRaw = row.claimDate || row['ClaimDate'] || row['Adm/Reg. Date'];
     const claimDate = DateHandler.parse(claimDateRaw, { preferMDY: lastReportWasCSV });
@@ -409,24 +429,14 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
 
     const formattedDate = DateHandler.format(claimDate);
 
-    // Find all eligibilities sharing the memberID
-    const allEligForMember = eligMap[memberID] || [];
-
-    // Only log detailed info for the first 3 claims
-    if (i < 3) {
-      console.log(`\n--- Row ${i + 1} ---`);
-      console.log(row);
-      console.log(`ClaimID: ${claimID}, MemberID: ${memberID}, Insurance: ${insuranceCompany}`);
-      console.log('All eligibilities for this member:', allEligForMember);
-    }
-
+    // Handle VVIP members
     if (memberID.startsWith('(VVIP)')) {
       results.push({
         claimID,
         memberID,
         encounterStart: formattedDate,
         packageName: row.packageName || '',
-        insuranceCompany,
+        provider: insurance,
         clinician: row.clinician || row['Admitting Doctor'] || '',
         serviceCategory: '',
         consultationStatus: '',
@@ -439,6 +449,7 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
       continue;
     }
 
+    // Normal eligibility check
     const eligibility = findEligibilityForClaim(eligMap, claimDate, memberID, [row.clinician || row['Admitting Doctor']]);
     let finalStatus = 'invalid';
     const remarks = [];
@@ -463,7 +474,7 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
       memberID,
       encounterStart: formattedDate,
       packageName: eligibility?.['Package Name'] || row.packageName || '',
-      insuranceCompany,
+      provider: insurance,
       clinician: eligibility?.['Clinician'] || row.clinician || row['Admitting Doctor'] || '',
       serviceCategory: eligibility?.['Service Category'] || '',
       consultationStatus: eligibility?.['Consultation Status'] || '',
