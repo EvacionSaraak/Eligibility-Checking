@@ -948,17 +948,32 @@ function updateProcessButtonState() {
 
 async function handleProcessClick() {
   try {
-    if (!eligData) { updateStatus('Processing stopped: Eligibility file missing'); return; }
-    if (!xlsData || !xlsData.length) { updateStatus('Processing stopped: Report file missing'); return; }
+    if (!eligData) {
+      updateStatus('Processing stopped: Eligibility file missing');
+      return;
+    }
+    if (!xlsData || !xlsData.length) {
+      updateStatus('Processing stopped: Report file missing');
+      return;
+    }
 
     updateStatus('Processing...');
+
     usedEligibilities.clear();
     const eligMap = prepareEligibilityMap(eligData);
 
-    // validateReportClaims now fails immediately if any required field is missing
-    const results = validateReportClaims(xlsData, eligMap);
+    // Detect report type automatically
+    let reportType = 'Clinicpro'; // default
+    const firstRow = xlsData[0];
+    if (firstRow) {
+      if ('Pri. Claim No' in firstRow) reportType = 'Insta';
+      else if ('Pri. Claim ID' in firstRow) reportType = 'Odoo';
+    }
 
-    // apply optional filter if needed
+    // validateReportClaims now receives reportType
+    const results = validateReportClaims(xlsData, eligMap, reportType);
+
+    // Apply optional filter if checkbox is checked
     let outputResults = results;
     if (filterCheckbox && filterCheckbox.checked) {
       outputResults = results.filter(r => {
@@ -968,12 +983,15 @@ async function handleProcessClick() {
     }
 
     window.lastValidationResults = outputResults;
+
+    // Render results
     renderResults(outputResults, eligMap);
+
     updateStatus(`Processed ${outputResults.length} claims successfully`);
 
   } catch (err) {
     console.error('Processing stopped due to error:', err);
-    // The updateStatus call in validateReportClaims already set the message
+    // The updateStatus call in validateReportClaims already sets a message if needed
   }
 }
 
