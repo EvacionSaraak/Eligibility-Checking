@@ -123,52 +123,54 @@ function normalizeClinician(name) {
 /*************************
  * Header detection (from first)
  *************************/
-function findHeaderRowFromArrays(allRows, maxScan = 20) {
-  if (!Array.isArray(allRows) || allRows.length === 0) return { headerRowIndex: -1, headers: [], rows: [] };
+function findHeaderRowFromArrays(allRows, maxScan = 10) {
+  if (!Array.isArray(allRows) || allRows.length === 0) { return { headerRowIndex: -1, headers: [], rows: [] }; }
 
-  const claimTokens = [
+  // tokens that commonly appear in the header rows for the supported file types
+  const tokens = [
     'pri. claim no', 'pri claim no', 'claimid', 'claim id', 'pri. claim id', 'pri claim id',
     'center name', 'card number', 'card number / dha member id', 'member id', 'patientcardid',
     'pri. patient insurance card no', 'institution', 'facility id', 'mr no.', 'pri. claim id'
   ];
 
-  let bestIndex = -1;
+  const scanLimit = Math.min(maxScan, allRows.length);
+  let bestIndex = 0;
   let bestScore = 0;
 
-  for (let i = 0; i < Math.min(maxScan, allRows.length); i++) {
+  for (let i = 0; i < scanLimit; i++) {
     const row = allRows[i] || [];
-    const joined = row.map(c => c ?? '').join(' ').toLowerCase();
+    const joined = row.map(c => (c === null || c === undefined) ? '' : String(c)).join(' ').toLowerCase();
 
-    // Only look for claims tokens here
     let score = 0;
-    for (const t of claimTokens) if (joined.includes(t)) score++;
-    if (score > bestScore) { bestScore = score; bestIndex = i; }
+    for (const t of tokens) { if (joined.includes(t)) score++; }
+
+    // prefer a row that contains multiple token hits; tie-breaker: earlier row wins
+    if (score > bestScore) {
+      bestScore = score;
+      bestIndex = i;
+    }
   }
 
-  if (bestIndex === -1) {
-    console.warn('No valid claims header row found.');
-    return { headerRowIndex: -1, headers: [], rows: [] };
-  }
+  // If we found no meaningful header row, default to first row (index 0)
+  const headerRowIndex = bestScore > 0 ? bestIndex : 0;
+  const rawHeaderRow = allRows[headerRowIndex] || [];
 
-  const headers = allRows[bestIndex].map(h => h ?? '');
-  const dataRows = allRows.slice(bestIndex + 1).filter(row => {
-    const junkCount = row.filter((c, idx) => {
-      const key = headers[idx] ?? '';
-      return c === null || c === undefined || c === '' || key.startsWith('_') || key.toLowerCase().includes('policy');
-    }).length;
-    return junkCount < row.length * 0.8;
-  });
+  // normalize headers (trim strings)
+  const headers = rawHeaderRow.map(h => (h === null || h === undefined) ? '' : String(h).trim());
 
+  // assemble data rows (everything after headerRowIndex)
+  const dataRows = allRows.slice(headerRowIndex + 1);
+
+  // convert to array of objects using detected headers
   const rows = dataRows.map(rowArray => {
     const obj = {};
     for (let c = 0; c < headers.length; c++) {
       const key = headers[c] || `Column${c+1}`;
-      obj[key] = rowArray[c] ?? '';
+      obj[key] = rowArray[c] === undefined || rowArray[c] === null ? '' : rowArray[c];
     }
     return obj;
   });
-
-  return { headerRowIndex: bestIndex, headers, rows };
+  return { headerRowIndex, headers, rows };
 }
 
 /*******************************
