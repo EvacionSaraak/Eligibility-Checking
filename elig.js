@@ -165,17 +165,14 @@ function findHeaderRowFromArrays(allRows, maxScan = 10) {
  *******************************/
 function prepareEligibilityMap(eligArray) {
     if (!eligArray || eligArray.length === 0) return new Map();
-    // Extract headers from first row
     const headers = eligArray[0];
     const eligMap = new Map();
     eligArray.forEach((record, index) => {
-        // Skip header row
         if (index === 0) return;
-        // Build a new record with proper header keys
         const normalizedRecord = {};
         for (const key in headers) {
             const headerName = headers[key].trim();
-            if (headerName) { normalizedRecord[headerName] = record[key] || ''; }
+            if (headerName) normalizedRecord[headerName] = record[key] || '';
         }
         const rawMemberID = String(normalizedRecord['memberID'] || normalizedRecord['Policy1'] || normalizedRecord['Card Number / DHA Member ID'] || '').trim();
         if (!rawMemberID) return;
@@ -183,13 +180,6 @@ function prepareEligibilityMap(eligArray) {
         if (!memberID) return;
         eligMap.set(memberID, normalizedRecord);
     });
-
-    // Show first 5 entries
-    const firstFive = Array.from(eligMap.entries()).slice(0, 5);
-    console.log('=== First 5 Entries of Eligibility Map ===');
-    firstFive.forEach(([key, value], i) => console.log(i + 1, key, value));
-    console.log('=========================================');
-
     return eligMap;
 }
 
@@ -209,10 +199,7 @@ function isServiceCategoryValid(serviceCategory, consultationStatus, rawPackage)
   if (category === 'consultation' && consultationStatus?.toLowerCase() === 'elective') {
     const disallowed = ['dental', 'physio', 'diet', 'occupational', 'speech'];
     if (disallowed.some(term => pkg.includes(term))) {
-      return {
-        valid: false,
-        reason: `Consultation (Elective) cannot include restricted service types. Found: "${pkgRaw}"`
-      };
+      return { valid: false, reason: `Consultation (Elective) cannot include restricted service types. Found: "${pkgRaw}"` };
     }
     return { valid: true };
   }
@@ -220,10 +207,7 @@ function isServiceCategoryValid(serviceCategory, consultationStatus, rawPackage)
   const allowedKeywords = SERVICE_PACKAGE_RULES[serviceCategory];
   if (allowedKeywords && allowedKeywords.length > 0) {
     if (pkg && !allowedKeywords.some(keyword => pkg.includes(keyword))) {
-      return {
-        valid: false,
-        reason: `${serviceCategory} category requires related package. Found: "${pkgRaw}"`
-      };
+      return { valid: false, reason: `${serviceCategory} category requires related package. Found: "${pkgRaw}"` };
     }
   }
 
@@ -233,25 +217,14 @@ function isServiceCategoryValid(serviceCategory, consultationStatus, rawPackage)
 function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians = []) {
   const normalizedID = normalizeMemberID(memberID || '');
   const eligList = eligMap.get(normalizedID) || [];
-
-  if (!eligList.length) {
-    console.log(`No eligibilities found for member ${normalizedID}`);
-    return null;
-  }
+  if (!eligList.length) return null;
 
   for (const elig of eligList) {
     const eligDate = DateHandler.parse(elig["Answered On"]);
-    if (!eligDate) {
-      console.log(`Skipping eligibility ${elig['Eligibility Request Number']}: invalid date "${elig["Answered On"]}"`);
-      continue;
-    }
-
+    if (!eligDate) continue;
     if (!DateHandler.isSameDay(claimDate, eligDate)) continue;
 
     const eligClinician = (elig.Clinician || '').trim();
-    // Temporarily disable strict clinician filtering for debugging
-    // if (eligClinician && claimClinicians.length && !claimClinicians.includes(eligClinician)) continue;
-
     const serviceCategory = (elig['Service Category'] || '').trim();
     const consultationStatus = (elig['Consultation Status'] || '').trim();
     const department = (elig.Department || elig.Clinic || '').toLowerCase();
@@ -260,11 +233,8 @@ function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians =
     if (!categoryCheck.valid) continue;
     if ((elig.Status || '').toLowerCase() !== 'eligible') continue;
 
-    console.log(`Matched eligibility ${elig['Eligibility Request Number']} for member ${normalizedID}`);
     return elig;
   }
-
-  console.log(`No matching eligibility found for member ${normalizedID} on ${DateHandler.format(claimDate)}`);
   return null;
 }
 
@@ -272,52 +242,45 @@ function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians =
  * Normalize & validate report rows (use working version's normalizeReportData)
  *************************/
 function normalizeReportData(rawData) {
-  // rawData expected shape: { headers: [...], rows: [...] } (from findHeaderRowFromArrays)
-  // But keep compatibility if rawData is an array (older shape)
   if (!rawData) return [];
-
-  // Backwards compatibility: if function received array-of-objects (already parsed sheet_to_json)
   if (Array.isArray(rawData) && rawData.length > 0 && typeof rawData[0] === 'object' && !rawData.headers) {
-    // trying to detect known formats from object keys
     const sample = rawData[0];
     const isInsta = sample.hasOwnProperty('Pri. Claim No');
     const isOdoo = sample.hasOwnProperty('Pri. Claim ID');
     return rawData.map(row => {
-      if (isInsta) {
-        return {
-          claimID: row['Pri. Claim No'] || '',
-          memberID: row['Pri. Patient Insurance Card No'] || '',
-          claimDate: row['Encounter Date'] || '',
-          clinician: row['Clinician License'] || '',
-          department: row['Department'] || '',
-          packageName: row['Pri. Payer Name'] || '',
-          insuranceCompany: row['Pri. Payer Name'] || '',
-          claimStatus: row['Codification Status'] || ''
-        };
-      } else if (isOdoo) {
-        return {
-          claimID: row['Pri. Claim ID'] || '',
-          memberID: row['Pri. Member ID'] || '',
-          claimDate: row['Adm/Reg. Date'] || '',
-          clinician: row['Admitting License'] || '',
-          department: row['Admitting Department'] || '',
-          insuranceCompany: row['Pri. Plan Type'] || '',
-          claimStatus: row['Codification Status'] || ''
-        };
-      } else {
-        return {
-          claimID: row['ClaimID'] || '',
-          memberID: row['PatientCardID'] || '',
-          claimDate: row['ClaimDate'] || '',
-          clinician: row['Clinician License'] || '',
-          packageName: row['Insurance Company'] || '',
-          insuranceCompany: row['Insurance Company'] || '',
-          department: row['Clinic'] || '',
-          claimStatus: row['VisitStatus'] || ''
-        };
-      }
+      if (isInsta) return {
+        claimID: row['Pri. Claim No'] || '',
+        memberID: row['Pri. Patient Insurance Card No'] || '',
+        claimDate: row['Encounter Date'] || '',
+        clinician: row['Clinician License'] || '',
+        department: row['Department'] || '',
+        packageName: row['Pri. Payer Name'] || '',
+        insuranceCompany: row['Pri. Payer Name'] || '',
+        claimStatus: row['Codification Status'] || ''
+      };
+      if (isOdoo) return {
+        claimID: row['Pri. Claim ID'] || '',
+        memberID: row['Pri. Member ID'] || '',
+        claimDate: row['Adm/Reg. Date'] || '',
+        clinician: row['Admitting License'] || '',
+        department: row['Admitting Department'] || '',
+        insuranceCompany: row['Pri. Plan Type'] || '',
+        claimStatus: row['Codification Status'] || ''
+      };
+      return {
+        claimID: row['ClaimID'] || '',
+        memberID: row['PatientCardID'] || '',
+        claimDate: row['ClaimDate'] || '',
+        clinician: row['Clinician License'] || '',
+        packageName: row['Insurance Company'] || '',
+        insuranceCompany: row['Insurance Company'] || '',
+        department: row['Clinic'] || '',
+        claimStatus: row['VisitStatus'] || ''
+      };
     });
   }
+  return rawData.rows || [];
+}
 
   // Otherwise assume rawData has headers + rows from detection function
   const rows = rawData.rows || [];
@@ -388,109 +351,47 @@ function normalizeReportData(rawData) {
 }
 
 function validateReportClaims(reportDataArray, eligMap, reportType) {
-  console.log(`Validating ${reportDataArray.length} report rows for report type: ${reportType}`);
-
   const results = [];
-
   for (let i = 0; i < reportDataArray.length; i++) {
     const row = reportDataArray[i];
-
-    const claimID = String(row.claimID || row['ClaimID'] || row['Pri. Claim ID'] || '').trim();
+    const claimID = String(row.claimID || '').trim();
     if (!claimID) continue;
 
-    const rawMemberID = String(row.memberID || row['Pri. Member ID'] || row['PatientCardID'] || '').trim();
+    const rawMemberID = String(row.memberID || '').trim();
     if (!rawMemberID) continue;
-
-    // 🔹 Minimal fix: normalize member ID for lookup
     const memberID = normalizeMemberID(rawMemberID);
 
-    // Determine provider/insurance based on report type
-    let insurance;
-    switch (reportType) {
-      case 'Odoo':
-      case 'Insta':
-        insurance = String(row['Pri. Sponsor'] || '').trim();
-        break;
-      case 'Clinicpro':
-        insurance = String(row['Insurance Company'] || '').trim();
-        break;
-      default:
-        insurance = String(row.insuranceCompany || '').trim();
-    }
-
-    if (i < 3) {
-      console.log(`\n--- Row ${i + 1} ---`);
-      console.log(`ClaimID: ${claimID}, MemberID: ${memberID}, Insurance: ${insurance}`);
-      const allEligForMember = eligMap.get(memberID) || [];
-      console.log('All eligibilities for this member:', allEligForMember);
-    }
-
-    if (!insurance) continue;
-
-    const claimDateRaw = row.claimDate || row['ClaimDate'] || row['Adm/Reg. Date'];
-    const claimDate = DateHandler.parse(claimDateRaw, { preferMDY: lastReportWasCSV });
+    let insurance = (row.insuranceCompany || '').trim();
+    const claimDate = DateHandler.parse(row.claimDate, { preferMDY: lastReportWasCSV });
     if (!claimDate) continue;
-
     const formattedDate = DateHandler.format(claimDate);
 
-    // Handle VVIP members
     if (memberID.startsWith('(VVIP)')) {
-      results.push({
-        claimID,
-        memberID,
-        encounterStart: formattedDate,
-        packageName: row.packageName || '',
-        provider: insurance,
-        clinician: row.clinician || row['Admitting Doctor'] || '',
-        serviceCategory: '',
-        consultationStatus: '',
-        status: 'VVIP',
-        claimStatus: row.claimStatus || '',
-        remarks: ['VVIP member, eligibility check bypassed'],
-        finalStatus: 'valid',
-        fullEligibilityRecord: null
-      });
+      results.push({ claimID, memberID, encounterStart: formattedDate, status: 'VVIP', finalStatus: 'valid', remarks: ['VVIP member, eligibility check bypassed'], fullEligibilityRecord: null });
       continue;
     }
 
-    // Normal eligibility check
-    const eligibility = findEligibilityForClaim(eligMap, claimDate, memberID, [row.clinician || row['Admitting Doctor']]);
-    let finalStatus = 'invalid';
-    const remarks = [];
-    const department = (row.department || row['Admitting Department'] || row.clinic || '').toLowerCase();
-
-    if (!eligibility) {
-      remarks.push(`No matching eligibility found for ${memberID} on ${formattedDate}`);
-    } else if (eligibility.Status?.toLowerCase() === 'eligible') {
-      const categoryCheck = isServiceCategoryValid(
-        eligibility['Service Category'],
-        eligibility['Consultation Status'],
-        department
-      );
+    const eligibility = findEligibilityForClaim(eligMap, claimDate, memberID, [row.clinician]);
+    let finalStatus = 'invalid', remarks = [];
+    if (!eligibility) remarks.push(`No matching eligibility found for ${memberID} on ${formattedDate}`);
+    else if (eligibility.Status?.toLowerCase() === 'eligible') {
+      const categoryCheck = isServiceCategoryValid(eligibility['Service Category'], eligibility['Consultation Status'], (row.department || '').toLowerCase());
       if (categoryCheck.valid) finalStatus = 'valid';
       else remarks.push(categoryCheck.reason || 'Service category mismatch');
-    } else {
-      remarks.push(`Eligibility status: ${eligibility.Status}`);
-    }
+    } else remarks.push(`Eligibility status: ${eligibility.Status}`);
 
     results.push({
-      claimID,
-      memberID,
-      encounterStart: formattedDate,
+      claimID, memberID, encounterStart: formattedDate,
       packageName: eligibility?.['Package Name'] || row.packageName || '',
       provider: insurance,
-      clinician: eligibility?.['Clinician'] || row.clinician || row['Admitting Doctor'] || '',
+      clinician: eligibility?.Clinician || row.clinician || '',
       serviceCategory: eligibility?.['Service Category'] || '',
       consultationStatus: eligibility?.['Consultation Status'] || '',
       status: eligibility?.Status || '',
       claimStatus: row.claimStatus || '',
-      remarks,
-      finalStatus,
-      fullEligibilityRecord: eligibility
+      remarks, finalStatus, fullEligibilityRecord: eligibility
     });
   }
-
-  console.log(`Processed ${results.length} valid claims out of ${reportDataArray.length}`);
   return results;
 }
 
