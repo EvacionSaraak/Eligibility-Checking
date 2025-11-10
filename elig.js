@@ -124,9 +124,7 @@ function normalizeClinician(name) {
  * Header detection (from first)
  *************************/
 function findHeaderRowFromArrays(allRows, maxScan = 20) {
-  if (!Array.isArray(allRows) || allRows.length === 0) {
-    return { headerRowIndex: -1, headers: [], rows: [] };
-  }
+  if (!Array.isArray(allRows) || allRows.length === 0) return { headerRowIndex: -1, headers: [], rows: [] };
 
   const claimTokens = [
     'pri. claim no', 'pri claim no', 'claimid', 'claim id', 'pri. claim id', 'pri claim id',
@@ -139,42 +137,37 @@ function findHeaderRowFromArrays(allRows, maxScan = 20) {
 
   for (let i = 0; i < Math.min(maxScan, allRows.length); i++) {
     const row = allRows[i] || [];
-    const joined = row.map(c => (c === null || c === undefined ? '' : String(c))).join(' ').toLowerCase();
+    const joined = row.map(c => c ?? '').join(' ').toLowerCase();
 
-    // Check for eligibility sheet first
-    if (joined.includes('eligibility request number')) {
-      bestIndex = i;
-      bestScore = Infinity; // prioritize eligibility
-      break;
-    }
-
-    // Otherwise, score for claims tokens
+    // Only look for claims tokens here
     let score = 0;
-    for (const t of claimTokens) { if (joined.includes(t)) score++; }
+    for (const t of claimTokens) if (joined.includes(t)) score++;
     if (score > bestScore) { bestScore = score; bestIndex = i; }
   }
 
   if (bestIndex === -1) {
-    console.warn('No valid header row found.');
+    console.warn('No valid claims header row found.');
     return { headerRowIndex: -1, headers: [], rows: [] };
   }
-  const headers = allRows[bestIndex].map(h => (h === null || h === undefined ? '' : String(h).trim()));
+
+  const headers = allRows[bestIndex].map(h => h ?? '');
   const dataRows = allRows.slice(bestIndex + 1).filter(row => {
-    // skip mostly blank/junk rows
     const junkCount = row.filter((c, idx) => {
-      const key = headers[idx] || '';
-      return (c === null || c === undefined || c === '') || key.startsWith('_') || key.toLowerCase().includes('policy');
+      const key = headers[idx] ?? '';
+      return c === null || c === undefined || c === '' || key.startsWith('_') || key.toLowerCase().includes('policy');
     }).length;
     return junkCount < row.length * 0.8;
   });
+
   const rows = dataRows.map(rowArray => {
     const obj = {};
     for (let c = 0; c < headers.length; c++) {
       const key = headers[c] || `Column${c+1}`;
-      obj[key] = rowArray[c] === undefined || rowArray[c] === null ? '' : rowArray[c];
+      obj[key] = rowArray[c] ?? '';
     }
     return obj;
   });
+
   return { headerRowIndex: bestIndex, headers, rows };
 }
 
@@ -184,16 +177,10 @@ function findHeaderRowFromArrays(allRows, maxScan = 20) {
 function prepareEligibilityMap(rawSheetArray) {
   if (!Array.isArray(rawSheetArray) || rawSheetArray.length === 0) return new Map();
 
-  let headerRowIndex = -1;
   // Find the row that contains "Eligibility Request Number"
-  for (let i = 0; i < rawSheetArray.length; i++) {
-    const row = rawSheetArray[i];
-    if (!Array.isArray(row)) continue;
-    if (row.some(cell => String(cell).trim() === "Eligibility Request Number")) {
-      headerRowIndex = i;
-      break;
-    }
-  }
+  let headerRowIndex = rawSheetArray.findIndex(row => 
+    Array.isArray(row) && row.some(cell => String(cell).trim() === "Eligibility Request Number")
+  );
 
   if (headerRowIndex === -1) {
     console.warn("No eligibility header row found containing 'Eligibility Request Number'");
@@ -201,46 +188,36 @@ function prepareEligibilityMap(rawSheetArray) {
   }
 
   const headers = rawSheetArray[headerRowIndex].map(h => String(h || '').trim());
-
   const eligMap = new Map();
 
   for (let i = headerRowIndex + 1; i < rawSheetArray.length; i++) {
     const row = rawSheetArray[i];
     if (!Array.isArray(row)) continue;
 
-    // Skip row if mostly empty or looks like leftover policy/header row
-    const blankOrUnderscoreCount = row.filter((v, idx) => {
+    // Skip mostly empty or junk rows
+    const blankOrJunkCount = row.filter((v, idx) => {
       const key = headers[idx] || '';
-      return v === undefined || v === null || v === '' || key.includes('_');
+      return v === undefined || v === null || v === '' || key.startsWith('_') || key.toLowerCase().includes('policy');
     }).length;
-    if (blankOrUnderscoreCount > headers.length / 2) continue;
+    if (blankOrJunkCount > headers.length / 2) continue;
 
     // Build object
     const record = {};
-    headers.forEach((h, idx) => {
-      record[h] = row[idx] !== undefined ? row[idx] : '';
-    });
+    headers.forEach((h, idx) => record[h] = row[idx] !== undefined ? row[idx] : '');
 
     // Normalize member ID
     const idCandidates = [
-      'Card Number / DHA Member ID',
-      'Card Number',
-      'MemberID',
-      'Member ID',
-      'Patient Insurance Card No',
-      'Policy1',
-      'Policy 1'
+      'Card Number / DHA Member ID', 'Card Number', 'MemberID', 'Member ID',
+      'Patient Insurance Card No', 'Policy1', 'Policy 1'
     ];
-
     let rawMemberID = '';
     for (const k of idCandidates) {
-      if (Object.prototype.hasOwnProperty.call(record, k) && record[k] !== '' && record[k] !== null && record[k] !== undefined) {
+      if (Object.prototype.hasOwnProperty.call(record, k) && record[k]) {
         rawMemberID = String(record[k]).trim();
-        if (rawMemberID) break;
+        break;
       }
     }
     if (!rawMemberID) continue;
-
     const memberID = normalizeMemberID(rawMemberID);
     if (!memberID) continue;
 
@@ -249,7 +226,7 @@ function prepareEligibilityMap(rawSheetArray) {
     eligMap.get(memberID).push(record);
   }
 
-  console.log("Elig Map built successfully. Members:", [...eligMap.keys()].length);
+  console.log("Elig Map built successfully. Members:", eligMap.size);
   return eligMap;
 }
 
@@ -527,17 +504,18 @@ function logNoEligibilityMatch(sourceType, claimSummary, memberID, parsedClaimDa
 /*********************
  * FILE PARSING FUNCTIONS (kept from second script)
  *********************/
-function parseExcelFile(file) {
+async function parseExcelFile(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = function(e) {
+    reader.onload = function (e) {
       try {
         const data = new Uint8Array(e.target.result);
         const workbook = XLSX.read(data, { type: 'array' });
         const sheet = workbook.Sheets[workbook.SheetNames[0]];
+
+        // Convert to array-of-arrays, keep empty cells as ''
         const allRows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
-        const detection = findHeaderRowFromArrays(allRows, 20);
-        resolve(detection);
+        resolve(allRows);
       } catch (error) {
         reject(error);
       }
