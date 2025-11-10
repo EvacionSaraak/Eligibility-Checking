@@ -973,12 +973,12 @@ async function handleProcessClick() {
     // validateReportClaims now receives reportType
     const results = validateReportClaims(xlsData, eligMap, reportType);
 
-    // Apply optional filter if checkbox is checked
+    // Apply optional filter if checkbox is checked (by insurance company)
     let outputResults = results;
     if (filterCheckbox && filterCheckbox.checked) {
       outputResults = results.filter(r => {
-        const provider = (r.provider || r.insuranceCompany || r.packageName || '').toString().toLowerCase();
-        return provider.includes('daman') || provider.includes('thiqa');
+        const insurance = (r.insuranceCompany || '').toString().toLowerCase();
+        return insurance.includes('daman') || insurance.includes('thiqa');
       });
     }
 
