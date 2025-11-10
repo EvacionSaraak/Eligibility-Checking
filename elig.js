@@ -242,44 +242,119 @@ function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians =
  * Normalize & validate report rows (use working version's normalizeReportData)
  *************************/
 function normalizeReportData(rawData) {
+  // rawData expected shape: { headers: [...], rows: [...] } (from findHeaderRowFromArrays)
+  // But keep compatibility if rawData is an array (older shape)
   if (!rawData) return [];
+
+  // Backwards compatibility: if function received array-of-objects (already parsed sheet_to_json)
   if (Array.isArray(rawData) && rawData.length > 0 && typeof rawData[0] === 'object' && !rawData.headers) {
+    // trying to detect known formats from object keys
     const sample = rawData[0];
     const isInsta = sample.hasOwnProperty('Pri. Claim No');
     const isOdoo = sample.hasOwnProperty('Pri. Claim ID');
     return rawData.map(row => {
-      if (isInsta) return {
-        claimID: row['Pri. Claim No'] || '',
-        memberID: row['Pri. Patient Insurance Card No'] || '',
-        claimDate: row['Encounter Date'] || '',
-        clinician: row['Clinician License'] || '',
-        department: row['Department'] || '',
-        packageName: row['Pri. Payer Name'] || '',
-        insuranceCompany: row['Pri. Payer Name'] || '',
-        claimStatus: row['Codification Status'] || ''
-      };
-      if (isOdoo) return {
-        claimID: row['Pri. Claim ID'] || '',
-        memberID: row['Pri. Member ID'] || '',
-        claimDate: row['Adm/Reg. Date'] || '',
-        clinician: row['Admitting License'] || '',
-        department: row['Admitting Department'] || '',
-        insuranceCompany: row['Pri. Plan Type'] || '',
-        claimStatus: row['Codification Status'] || ''
-      };
-      return {
-        claimID: row['ClaimID'] || '',
-        memberID: row['PatientCardID'] || '',
-        claimDate: row['ClaimDate'] || '',
-        clinician: row['Clinician License'] || '',
-        packageName: row['Insurance Company'] || '',
-        insuranceCompany: row['Insurance Company'] || '',
-        department: row['Clinic'] || '',
-        claimStatus: row['VisitStatus'] || ''
-      };
+      if (isInsta) {
+        return {
+          claimID: row['Pri. Claim No'] || '',
+          memberID: row['Pri. Patient Insurance Card No'] || '',
+          claimDate: row['Encounter Date'] || '',
+          clinician: row['Clinician License'] || '',
+          department: row['Department'] || '',
+          packageName: row['Pri. Payer Name'] || '',
+          insuranceCompany: row['Pri. Payer Name'] || '',
+          claimStatus: row['Codification Status'] || ''
+        };
+      } else if (isOdoo) {
+        return {
+          claimID: row['Pri. Claim ID'] || '',
+          memberID: row['Pri. Member ID'] || '',
+          claimDate: row['Adm/Reg. Date'] || '',
+          clinician: row['Admitting License'] || '',
+          department: row['Admitting Department'] || '',
+          insuranceCompany: row['Pri. Plan Type'] || '',
+          claimStatus: row['Codification Status'] || ''
+        };
+      } else {
+        return {
+          claimID: row['ClaimID'] || '',
+          memberID: row['PatientCardID'] || '',
+          claimDate: row['ClaimDate'] || '',
+          clinician: row['Clinician License'] || '',
+          packageName: row['Insurance Company'] || '',
+          insuranceCompany: row['Insurance Company'] || '',
+          department: row['Clinic'] || '',
+          claimStatus: row['VisitStatus'] || ''
+        };
+      }
     });
   }
-  return rawData.rows || [];
+
+  // Otherwise assume rawData has headers + rows from detection function
+  const rows = rawData.rows || [];
+  const headers = rawData.headers || [];
+
+  function getField(obj, candidates) {
+    for (const k of candidates) {
+      if (obj && Object.prototype.hasOwnProperty.call(obj, k) && obj[k] !== '' && obj[k] !== null && obj[k] !== undefined) return obj[k];
+    }
+    return '';
+  }
+
+  return rows.map(r => {
+    // Use the same mapping logic as the working script's normalizeReportData
+    const isInsta = !!(r['Pri. Claim No'] || r['Pri. Patient Insurance Card No']);
+    const isOdoo = !!r['Pri. Claim ID'];
+
+    if (isInsta) {
+      return {
+        claimID: r['Pri. Claim No'] || '',
+        memberID: r['Pri. Patient Insurance Card No'] || '',
+        claimDate: r['Encounter Date'] || '',
+        clinician: r['Clinician License'] || '',
+        department: r['Department'] || '',
+        packageName: r['Pri. Payer Name'] || '',
+        insuranceCompany: r['Pri. Payer Name'] || '',
+        claimStatus: r['Codification Status'] || ''
+      };
+    } else if (isOdoo) {
+      return {
+        claimID: r['Pri. Claim ID'] || '',
+        memberID: r['Pri. Member ID'] || '',
+        claimDate: r['Adm/Reg. Date'] || '',
+        clinician: r['Admitting License'] || '',
+        department: r['Admitting Department'] || '',
+        insuranceCompany: r['Pri. Plan Type'] || '',
+        claimStatus: r['Codification Status'] || ''
+      };
+    } else {
+      // generic mapping with fallback header scanning
+      const out = {
+        claimID: r['ClaimID'] || r['Pri. Claim No'] || r['Pri. Claim ID'] || getField(r, ['ClaimID','Pri. Claim No','Pri. Claim ID','Claim ID','Pri. Claim ID']) || '',
+        memberID: r['Pri. Member ID'] || r['Pri. Patient Insurance Card No'] || r['PatientCardID'] || getField(r, ['PatientCardID','Patient Insurance Card No','Card Number / DHA Member ID','Card Number','MemberID','Member ID']) || '',
+        claimDate: r['Encounter Date'] || r['Adm/Reg. Date'] || r['ClaimDate'] || getField(r, ['Encounter Date','ClaimDate','Adm/Reg. Date','Date']) || '',
+        clinician: r['Clinician License'] || r['Admitting License'] || r['OrderDoctor'] || getField(r, ['Clinician License','Clinician','Admitting License','OrderDoctor']) || '',
+        department: r['Department'] || r['Clinic'] || r['Admitting Department'] || getField(r, ['Department','Clinic','Admitting Department']) || '',
+        packageName: r['Pri. Payer Name'] || r['Insurance Company'] || r['Pri. Sponsor'] || getField(r, ['Pri. Payer Name','Insurance Company','Pri. Plan Type','Package','Pri. Sponsor']) || '',
+        insuranceCompany: r['Pri. Payer Name'] || r['Insurance Company'] || getField(r, ['Payer Name','Insurance Company','Pri. Payer Name']) || '',
+        claimStatus: r['Codification Status'] || r['VisitStatus'] || r['Status'] || getField(r, ['Codification Status','VisitStatus','Status','Claim Status']) || ''
+      };
+
+      // If still missing memberID / claimID — scan headers for likely column
+      if (!out.memberID) {
+        for (const h of headers) {
+          const val = r[h];
+          if (val && String(h).toLowerCase().includes('card')) { out.memberID = val; break; }
+        }
+      }
+      if (!out.claimID) {
+        for (const h of headers) {
+          const val = r[h];
+          if (val && String(h).toLowerCase().includes('claim')) { out.claimID = val; break; }
+        }
+      }
+      return out;
+    }
+  });
 }
 
 function validateReportClaims(reportDataArray, eligMap, reportType) {
