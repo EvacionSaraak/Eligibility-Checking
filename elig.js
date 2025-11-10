@@ -164,37 +164,22 @@ function findHeaderRowFromArrays(allRows, maxScan = 10) {
  * ELIGIBILITY MATCHING FUNCTIONS (from first)
  *******************************/
 function prepareEligibilityMap(eligArray) {
-    console.log('=== Eligibility Array Debug ===');
-    console.log('Total entries in eligArray:', eligArray.length);
-    console.log('First 5 entries:', eligArray.slice(0, 5));
-
     const eligMap = new Map();
 
     eligArray.forEach((record, index) => {
-        // Try multiple possible member ID fields
-        const rawMemberID = String(record.memberID || record['PatientCardID'] || '').trim();
+        // Skip header row
+        if (index === 0) return;
 
-        if (!rawMemberID) {
-            console.log(`Skipping record ${index}: No MemberID found`, record);
-            return; // skip this record
-        }
+        const rawMemberID = String(record.memberID || record['Policy1'] || record['_4'] || '').trim();
+        if (!rawMemberID) return;
 
-        // Optional: normalize the memberID
         const memberID = normalizeMemberID(rawMemberID);
+        if (!memberID) return;
 
-        if (!memberID) {
-            console.log(`Skipping record ${index}: Normalized MemberID empty`, rawMemberID);
-            return;
-        }
-
-        // Add to map
-        if (eligMap.has(memberID)) {
-            console.log(`Duplicate MemberID at record ${index}:`, memberID);
-        }
         eligMap.set(memberID, record);
     });
 
-    // Show only the first 5 entries to avoid clutter
+    // Show first 5 entries
     const firstFive = Array.from(eligMap.entries()).slice(0, 5);
     console.log('=== First 5 Entries of Eligibility Map ===');
     firstFive.forEach(([key, value], i) => console.log(i + 1, key, value));
