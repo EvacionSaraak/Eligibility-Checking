@@ -1,6 +1,8 @@
 /*******************************
  * elig.js - robust parser & matcher
  * Replaces and improves previous file to handle xls/xlsx/csv + pasted CSV + header mapping
+ *
+ * Modified: adds tracking of invalid-file errors and prints a console summary
  *******************************/
 
 const SERVICE_PACKAGE_RULES = {
@@ -24,6 +26,9 @@ let xlsData = null;
 let lastReportWasCSV = false;
 const usedEligibilities = new Set();
 
+// Error tracking for invalid files (new)
+const invalidFileErrorCounts = new Map(); // key -> count
+
 // DOM references (initialized later)
 let reportInput = null;
 let eligInput = null;
@@ -42,6 +47,27 @@ let pasteBtn = null;
 function escapeHtml(s) {
   if (s === null || s === undefined) return '';
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#x27;');
+}
+
+function recordInvalidFileError(type) {
+  const key = String(type || 'Unknown error').trim() || 'Unknown error';
+  invalidFileErrorCounts.set(key, (invalidFileErrorCounts.get(key) || 0) + 1);
+  // Log occurrence for debugging
+  console.warn(`Invalid file error recorded: ${key} (count=${invalidFileErrorCounts.get(key)})`);
+  // Print a compact summary each time an invalid file error is recorded
+  printInvalidFileErrorSummary();
+}
+
+function printInvalidFileErrorSummary() {
+  if (invalidFileErrorCounts.size === 0) return;
+  // Create array sorted by count desc
+  const entries = Array.from(invalidFileErrorCounts.entries()).sort((a,b) => b[1] - a[1]);
+  const [topType, topCount] = entries[0];
+  console.group('Invalid Files Error Summary');
+  console.log(`Most frequent error: "${topType}" occurred ${topCount} time(s)`);
+  console.log('All error counts (sorted):');
+  entries.forEach(([k,v]) => console.log(`  ${v} × ${k}`));
+  console.groupEnd();
 }
 
 function expandScientificNotation(val) {
@@ -63,7 +89,6 @@ function expandScientificNotation(val) {
     digits = digits.replace(/^0+/, '') || '0';
   } else {
     const pos = digits.length + zerosToAdd;
-    // insert decimal point
     let left = digits.slice(0, pos);
     let right = digits.slice(pos);
     if (left === '') left = '0';
@@ -75,14 +100,10 @@ function expandScientificNotation(val) {
 
 function normalizeMemberID(id) {
   if (id === null || id === undefined) return '';
-  // Convert scientific notation if present, keep as string, strip whitespace
   let s = String(id).trim();
-  // remove BOM if present
   s = s.replace(/^\uFEFF/, '');
   if (/[eE]/.test(s)) s = expandScientificNotation(s);
-  // if it's a number-like string produced by XLSX (e.g., 123456789012), ensure no decimal part
   if (/^\d+\.\d+$/.test(s)) s = s.split('.')[0];
-  // finally remove leading zeros unless the system actually relies on them
   s = s.replace(/^0+/, '');
   return s;
 }
@@ -98,10 +119,9 @@ const DateHandler = {
     if (input instanceof Date) return isNaN(input) ? null : input;
     if (typeof input === 'number') return this._parseExcelDate(input);
     const cleanStr = String(input).trim().replace(/\uFEFF/g,'');
-    // If string looks numeric (Excel exported number), try converting to number then excel-date
     if (/^\d+(\.\d+)?$/.test(cleanStr) && !cleanStr.includes('-') && !cleanStr.includes('/')) {
       const n = Number(cleanStr);
-      if (!isNaN(n) && n > 59) { // heuristics: excel serials > 59
+      if (!isNaN(n) && n > 59) {
         return this._parseExcelDate(n);
       }
     }
@@ -123,8 +143,6 @@ const DateHandler = {
            a.getUTCDate() === b.getUTCDate();
   },
   _parseExcelDate(serial) {
-    // Excel serial date to JS Date (UTC)
-    // Excel's day 1 = 1900-01-01 but Excel incorrectly treats 1900 as leap year; using 25569 baseline is common
     try {
       const floatSerial = Number(serial);
       if (isNaN(floatSerial)) return null;
@@ -139,7 +157,6 @@ const DateHandler = {
   _parseStringDate(dateStr, preferMDY = false) {
     if (!dateStr || typeof dateStr !== 'string') return null;
     if (dateStr.includes(' ')) dateStr = dateStr.split(' ')[0];
-    // DD/MM/YYYY or MM/DD/YYYY
     const dmyMdy = dateStr.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
     if (dmyMdy) {
       const p1 = parseInt(dmyMdy[1], 10);
@@ -150,7 +167,6 @@ const DateHandler = {
       if (p2 > 12 && p1 <= 12) return new Date(Date.UTC(y, p1 - 1, p2));
       return preferMDY ? new Date(Date.UTC(y, p1 - 1, p2)) : new Date(Date.UTC(y, p2 - 1, p1));
     }
-    // 30-Jun-2025 or 30 Jun 25
     const textual = dateStr.match(/^(\d{1,2})[\/\- ]([a-z]{3,})[\/\- ](\d{2,4})$/i);
     if (textual) {
       const day = parseInt(textual[1], 10);
@@ -159,7 +175,6 @@ const DateHandler = {
       const mon = MONTHS.indexOf(textual[2].toLowerCase().substr(0,3));
       if (mon >= 0) return new Date(Date.UTC(year, mon, day));
     }
-    // ISO
     const iso = dateStr.match(/^(\d{4})[\/\-](\d{2})[\/\-](\d{2})$/);
     if (iso) {
       const y = parseInt(iso[1], 10);
@@ -174,7 +189,6 @@ const DateHandler = {
 /*****************************
  * Header mapping utilities
  *****************************/
-// Map many possible header names to canonical keys used in the app.
 const HEADER_SYNONYMS = {
   claimID: [
     /^pri\.?\s*claim\s*no$/i, /^pri\.?\s*claim\s*id$/i, /^claimid$/i, /^claim\s*id$/i,
@@ -207,27 +221,23 @@ const HEADER_SYNONYMS = {
   ]
 };
 
-// Normalize header string: trim, collapse spaces, lowercase
 function normalizeHeaderKey(h) {
   if (h === null || h === undefined) return '';
   return String(h).trim().replace(/\s+/g,' ').toLowerCase();
 }
 
-// Given an array-of-arrays from sheet_to_json(header:1), detect header row index heuristically
 function detectHeaderRow(allRows, maxScan = 15) {
   const rows = Array.isArray(allRows) ? allRows : [];
   for (let i = 0; i < Math.min(maxScan, rows.length); i++) {
     const row = rows[i] || [];
     const nonEmpty = row.filter(c => String(c).trim() !== '').length;
     if (nonEmpty >= 3) {
-      // prefer row with known tokens
       const joined = row.join(' ').toLowerCase();
       if (joined.includes('pri') || joined.includes('claim') || joined.includes('card') || joined.includes('member') || joined.includes('patient')) {
         return i;
       }
     }
   }
-  // fallback to first non-empty row
   for (let i=0;i<Math.min(maxScan, rows.length);i++){
     const row = rows[i] || [];
     const nonEmpty = row.filter(c => String(c).trim() !== '').length;
@@ -236,7 +246,6 @@ function detectHeaderRow(allRows, maxScan = 15) {
   return 0;
 }
 
-// Map raw headers (from sheet) to canonical keys
 function mapHeadersToCanonical(rawHeaders) {
   const mapped = {};
   rawHeaders.forEach((raw, idx) => {
@@ -248,7 +257,6 @@ function mapHeadersToCanonical(rawHeaders) {
       }
       if (found) break;
     }
-    // fallback heuristics
     if (!found) {
       if (key.includes('claim') && key.includes('id')) found = 'claimID';
       else if ((key.includes('card') && key.includes('no')) || key.includes('member') || key.includes('patientcard')) found = 'memberID';
@@ -259,10 +267,9 @@ function mapHeadersToCanonical(rawHeaders) {
     }
     mapped[idx] = found || null;
   });
-  return mapped; // index -> canonical key (or null)
+  return mapped;
 }
 
-// Convert a row array to normalized object using header mapping
 function rowArrayToNormalizedObject(rowArray, headerMap, rawHeaders) {
   const obj = {};
   for (let i=0;i<headerMap.length;i++) {
@@ -272,7 +279,6 @@ function rowArrayToNormalizedObject(rowArray, headerMap, rawHeaders) {
     if (canon) {
       obj[canon] = rawVal;
     } else {
-      // also retain raw by header name for fallback
       obj[rawHeader] = rawVal;
     }
   }
@@ -283,42 +289,65 @@ function rowArrayToNormalizedObject(rowArray, headerMap, rawHeaders) {
  * Parsing: Excel (.xls/.xlsx) and CSV (.csv) & pasted CSV
  *****************************/
 function parseExcelArrayBuffer(arrayBuffer) {
-  const wb = XLSX.read(new Uint8Array(arrayBuffer), { type: 'array' });
-  const sheet = wb.Sheets[wb.SheetNames[0]];
-  const allRows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
-  return parseSheetRows(allRows);
+  try {
+    const wb = XLSX.read(new Uint8Array(arrayBuffer), { type: 'array' });
+    const sheet = wb.Sheets[wb.SheetNames[0]];
+    const allRows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+    if (!Array.isArray(allRows) || allRows.length === 0) {
+      recordInvalidFileError('Empty or invalid Excel sheet');
+      return { rows: [], rawHeaders: [] };
+    }
+    return parseSheetRows(allRows);
+  } catch (err) {
+    recordInvalidFileError(`Excel parse error: ${err && err.message ? err.message : err}`);
+    throw err;
+  }
 }
 
 function parseCsvTextString(text) {
-  // remove BOM if present
-  const clean = (text || '').replace(/^\uFEFF/, '');
-  // SheetJS can parse CSV when read with type 'string'
-  const wb = XLSX.read(clean, { type: 'string' });
-  const sheet = wb.Sheets[wb.SheetNames[0]];
-  const allRows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
-  return parseSheetRows(allRows);
+  try {
+    const clean = (text || '').replace(/^\uFEFF/, '');
+    const wb = XLSX.read(clean, { type: 'string' });
+    const sheet = wb.Sheets[wb.SheetNames[0]];
+    const allRows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+    if (!Array.isArray(allRows) || allRows.length === 0) {
+      recordInvalidFileError('Empty or invalid CSV content');
+      return { rows: [], rawHeaders: [] };
+    }
+    return parseSheetRows(allRows);
+  } catch (err) {
+    recordInvalidFileError(`CSV parse error: ${err && err.message ? err.message : err}`);
+    throw err;
+  }
 }
 
-// Core: takes array-of-arrays and returns array of normalized rows (claimID, memberID, etc.)
 function parseSheetRows(allRows) {
-  if (!Array.isArray(allRows) || allRows.length === 0) return { rows: [], rawHeaders: [] };
+  if (!Array.isArray(allRows) || allRows.length === 0) {
+    recordInvalidFileError('No rows found in sheet');
+    return { rows: [], rawHeaders: [] };
+  }
 
   const headerRowIndex = detectHeaderRow(allRows, 20);
   const rawHeaderRow = (allRows[headerRowIndex] || []).map(h => String(h).trim());
+  if (!rawHeaderRow || rawHeaderRow.length === 0) {
+    recordInvalidFileError('Header row not detected');
+    return { rows: [], rawHeaders: [] };
+  }
   const mapped = mapHeadersToCanonical(rawHeaderRow);
   const headerMap = [];
   for (let i=0;i<rawHeaderRow.length;i++) {
     headerMap[i] = mapped[i] || null;
   }
 
-  // Build normalized objects for each subsequent row
   const dataRows = allRows.slice(headerRowIndex + 1);
+  if (!dataRows || dataRows.length === 0) {
+    recordInvalidFileError('No data rows after header');
+  }
   const normalizedRows = dataRows.map(rowArr => {
     const normObj = rowArrayToNormalizedObject(rowArr, headerMap, rawHeaderRow);
     return normObj;
   });
 
-  // Return rows and raw headers to let downstream mapping normalize fields
   return {
     rows: normalizedRows,
     rawHeaders: rawHeaderRow
@@ -335,9 +364,15 @@ function parseExcelFile(file) {
       try {
         const parsed = parseExcelArrayBuffer(e.target.result);
         resolve(parsed);
-      } catch (err) { reject(err); }
+      } catch (err) { 
+        recordInvalidFileError(`File read/Excel parse failed: ${err && err.message ? err.message : err}`);
+        reject(err); 
+      }
     };
-    reader.onerror = () => reject(reader.error);
+    reader.onerror = () => { 
+      recordInvalidFileError('FileReader error reading Excel file');
+      reject(reader.error);
+    };
     reader.readAsArrayBuffer(file);
   });
 }
@@ -349,9 +384,15 @@ function parseCsvFile(file) {
       try {
         const parsed = parseCsvTextString(e.target.result);
         resolve(parsed);
-      } catch (err) { reject(err); }
+      } catch (err) { 
+        recordInvalidFileError(`File read/CSV parse failed: ${err && err.message ? err.message : err}`);
+        reject(err); 
+      }
     };
-    reader.onerror = () => reject(reader.error);
+    reader.onerror = () => {
+      recordInvalidFileError('FileReader error reading CSV file');
+      reject(reader.error);
+    };
     reader.readAsText(file);
   });
 }
@@ -362,7 +403,10 @@ function parseCsvText(text) {
     try {
       const parsed = parseCsvTextString(text);
       resolve(parsed);
-    } catch (err) { reject(err); }
+    } catch (err) { 
+      recordInvalidFileError(`Pasted CSV parse failed: ${err && err.message ? err.message : err}`);
+      reject(err); 
+    }
   });
 }
 
@@ -377,11 +421,9 @@ function getField(obj, candidates) {
 }
 
 function normalizeParsedSheet(parsed) {
-  // parsed: { rows: [ {claimID:..., memberID:...} OR raw header keys... ], rawHeaders: [...] }
   const rows = parsed.rows || [];
   const rawHeaders = parsed.rawHeaders || [];
 
-  // For rows that already have canonical keys, return mapped object
   const normalized = rows.map(r => {
     const out = {
       claimID: r.claimID || getField(r, ['ClaimID','Pri. Claim No','Pri. Claim ID','Claim ID','Claim No']) || '',
@@ -393,7 +435,6 @@ function normalizeParsedSheet(parsed) {
       insuranceCompany: r.insuranceCompany || getField(r, ['Payer Name','Insurance Company','Pri. Payer Name']) || '',
       claimStatus: r.claimStatus || getField(r, ['Codification Status','VisitStatus','Status','Claim Status']) || ''
     };
-    // fallback scan for memberID or claimID if missing
     if (!out.memberID) {
       for (const h of rawHeaders) {
         const val = r[h];
@@ -419,7 +460,6 @@ function prepareEligibilityMap(eligArray) {
   const eligMap = new Map();
   if (!Array.isArray(eligArray)) return eligMap;
   eligArray.forEach(e => {
-    // Try many likely header names and fallback
     const rawID = normalizeMemberID(getField(e, [
       'Card Number / DHA Member ID','Card Number','_5','MemberID','Member ID','Patient Insurance Card No',
       'PatientCardID','CardNumber','Patient Insurance Card No'
@@ -474,7 +514,6 @@ function isServiceCategoryValid(serviceCategory, consultationStatus, rawPackage)
   return { valid: true };
 }
 
-// Find eligibility record matching the claim (memberID normalized, same Answered On day, clinician match, category rules)
 function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians = []) {
   const normalizedID = normalizeMemberID(memberID);
   const eligList = eligMap.get(normalizedID) || [];
@@ -485,13 +524,10 @@ function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians =
   for (const elig of eligList) {
     const eligDate = DateHandler.parse(elig['Answered On'] || elig['Ordered On']);
     if (!DateHandler.isSameDay(claimDate, eligDate)) {
-      // If no same day, continue; precise rule can be relaxed later if needed
-      // console.log(`Date mismatch for member ${memberID}: claim ${DateHandler.format(claimDate)} vs elig ${DateHandler.format(eligDate)}`);
       continue;
     }
 
     if (elig.Clinician && claimCliniciansFiltered.length && !checkClinicianMatch(claimCliniciansFiltered, elig.Clinician)) {
-      // console.log(`Clinician mismatch for member ${memberID}: claim clinicians ${JSON.stringify(claimCliniciansFiltered)} vs elig ${elig.Clinician}`);
       continue;
     }
 
@@ -500,12 +536,10 @@ function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians =
     const dept = (elig.Department || elig.Clinic || '').toLowerCase();
     const svcCheck = isServiceCategoryValid(serviceCategory, consultationStatus, dept);
     if (!svcCheck.valid) {
-      // console.log(`Service category mismatch for member ${memberID}: ${svcCheck.reason}`);
       continue;
     }
 
     if ((elig.Status || '').toLowerCase() !== 'eligible') {
-      // console.log(`Status not eligible for member ${memberID}: ${elig.Status}`);
       continue;
     }
 
@@ -519,9 +553,7 @@ function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians =
  * Normalize report rows & validate
  *****************************/
 function normalizeReportDataFromParsed(parsed) {
-  // parsed: { rows: [...], rawHeaders: [...] }
   const normalized = normalizeParsedSheet(parsed);
-  // Keep canonical fields (strings)
   return normalized.map(r => ({
     claimID: r.claimID || '',
     memberID: r.memberID || '',
@@ -789,29 +821,43 @@ async function handleFileUpload(e, type) {
     updateStatus(`Loading ${type} file...`);
     if (type === 'eligibility') {
       const parsed = await parseFileByExtension(file);
-      // For eligibility we want the sheet as an array of objects with headers
       const reader = new FileReader();
       reader.onload = function(ev) {
-        const data = new Uint8Array(ev.target.result);
-        const wb = XLSX.read(data, { type: 'array' });
-        const sheet = wb.Sheets[wb.SheetNames[0]];
-        const json = XLSX.utils.sheet_to_json(sheet, { defval: '' });
-        eligData = json;
-        updateStatus(`Loaded ${eligData.length} eligibility records`);
-        updateProcessButtonState();
+        try {
+          const data = new Uint8Array(ev.target.result);
+          const wb = XLSX.read(data, { type: 'array' });
+          const sheet = wb.Sheets[wb.SheetNames[0]];
+          const json = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+          if (!Array.isArray(json) || json.length === 0) {
+            recordInvalidFileError('Eligibility file contained no rows');
+          }
+          eligData = json;
+          updateStatus(`Loaded ${eligData.length} eligibility records`);
+          updateProcessButtonState();
+        } catch (innerErr) {
+          recordInvalidFileError(`Eligibility file read->json conversion failed: ${innerErr && innerErr.message ? innerErr.message : innerErr}`);
+          updateStatus('Error loading eligibility file');
+        }
       };
-      reader.onerror = () => { updateStatus('Error loading eligibility file'); };
+      reader.onerror = () => { 
+        recordInvalidFileError('FileReader error loading eligibility file');
+        updateStatus('Error loading eligibility file'); 
+      };
       reader.readAsArrayBuffer(file);
       return;
     } else if (type === 'report') {
       lastReportWasCSV = file.name.toLowerCase().endsWith('.csv');
       const parsed = await parseFileByExtension(file);
       xlsData = normalizeReportDataFromParsed(parsed).filter(r => r && r.claimID && String(r.claimID).trim() !== '');
+      if (!xlsData || xlsData.length === 0) {
+        recordInvalidFileError('Report file contained no recognizable claim rows');
+      }
       updateStatus(`Loaded ${xlsData.length} report rows`);
       updateProcessButtonState();
     }
   } catch (err) {
     console.error('File load error:', err);
+    recordInvalidFileError(`File load error: ${err && err.message ? err.message : err}`);
     updateStatus(`Error loading ${type} file`);
   }
 }
@@ -821,7 +867,6 @@ async function parseFileByExtension(file) {
   if (name.endsWith('.csv')) {
     return await parseCsvFile(file);
   } else {
-    // .xlsx or .xls
     return await parseExcelFile(file);
   }
 }
@@ -835,10 +880,12 @@ async function handlePasteCsvClick() {
     const parsed = await parseCsvText(text);
     lastReportWasCSV = true;
     xlsData = normalizeReportDataFromParsed(parsed).filter(r => r && r.claimID && String(r.claimID).trim() !== '');
+    if (!xlsData || xlsData.length === 0) recordInvalidFileError('Pasted CSV contained no recognizable claim rows');
     updateStatus(`Loaded ${xlsData.length} rows from pasted CSV`);
     updateProcessButtonState();
   } catch (err) {
     console.error('Error parsing pasted CSV:', err);
+    recordInvalidFileError(`Pasted CSV parse error: ${err && err.message ? err.message : err}`);
     updateStatus('Error parsing pasted CSV');
     alert('Failed to parse pasted CSV');
   }
@@ -862,8 +909,14 @@ async function handleProcessClick() {
     window.lastValidationResults = results;
     renderResults(results, eligMap);
     updateStatus(`Processed ${results.length} claims successfully`);
+    // After a successful processing run, also print the invalid-file error summary (if any)
+    if (invalidFileErrorCounts.size > 0) {
+      console.info('Summary of invalid-file errors encountered during this session:');
+      printInvalidFileErrorSummary();
+    }
   } catch (err) {
     console.error('Processing error:', err);
+    recordInvalidFileError(`Processing error: ${err && err.message ? err.message : err}`);
     updateStatus('Processing failed');
   }
 }
@@ -881,7 +934,6 @@ function onFilterToggle() {
   }
 }
 
-// Initialize DOM refs and event listeners after DOMContentLoaded
 function initializeEventListeners() {
   reportInput = document.getElementById('reportFileInput');
   eligInput = document.getElementById('eligibilityFileInput');
@@ -901,7 +953,6 @@ function initializeEventListeners() {
   if (filterCheckbox) filterCheckbox.addEventListener('change', onFilterToggle);
   if (pasteBtn) pasteBtn.addEventListener('click', handlePasteCsvClick);
 
-  // initialize filter UI
   if (filterStatus) onFilterToggle();
 }
 
