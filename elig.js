@@ -180,6 +180,7 @@ function prepareEligibilityMap(eligArray) {
         if (!memberID) return;
         eligMap.set(memberID, normalizedRecord);
     });
+    console.log(eligMap);
     return eligMap;
 }
 
