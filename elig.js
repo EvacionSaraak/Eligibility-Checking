@@ -817,7 +817,22 @@ function initEligibilityModal(results, eligMap) {
         document.getElementById("modalOverlay").style.display = "block";
         return;
       }
-      let html = `<h3>Eligibilities for ${escapeHtml(member)}</h3><div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;"><thead><tr><th>#</th><th>Request No</th><th>Answered[...]
+      // build a full table header and open tbody (template literal must be closed)
+      let html = `<h3>Eligibilities for ${escapeHtml(member)}</h3>
+        <div style="overflow-x:auto;">
+          <table style="width:100%;border-collapse:collapse;">
+            <thead>
+              <tr>
+                <th style="padding:6px;border-bottom:1px solid #eee">#</th>
+                <th style="padding:6px;border-bottom:1px solid #eee">Request No</th>
+                <th style="padding:6px;border-bottom:1px solid #eee">Answered On</th>
+                <th style="padding:6px;border-bottom:1px solid #eee">Status</th>
+                <th style="padding:6px;border-bottom:1px solid #eee">Clinician</th>
+                <th style="padding:6px;border-bottom:1px solid #eee">Service Category</th>
+                <th style="padding:6px;border-bottom:1px solid #eee">Package Name</th>
+              </tr>
+            </thead>
+            <tbody>`;
       list.forEach((rec, idx) => {
         html += `<tr>
           <td style="padding:6px;border-bottom:1px solid #eee">${idx+1}</td>
