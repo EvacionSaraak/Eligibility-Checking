@@ -7,6 +7,12 @@
  * - Detects header row, normalizes report rows, matches against eligibilities
  * - Renders results and exports invalid entries
  *
+ * New behavior:
+ * - As soon as both files are present and parsed, the script runs a quick
+ *   check and updates the status area (the element that previously showed
+ *   "Ready to process files") to show counts:
+ *     "Loaded X eligibilities, Y claims — Ready to process files"
+ *
  * Requires SheetJS (XLSX) to be loaded in the page.
  *******************************/
 
@@ -22,7 +28,7 @@ const MONTHS = ["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov
 // Application state
 let xlsData = null;        // parsed & normalized report rows
 let eligData = null;       // eligibility sheet as array of objects
-let rawParsedReport = null; // raw parsed sheet result
+let rawParsedReport = null; // raw parsed sheet result (header detection output)
 const usedEligibilities = new Set();
 let lastReportWasCSV = false;
 
@@ -441,6 +447,7 @@ function parseCsvFile(file) {
         const sheet = workbook.Sheets[workbook.SheetNames[0]];
         const allRows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
 
+        // Try to detect header row in first few rows
         let headerRowIndex = -1;
         for (let i = 0; i < Math.min(5, allRows.length); i++) {
           const row = allRows[i];
@@ -466,6 +473,7 @@ function parseCsvFile(file) {
           return obj;
         });
 
+        // Deduplicate based on claim ID if possible
         const claimIdHeader = headers.find(h =>
           h.toLowerCase().replace(/\s+/g, '') === 'claimid' ||
           h.toLowerCase().includes('claim')
@@ -475,6 +483,7 @@ function parseCsvFile(file) {
           resolve({ headerRowIndex, headers, rows });
           return;
         }
+
         const seen = new Set();
         const uniqueRows = [];
         rows.forEach(row => {
@@ -515,6 +524,35 @@ function escapeHtml(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#x27;');
 }
 
+/*************************
+ * NEW: summarizeAndDisplayCounts
+ * - Called automatically when both files are present (eligData && rawParsedReport/xlsData)
+ * - Ensures report is normalized (if needed) and displays counts in the status element
+ *************************/
+function summarizeAndDisplayCounts() {
+  try {
+    const eligCount = Array.isArray(eligData) ? eligData.length : 0;
+    // Ensure xlsData exists, if not but rawParsedReport exists try to normalize it now
+    if ((!Array.isArray(xlsData) || xlsData.length === 0) && rawParsedReport) {
+      try {
+        const normalized = normalizeReportData(rawParsedReport);
+        xlsData = normalized.filter(r => r && r.claimID && String(r.claimID).trim() !== '');
+      } catch (e) {
+        console.warn('summarizeAndDisplayCounts: failed to normalize report for counting', e);
+      }
+    }
+    const claimCount = Array.isArray(xlsData) ? xlsData.length : 0;
+    if (statusEl) {
+      statusEl.textContent = `Loaded ${eligCount} eligibilities, ${claimCount} claims — Ready to process files`;
+    }
+  } catch (err) {
+    console.error('summarizeAndDisplayCounts error', err);
+  }
+}
+
+/*************************
+ * renderResults and modal functions
+ *************************/
 function renderResults(results, eligMap) {
   if (!resultsContainer) return;
   resultsContainer.innerHTML = '';
@@ -727,6 +765,8 @@ async function handleFileUpload(event, type) {
           eligData = json;
           updateStatus(`Loaded ${Array.isArray(eligData) ? eligData.length : 0} eligibility records`);
           updateProcessButtonState();
+          // If report already present, summarize counts
+          if (eligData && (rawParsedReport || xlsData)) summarizeAndDisplayCounts();
         } catch (err) {
           console.error('Eligibility read error', err);
           updateStatus('Error loading eligibility file');
@@ -747,6 +787,8 @@ async function handleFileUpload(event, type) {
       }
       updateStatus(`Loaded ${xlsData.length} report rows`);
       updateProcessButtonState();
+      // If eligibility file already present, summarize counts
+      if (eligData && (rawParsedReport || xlsData)) summarizeAndDisplayCounts();
       return;
     }
   } catch (err) {
@@ -768,6 +810,7 @@ async function handlePasteCsvClick() {
     xlsData = normalized.filter(r => r && r.claimID && String(r.claimID).trim() !== '');
     updateStatus(`Loaded ${xlsData.length} rows from pasted CSV`);
     updateProcessButtonState();
+    if (eligData && (rawParsedReport || xlsData)) summarizeAndDisplayCounts();
   } catch (err) {
     console.error('Error parsing pasted CSV:', err);
     updateStatus('Error parsing pasted CSV');
