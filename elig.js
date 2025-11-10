@@ -170,6 +170,7 @@ function findHeaderRowFromArrays(allRows, maxScan = 10) {
     }
     return obj;
   });
+  console.log(headers);
   return { headerRowIndex, headers, rows };
 }
 
