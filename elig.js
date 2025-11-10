@@ -123,31 +123,50 @@ function normalizeClinician(name) {
 /*************************
  * Header detection (from first)
  *************************/
-function findHeaderRowFromArrays(allRows, maxScan = 10) {
-  if (!Array.isArray(allRows) || allRows.length === 0) { return { headerRowIndex: -1, headers: [], rows: [] }; }
+function findHeaderRowFromArrays(allRows, maxScan = 20) {
+  if (!Array.isArray(allRows) || allRows.length === 0) {
+    return { headerRowIndex: -1, headers: [], rows: [] };
+  }
 
-  const tokens = [
+  const claimTokens = [
     'pri. claim no', 'pri claim no', 'claimid', 'claim id', 'pri. claim id', 'pri claim id',
     'center name', 'card number', 'card number / dha member id', 'member id', 'patientcardid',
     'pri. patient insurance card no', 'institution', 'facility id', 'mr no.', 'pri. claim id'
   ];
 
-  const scanLimit = Math.min(maxScan, allRows.length);
-  let bestIndex = 0;
+  let bestIndex = -1;
   let bestScore = 0;
 
-  for (let i = 0; i < scanLimit; i++) {
+  for (let i = 0; i < Math.min(maxScan, allRows.length); i++) {
     const row = allRows[i] || [];
-    const joined = row.map(c => (c === null || c === undefined) ? '' : String(c)).join(' ').toLowerCase();
+    const joined = row.map(c => (c === null || c === undefined ? '' : String(c))).join(' ').toLowerCase();
+
+    // Check for eligibility sheet first
+    if (joined.includes('eligibility request number')) {
+      bestIndex = i;
+      bestScore = Infinity; // prioritize eligibility
+      break;
+    }
+
+    // Otherwise, score for claims tokens
     let score = 0;
-    for (const t of tokens) { if (joined.includes(t)) score++; }
+    for (const t of claimTokens) { if (joined.includes(t)) score++; }
     if (score > bestScore) { bestScore = score; bestIndex = i; }
   }
 
-  const headerRowIndex = bestScore > 0 ? bestIndex : 0;
-  const rawHeaderRow = allRows[headerRowIndex] || [];
-  const headers = rawHeaderRow.map(h => (h === null || h === undefined) ? '' : String(h).trim());
-  const dataRows = allRows.slice(headerRowIndex + 1);
+  if (bestIndex === -1) {
+    console.warn('No valid header row found.');
+    return { headerRowIndex: -1, headers: [], rows: [] };
+  }
+  const headers = allRows[bestIndex].map(h => (h === null || h === undefined ? '' : String(h).trim()));
+  const dataRows = allRows.slice(bestIndex + 1).filter(row => {
+    // skip mostly blank/junk rows
+    const junkCount = row.filter((c, idx) => {
+      const key = headers[idx] || '';
+      return (c === null || c === undefined || c === '') || key.startsWith('_') || key.toLowerCase().includes('policy');
+    }).length;
+    return junkCount < row.length * 0.8;
+  });
   const rows = dataRows.map(rowArray => {
     const obj = {};
     for (let c = 0; c < headers.length; c++) {
@@ -156,50 +175,63 @@ function findHeaderRowFromArrays(allRows, maxScan = 10) {
     }
     return obj;
   });
-  return { headerRowIndex, headers, rows };
+  return { headerRowIndex: bestIndex, headers, rows };
 }
 
 /*******************************
  * ELIGIBILITY MATCHING FUNCTIONS (from first)
  *******************************/
-function prepareEligibilityMap(eligArray) {
-  if (!Array.isArray(eligArray) || eligArray.length === 0) return new Map();
-  const eligMap = new Map();
+function prepareEligibilityMap(rawSheetArray) {
+  if (!Array.isArray(rawSheetArray) || rawSheetArray.length === 0) return new Map();
 
-  const idCandidates = [
-    'Card Number / DHA Member ID',
-    'Card Number',
-    'MemberID',
-    'Member ID',
-    'Patient Insurance Card No',
-    'Policy1',
-    'Policy 1'
-  ];
-
-  let headersRowIndex = -1;
-
-  // Find the row that contains the "Eligibility Request Number" key
-  for (let i = 0; i < eligArray.length; i++) {
-    const row = eligArray[i];
-    if (!row || typeof row !== 'object') continue;
-
-    if (Object.keys(row).some(k => k.includes('Eligibility Request Number'))) {
-      headersRowIndex = i;
+  let headerRowIndex = -1;
+  // Find the row that contains "Eligibility Request Number"
+  for (let i = 0; i < rawSheetArray.length; i++) {
+    const row = rawSheetArray[i];
+    if (!Array.isArray(row)) continue;
+    if (row.some(cell => String(cell).trim() === "Eligibility Request Number")) {
+      headerRowIndex = i;
       break;
     }
   }
 
-  if (headersRowIndex === -1) {
-    console.warn('No eligibility header row found containing "Eligibility Request Number".');
-    return eligMap;
+  if (headerRowIndex === -1) {
+    console.warn("No eligibility header row found containing 'Eligibility Request Number'");
+    return new Map();
   }
 
-  // Process all rows after the header row
-  for (let i = headersRowIndex; i < eligArray.length; i++) {
-    const record = eligArray[i];
-    if (!record || typeof record !== 'object') continue;
+  const headers = rawSheetArray[headerRowIndex].map(h => String(h || '').trim());
 
-    // find raw member id from any known header
+  const eligMap = new Map();
+
+  for (let i = headerRowIndex + 1; i < rawSheetArray.length; i++) {
+    const row = rawSheetArray[i];
+    if (!Array.isArray(row)) continue;
+
+    // Skip row if mostly empty or looks like leftover policy/header row
+    const blankOrUnderscoreCount = row.filter((v, idx) => {
+      const key = headers[idx] || '';
+      return v === undefined || v === null || v === '' || key.includes('_');
+    }).length;
+    if (blankOrUnderscoreCount > headers.length / 2) continue;
+
+    // Build object
+    const record = {};
+    headers.forEach((h, idx) => {
+      record[h] = row[idx] !== undefined ? row[idx] : '';
+    });
+
+    // Normalize member ID
+    const idCandidates = [
+      'Card Number / DHA Member ID',
+      'Card Number',
+      'MemberID',
+      'Member ID',
+      'Patient Insurance Card No',
+      'Policy1',
+      'Policy 1'
+    ];
+
     let rawMemberID = '';
     for (const k of idCandidates) {
       if (Object.prototype.hasOwnProperty.call(record, k) && record[k] !== '' && record[k] !== null && record[k] !== undefined) {
@@ -212,13 +244,12 @@ function prepareEligibilityMap(eligArray) {
     const memberID = normalizeMemberID(rawMemberID);
     if (!memberID) continue;
 
-    const eligRecord = Object.assign({}, record);
-
+    // Add to map
     if (!eligMap.has(memberID)) eligMap.set(memberID, []);
-    eligMap.get(memberID).push(eligRecord);
+    eligMap.get(memberID).push(record);
   }
 
-  console.log("Elig Map:", eligMap);
+  console.log("Elig Map built successfully. Members:", [...eligMap.keys()].length);
   return eligMap;
 }
 
