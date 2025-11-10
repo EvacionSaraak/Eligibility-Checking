@@ -163,7 +163,6 @@ function findHeaderRowFromArrays(allRows, maxScan = 10) {
  * ELIGIBILITY MATCHING FUNCTIONS (from first)
  *******************************/
 function prepareEligibilityMap(eligArray) {
-  // Accepts array-of-objects (what XLSX.utils.sheet_to_json returns)
   if (!Array.isArray(eligArray) || eligArray.length === 0) return new Map();
   const eligMap = new Map();
 
@@ -175,12 +174,37 @@ function prepareEligibilityMap(eligArray) {
     'Member ID',
     'Patient Insurance Card No',
     'Policy1',
-    'Policy 1',
-    'Card Number / DHA Member ID' // duplicate kept intentionally for robustness
+    'Policy 1'
   ];
 
-  eligArray.forEach(record => {
-    if (!record || typeof record !== 'object') return;
+  let headersFound = false;
+  let headersRowIndex = -1;
+
+  // Find the first row that has at least one of the member ID fields
+  for (let i = 0; i < eligArray.length; i++) {
+    const row = eligArray[i];
+    if (!row || typeof row !== 'object') continue;
+
+    for (const k of idCandidates) {
+      if (Object.prototype.hasOwnProperty.call(row, k)) {
+        headersFound = true;
+        headersRowIndex = i;
+        break;
+      }
+    }
+
+    if (headersFound) break;
+  }
+
+  if (!headersFound) {
+    console.warn('No valid eligibility headers found in sheet.');
+    return eligMap;
+  }
+
+  // Start processing from the header row onward
+  for (let i = headersRowIndex; i < eligArray.length; i++) {
+    const record = eligArray[i];
+    if (!record || typeof record !== 'object') continue;
 
     // find raw member id from any known header
     let rawMemberID = '';
@@ -190,17 +214,17 @@ function prepareEligibilityMap(eligArray) {
         if (rawMemberID) break;
       }
     }
-    if (!rawMemberID) return;
+    if (!rawMemberID) continue;
 
     const memberID = normalizeMemberID(rawMemberID);
-    if (!memberID) return;
+    if (!memberID) continue;
 
     // Build a normalized eligibility record copy (preserve fields for display)
     const eligRecord = Object.assign({}, record);
 
     if (!eligMap.has(memberID)) eligMap.set(memberID, []);
     eligMap.get(memberID).push(eligRecord);
-  });
+  }
 
   console.log("Elig Map:", eligMap);
   return eligMap;
