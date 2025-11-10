@@ -970,10 +970,10 @@ async function handleProcessClick() {
       else if ('Pri. Claim ID' in firstRow) reportType = 'Odoo';
     }
 
-    // validateReportClaims now receives reportType
+    // Validate claims
     const results = validateReportClaims(xlsData, eligMap, reportType);
 
-    // Apply optional filter if checkbox is checked (by insurance company)
+    // Apply optional filter if checkbox is checked (by insurance company only)
     let outputResults = results;
     if (filterCheckbox && filterCheckbox.checked) {
       outputResults = results.filter(r => {
@@ -991,7 +991,6 @@ async function handleProcessClick() {
 
   } catch (err) {
     console.error('Processing stopped due to error:', err);
-    // The updateStatus call in validateReportClaims already sets a message if needed
   }
 }
 
