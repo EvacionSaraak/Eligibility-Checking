@@ -155,38 +155,36 @@ function findHeaderRowFromArrays(allRows, maxScan = 10) {
 /*******************************
  * ELIGIBILITY MATCHING FUNCTIONS *
  *******************************/
-function prepareEligibilityMap(eligDataArray) {
+function prepareEligibilityMap(eligData) {
   const eligMap = new Map();
-  if (!Array.isArray(eligDataArray)) return eligMap;
 
-  eligDataArray.forEach(e => {
+  eligData.forEach(e => {
     const rawID =
       e['Card Number / DHA Member ID'] ||
       e['Card Number'] ||
       e['_5'] ||
       e['MemberID'] ||
       e['Member ID'] ||
-      e['Patient Insurance Card No'] ||
-      e['PatientCardID'] ||
-      e['CardNumber'] ||
-      e['Pri. Member ID'];
+      e['Patient Insurance Card No'];
 
     if (!rawID) return;
 
-    const memberID = normalizeMemberID(rawID);
+    const memberID = normalizeMemberID(rawID); // ✅ only strips leading zeroes
+
     if (!eligMap.has(memberID)) eligMap.set(memberID, []);
+
     const eligRecord = {
-      'Eligibility Request Number': e['Eligibility Request Number'] || e['Eligibility Request No'] || e['Request Number'] || '',
-      'Card Number / DHA Member ID': rawID,
-      'Answered On': e['Answered On'] || e['AnsweredOn'] || e['Answered Date'] || '',
-      'Ordered On': e['Ordered On'] || e['OrderedOn'] || '',
-      'Status': e['Status'] || '',
-      'Clinician': e['Clinician'] || '',
-      'Payer Name': e['Payer Name'] || e['PayerName'] || '',
-      'Service Category': e['Service Category'] || '',
-      'Package Name': e['Package Name'] || e['PackageName'] || '',
-      'Department': e['Department'] || e['Clinic'] || ''
+      'Eligibility Request Number': e['Eligibility Request Number'],
+      'Card Number / DHA Member ID': rawID, // preserve original for display
+      'Answered On': e['Answered On'],
+      'Ordered On': e['Ordered On'],
+      'Status': e['Status'],
+      'Clinician': e['Clinician'],
+      'Payer Name': e['Payer Name'],
+      'Service Category': e['Service Category'],
+      'Package Name': e['Package Name']
     };
+
     eligMap.get(memberID).push(eligRecord);
   });
 
@@ -223,26 +221,50 @@ function isServiceCategoryValid(serviceCategory, consultationStatus, rawPackage)
 }
 
 function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians = []) {
-  const normalizedID = normalizeMemberID(memberID);
-  const eligList = eligMap.get(normalizedID) || [];
+  const normalizedID = String(memberID || '').trim();
+  const eligList = eligMap.get(normalizedID) || []; // PATCHED: use Map.get
+
   if (!eligList.length) return null;
 
-  const claimCliniciansFiltered = Array.isArray(claimClinicians) ? claimClinicians.filter(Boolean) : [];
+  console.log(`[Diagnostics] Searching eligibilities for member "${memberID}" (normalized: "${normalizedID}")`);
+  console.log(`[Diagnostics] Claim date: ${claimDate} (${DateHandler.format(claimDate)}), Claim clinicians: ${JSON.stringify(claimClinicians)}`);
 
   for (const elig of eligList) {
-    const eligDate = DateHandler.parse(elig['Answered On'] || elig['Ordered On']);
-    if (!DateHandler.isSameDay(claimDate, eligDate)) continue;
+    console.log(`[Diagnostics] Checking eligibility ${elig["Eligibility Request Number"] || "(unknown)"}:`);
 
-    if (elig.Clinician && claimCliniciansFiltered.length && !checkClinicianMatch(claimCliniciansFiltered, elig.Clinician)) continue;
+    const eligDate = DateHandler.parse(elig["Answered On"]);
+    // PATCHED: use isSameDay, which now compares UTC days
+    if (!DateHandler.isSameDay(claimDate, eligDate)) {
+      console.log(`  ❌ Date mismatch: claim ${DateHandler.format(claimDate)} vs elig ${DateHandler.format(eligDate)}`);
+      continue;
+    }
 
-    const svcCheck = isServiceCategoryValid(elig['Service Category'] || '', elig['Consultation Status'] || '', (elig.Department || elig.Clinic || ''));
-    if (!svcCheck.valid) continue;
+    const eligClinician = (elig.Clinician || '').trim();
+    if (eligClinician && claimClinicians.length && !claimClinicians.includes(eligClinician)) {
+      console.log(`  ❌ Clinician mismatch: claim clinicians ${JSON.stringify(claimClinicians)} vs elig clinician "${eligClinician}"`);
+      continue;
+    }
 
-    if ((elig.Status || '').toLowerCase() !== 'eligible') continue;
+    const serviceCategory = (elig['Service Category'] || '').trim();
+    const consultationStatus = (elig['Consultation Status'] || '').trim();
+    const department = (elig.Department || elig.Clinic || '').toLowerCase();
+    const categoryCheck = isServiceCategoryValid(serviceCategory, consultationStatus, department);
 
-    if (elig['Eligibility Request Number']) usedEligibilities.add(elig['Eligibility Request Number']);
+    if (!categoryCheck.valid) {
+      console.log(`  ❌ Service category mismatch: claim dept "${department}" not valid for category "${serviceCategory}" / consult "${consultationStatus}"`);
+      continue;
+    }
+
+    if ((elig.Status || '').toLowerCase() !== 'eligible') {
+      console.log(`  ❌ Status mismatch: expected Eligible, got "${elig.Status}"`);
+      continue;
+    }
+
+    console.log(`  ✅ Eligibility match found: ${elig["Eligibility Request Number"]}`);
     return elig;
   }
+
+  console.log(`[Diagnostics] No matching eligibility passed all checks for member "${memberID}"`);
   return null;
 }
 
