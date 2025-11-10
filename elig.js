@@ -1,222 +1,4 @@
-/*******************************
- * elig.js - direct port of checkers/checker_elig.js
- *
- * Behavior: This is the report-only eligibility checker copied from
- * checkers/checker_elig.js with XML pieces removed and event wiring
- * adapted to the elig.html interface (reportFileInput, eligibilityFileInput,
- * processBtn, exportInvalidBtn, uploadStatus, results, filter toggle).
- *
- * I did not change validation/business logic; I only removed XML branches
- * and references so the script runs with your HTML as-is.
- *
- * Requires SheetJS (xlsx) to be loaded by the page (elig.html already does).
- *******************************/
-
-const SERVICE_PACKAGE_RULES = {
-  'Dental Services': ['dental', 'orthodontic'],
-  'Physiotherapy': ['physio'],
-  'Other OP Services': ['physio', 'diet', 'occupational', 'speech'],
-  'Consultation': []  // Special handling below
-};
-const DATE_KEYS = ['Date', 'On'];
-const MONTHS = ["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"];
-
-// Application state
-let xlsData = null;        // parsed & normalized report rows
-let eligData = null;       // eligibility sheet as array of objects
-let rawParsedReport = null; // raw parsed sheet result
-const usedEligibilities = new Set();
-let lastReportWasCSV = false;
-
-// DOM Elements (lookups performed in initializeEventListeners)
-let reportInput, eligInput, processBtn, exportInvalidBtn, statusEl, resultsContainer, filterCheckbox, filterStatus, pasteTextarea, pasteBtn;
-
-/*************************
- * DATE HANDLING UTILITIES *
- *************************/
-const DateHandler = {
-  parse: function(input, options = {}) {
-    const preferMDY = !!options.preferMDY;
-    if (!input && input !== 0) return null;
-    if (input instanceof Date) return isNaN(input) ? null : input;
-    if (typeof input === 'number') return this._parseExcelDate(input);
-
-    const cleanStr = String(input).trim().replace(/[,.]/g, '');
-    const parsed = this._parseStringDate(cleanStr, preferMDY) || new Date(cleanStr);
-    if (isNaN(parsed)) return null;
-    return parsed;
-  },
-
-  format: function(date) {
-    if (!(date instanceof Date) || isNaN(date)) return '';
-    const d = date.getUTCDate().toString().padStart(2, '0');
-    const m = (date.getUTCMonth() + 1).toString().padStart(2, '0');
-    const y = date.getUTCFullYear();
-    return `${d}/${m}/${y}`;
-  },
-
-  isSameDay: function(date1, date2) {
-    if (!date1 || !date2) return false;
-    return date1.getUTCDate() === date2.getUTCDate() &&
-           date1.getUTCMonth() === date2.getUTCMonth() &&
-           date1.getUTCFullYear() === date2.getUTCFullYear();
-  },
-
-  _parseExcelDate: function(serial) {
-    const utcDays = Math.floor(serial) - 25569;
-    const ms = utcDays * 86400 * 1000;
-    const date = new Date(ms);
-    return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
-  },
-
-  _parseStringDate: function(dateStr, preferMDY = false) {
-    if (!dateStr || typeof dateStr !== 'string') return null;
-    if (dateStr.includes(' ')) dateStr = dateStr.split(' ')[0];
-    const dmyMdyMatch = dateStr.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
-    if (dmyMdyMatch) {
-      const part1 = parseInt(dmyMdyMatch[1], 10);
-      const part2 = parseInt(dmyMdyMatch[2], 10);
-      let year = parseInt(dmyMdyMatch[3], 10);
-      if (year < 100) year += 2000;
-      if (part1 > 12 && part2 <= 12) return new Date(Date.UTC(year, part2 - 1, part1));
-      if (part2 > 12 && part1 <= 12) return new Date(Date.UTC(year, part1 - 1, part2));
-      return preferMDY ? new Date(Date.UTC(year, part1 - 1, part2)) : new Date(Date.UTC(year, part2 - 1, part1));
-    }
-    const textMatch = dateStr.match(/^(\d{1,2})[\/\- ]([a-z]{3,})[\/\- ](\d{2,4})$/i);
-    if (textMatch) {
-      const day = parseInt(textMatch[1], 10);
-      let year = parseInt(textMatch[3], 10);
-      if (year < 100) year += 2000;
-      const mon = MONTHS.indexOf(textMatch[2].toLowerCase().substr(0, 3));
-      if (mon >= 0) return new Date(Date.UTC(year, mon, day));
-    }
-    const isoMatch = dateStr.match(/^(\d{4})[\/\-](\d{2})[\/\-](\d{2})$/);
-    if (isoMatch) return new Date(Date.UTC(parseInt(isoMatch[1],10), parseInt(isoMatch[2],10) - 1, parseInt(isoMatch[3],10)));
-    return null;
-  }
-};
-
-/*****************************
- * DATA NORMALIZATION FUNCTIONS *
- *****************************/
-function normalizeMemberID(id) {
-  if (!id) return '';
-  return String(id).trim().replace(/^0+/, '');
-}
-
-function normalizeClinician(name) {
-  if (!name) return '';
-  return name.trim().toLowerCase().replace(/\s+/g, ' ');
-}
-
-/*************************
- * Header detection (adapted)
- *************************/
-function findHeaderRowFromArrays(allRows, maxScan = 10) {
-  if (!Array.isArray(allRows) || allRows.length === 0) { return { headerRowIndex: -1, headers: [], rows: [] }; }
-
-  const tokens = [
-    'pri. claim no', 'pri claim no', 'claimid', 'claim id', 'pri. claim id', 'pri claim id',
-    'center name', 'card number', 'card number / dha member id', 'member id', 'patientcardid',
-    'pri. patient insurance card no', 'institution', 'facility id', 'mr no.', 'pri. claim id'
-  ];
-
-  const scanLimit = Math.min(maxScan, allRows.length);
-  let bestIndex = 0;
-  let bestScore = 0;
-
-  for (let i = 0; i < scanLimit; i++) {
-    const row = allRows[i] || [];
-    const joined = row.map(c => (c === null || c === undefined) ? '' : String(c)).join(' ').toLowerCase();
-    let score = 0;
-    for (const t of tokens) { if (joined.includes(t)) score++; }
-    if (score > bestScore) { bestScore = score; bestIndex = i; }
-  }
-
-  const headerRowIndex = bestScore > 0 ? bestIndex : 0;
-  const rawHeaderRow = allRows[headerRowIndex] || [];
-  const headers = rawHeaderRow.map(h => (h === null || h === undefined) ? '' : String(h).trim());
-  const dataRows = allRows.slice(headerRowIndex + 1);
-  const rows = dataRows.map(rowArray => {
-    const obj = {};
-    for (let c = 0; c < headers.length; c++) {
-      const key = headers[c] || `Column${c+1}`;
-      obj[key] = rowArray[c] === undefined || rowArray[c] === null ? '' : rowArray[c];
-    }
-    return obj;
-  });
-  return { headerRowIndex, headers, rows };
-}
-
-/*******************************
- * ELIGIBILITY MATCHING FUNCTIONS *
- *******************************/
-function prepareEligibilityMap(eligDataArray) {
-  const eligMap = new Map();
-  if (!Array.isArray(eligDataArray)) return eligMap;
-
-  eligDataArray.forEach(e => {
-    const rawID =
-      e['Card Number / DHA Member ID'] ||
-      e['Card Number'] ||
-      e['_5'] ||
-      e['MemberID'] ||
-      e['Member ID'] ||
-      e['Patient Insurance Card No'] ||
-      e['PatientCardID'] ||
-      e['CardNumber'] ||
-      e['Pri. Member ID'];
-
-    if (!rawID) return;
-
-    const memberID = normalizeMemberID(rawID);
-    if (!eligMap.has(memberID)) eligMap.set(memberID, []);
-    const eligRecord = {
-      'Eligibility Request Number': e['Eligibility Request Number'] || e['Eligibility Request No'] || e['Request Number'] || '',
-      'Card Number / DHA Member ID': rawID,
-      'Answered On': e['Answered On'] || e['AnsweredOn'] || e['Answered Date'] || '',
-      'Ordered On': e['Ordered On'] || e['OrderedOn'] || '',
-      'Status': e['Status'] || '',
-      'Clinician': e['Clinician'] || '',
-      'Payer Name': e['Payer Name'] || e['PayerName'] || '',
-      'Service Category': e['Service Category'] || '',
-      'Package Name': e['Package Name'] || e['PackageName'] || '',
-      'Department': e['Department'] || e['Clinic'] || ''
-    };
-    eligMap.get(memberID).push(eligRecord);
-  });
-
-  return eligMap;
-}
-
-function checkClinicianMatch(claimClinicians, eligClinician) {
-  if (!eligClinician || !claimClinicians?.length) return true;
-  const normElig = normalizeClinician(eligClinician);
-  return claimClinicians.some(c => normalizeClinician(c) === normElig);
-}
-
-function isServiceCategoryValid(serviceCategory, consultationStatus, rawPackage) {
-  if (!serviceCategory) return { valid: true };
-  const categoryLower = String(serviceCategory).trim().toLowerCase();
-  const pkgRaw = rawPackage || '';
-  const pkg = String(pkgRaw).toLowerCase();
-
-  if (categoryLower === 'consultation' && consultationStatus?.toLowerCase() === 'elective') {
-    const disallowed = ['dental', 'physio', 'diet', 'occupational', 'speech'];
-    if (disallowed.some(term => pkg.includes(term))) {
-      return { valid: false, reason: `Consultation (Elective) cannot include restricted service types. Found: "${pkgRaw}"` };
-    }
-    return { valid: true };
-  }
-
-  const allowedKeywords = SERVICE_PACKAGE_RULES[categoryLower];
-  if (allowedKeywords && allowedKeywords.length > 0) {
-    if (pkg && !allowedKeywords.some(keyword => pkg.includes(keyword))) {
-      return { valid: false, reason: `${serviceCategory} category requires related package. Found: "${pkgRaw}"` };
-    }
-  }
-  return { valid: true };
-}
+// ... previous snippet continues ...
 
 function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians = []) {
   const normalizedID = normalizeMemberID(memberID);
@@ -246,17 +28,14 @@ function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians =
  * Normalize & validate report rows
  *************************/
 function normalizeReportData(rawParsed) {
-  // rawParsed: { headerRowIndex, headers, rows } from findHeaderRowFromArrays
   const rows = rawParsed.rows || [];
   const rawHeaders = rawParsed.headers || [];
-
   function getField(obj, candidates) {
     for (const k of candidates) {
       if (obj && Object.prototype.hasOwnProperty.call(obj, k) && obj[k] !== '' && obj[k] !== null && obj[k] !== undefined) return obj[k];
     }
     return '';
   }
-
   const normalized = rows.map(r => {
     const out = {
       claimID: r['Pri. Claim No'] || r['Pri. Claim ID'] || r['ClaimID'] || getField(r, ['ClaimID','Pri. Claim No','Pri. Claim ID','Claim ID','Pri. Claim ID']) || '',
@@ -268,8 +47,6 @@ function normalizeReportData(rawParsed) {
       insuranceCompany: r['Pri. Payer Name'] || r['Insurance Company'] || getField(r, ['Payer Name','Insurance Company','Pri. Payer Name']) || '',
       claimStatus: r['Codification Status'] || r['VisitStatus'] || r['Status'] || getField(r, ['Codification Status','VisitStatus','Status','Claim Status']) || ''
     };
-
-    // fallback heuristics using raw headers if needed
     if (!out.memberID) {
       for (const h of rawHeaders) {
         const val = r[h];
@@ -282,10 +59,8 @@ function normalizeReportData(rawParsed) {
         if (val && String(h).toLowerCase().includes('claim')) { out.claimID = val; break; }
       }
     }
-
     return out;
   });
-
   return normalized;
 }
 
@@ -316,14 +91,12 @@ function validateReportClaims(reportDataArray, eligMap) {
         fullEligibilityRecord: null
       };
     }
-
     const hasLeadingZero = /^0+\d+$/.test(memberID);
     const eligibility = findEligibilityForClaim(eligMap, claimDate, memberID, [row.clinician]);
     const remarks = [];
     let finalStatus = 'invalid';
 
     if (hasLeadingZero) remarks.push('Member ID has a leading zero; claim marked as invalid.');
-
     if (!eligibility) {
       remarks.push(`No matching eligibility found for ${memberID} on ${formattedDate}`);
       logNoEligibilityMatch(
@@ -353,7 +126,6 @@ function validateReportClaims(reportDataArray, eligMap) {
         finalStatus = 'valid';
       }
     }
-
     return {
       claimID: row.claimID,
       memberID,
@@ -370,13 +142,9 @@ function validateReportClaims(reportDataArray, eligMap) {
       fullEligibilityRecord: eligibility
     };
   });
-
   return results.filter(r => r);
 }
 
-/*********************
- * Diagnostic logger used when a claim has no matching eligibility *
- *********************/
 function logNoEligibilityMatch(sourceType, claimSummary, memberID, parsedClaimDate, claimClinicians, eligMap) {
   try {
     const normalizedID = normalizeMemberID(memberID);
@@ -424,7 +192,6 @@ function parseExcelFile(file) {
         const workbook = XLSX.read(data, { type: 'array' });
         const sheet = workbook.Sheets[workbook.SheetNames[0]];
         const allRows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
-
         const detection = findHeaderRowFromArrays(allRows, 20);
         resolve(detection);
       } catch (error) {
@@ -482,7 +249,6 @@ function parseCsvFile(file) {
           resolve({ headerRowIndex, headers, rows });
           return;
         }
-
         const seen = new Set();
         const uniqueRows = [];
         rows.forEach(row => {
@@ -530,7 +296,6 @@ function renderResults(results, eligMap) {
     resultsContainer.innerHTML = '<div class="no-results">No claims to display</div>';
     return;
   }
-
   const tableContainer = document.createElement('div');
   tableContainer.className = 'analysis-results';
   tableContainer.style.overflowX = 'auto';
@@ -560,32 +325,24 @@ function renderResults(results, eligMap) {
 
   results.forEach((result, index) => {
     if (!result.memberID || result.memberID.trim() === '') return;
-
     const statusToCheck = (result.claimStatus || result.status || result.fullEligibilityRecord?.Status || '')
       .toString()
       .trim()
       .toLowerCase();
-
     if (statusToCheck === 'not seen') return;
-
     if (result.finalStatus && statusCounts.hasOwnProperty(result.finalStatus)) {
       statusCounts[result.finalStatus]++;
     }
-
     const row = document.createElement('tr');
     row.className = result.finalStatus;
-
     const statusBadge = result.status ? `<span class="status-badge ${result.status.toLowerCase() === 'eligible' ? 'eligible' : 'ineligible'}">${escapeHtml(result.status)}</span>` : '';
-
     const remarksHTML = result.remarks && result.remarks.length > 0 ? result.remarks.map(r => `<div>${escapeHtml(r)}</div>`).join('') : '<div class="source-note">No remarks</div>';
-
     let detailsCell = '<div class="source-note">N/A</div>';
     if (result.fullEligibilityRecord?.['Eligibility Request Number']) {
       detailsCell = `<button class="details-btn eligibility-details" data-index="${index}">${escapeHtml(result.fullEligibilityRecord['Eligibility Request Number'])}</button>`;
     } else if (eligMap && typeof eligMap.get === 'function' && (eligMap.get(result.memberID) || []).length) {
       detailsCell = `<button class="details-btn show-all-eligibilities" data-member="${escapeHtml(result.memberID)}">View All</button>`;
     }
-
     row.innerHTML = `
       <td>${escapeHtml(result.claimID)}</td>
       <td>${escapeHtml(result.memberID)}</td>
@@ -600,7 +357,6 @@ function renderResults(results, eligMap) {
     `;
     tbody.appendChild(row);
   });
-
   table.appendChild(tbody);
   tableContainer.appendChild(table);
   resultsContainer.appendChild(tableContainer);
@@ -614,7 +370,6 @@ function renderResults(results, eligMap) {
     <span class="invalid">${statusCounts.invalid} invalid</span>
   `;
   resultsContainer.prepend(summary);
-
   initEligibilityModal(results, eligMap);
 }
 
@@ -650,7 +405,6 @@ function initEligibilityModal(results, eligMap) {
     document.getElementById("modalCloseBtn").onclick = hideModal;
     document.getElementById("modalOverlay").onclick = function(e) { if (e.target.id === "modalOverlay") hideModal(); };
   }
-
   document.querySelectorAll(".eligibility-details").forEach(btn => {
     btn.onclick = function() {
       const index = parseInt(this.dataset.index, 10);
@@ -661,7 +415,6 @@ function initEligibilityModal(results, eligMap) {
       document.getElementById("modalOverlay").style.display = "block";
     };
   });
-
   document.querySelectorAll(".show-all-eligibilities").forEach(btn => {
     btn.onclick = function() {
       const member = this.dataset.member;
@@ -743,12 +496,9 @@ function exportInvalidEntries(results) {
 async function handleFileUpload(event, type) {
   const file = event.target.files && event.target.files[0];
   if (!file) return;
-
   try {
     updateStatus(`Loading ${type} file...`);
-
     if (type === 'eligibility') {
-      // read elig as sheet_to_json (objects)
       const reader = new FileReader();
       reader.onload = function(ev) {
         try {
@@ -768,7 +518,6 @@ async function handleFileUpload(event, type) {
       reader.readAsArrayBuffer(file);
       return;
     }
-
     if (type === 'report') {
       lastReportWasCSV = file.name.toLowerCase().endsWith('.csv');
       const parsed = await (file.name.toLowerCase().endsWith('.csv') ? parseCsvFile(file) : parseExcelFile(file));
@@ -833,7 +582,6 @@ async function handleProcessClick() {
 }
 
 function updateStatus(msg) { if (statusEl) statusEl.textContent = msg || 'Ready'; }
-
 function onFilterToggle() {
   if (!filterStatus) return;
   const on = filterCheckbox && filterCheckbox.checked;
@@ -856,14 +604,12 @@ function initializeEventListeners() {
   filterStatus = document.getElementById('filterStatus');
   pasteTextarea = document.getElementById('pasteCsvTextarea');
   pasteBtn = document.getElementById('pasteCsvBtn');
-
   if (eligInput) eligInput.addEventListener('change', (e) => handleFileUpload(e, 'eligibility'));
   if (reportInput) reportInput.addEventListener('change', (e) => handleFileUpload(e, 'report'));
   if (processBtn) processBtn.addEventListener('click', handleProcessClick);
   if (exportInvalidBtn) exportInvalidBtn.addEventListener('click', () => exportInvalidEntries(window.lastValidationResults || []));
   if (filterCheckbox) filterCheckbox.addEventListener('change', onFilterToggle);
   if (pasteBtn) pasteBtn.addEventListener('click', handlePasteCsvClick);
-
   if (filterStatus) onFilterToggle();
 }
 
