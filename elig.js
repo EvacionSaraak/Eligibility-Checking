@@ -844,34 +844,51 @@ function exportInvalidEntries(results) {
 /*************************
  * Handlers & initialization (kept, adjusted to use fixed functions)
  *************************/
-async function handleProcessClick() {
+async function handleFileUpload(event, type) {
+  const file = event.target.files && event.target.files[0];
+  if (!file) return;
   try {
-    if (!eligData) { updateStatus('Processing stopped: Eligibility file missing'); return; }
-    if (!xlsData || !xlsData.length) { updateStatus('Processing stopped: Report file missing'); return; }
-
-    updateStatus('Processing...');
-    usedEligibilities.clear();
-    const eligMap = prepareEligibilityMap(eligData);
-
-    // validateReportClaims now fails immediately if any required field is missing
-    const results = validateReportClaims(xlsData, eligMap);
-
-    // apply optional filter if needed
-    let outputResults = results;
-    if (filterCheckbox && filterCheckbox.checked) {
-      outputResults = results.filter(r => {
-        const provider = (r.provider || r.insuranceCompany || r.packageName || '').toString().toLowerCase();
-        return provider.includes('daman') || provider.includes('thiqa');
-      });
+    updateStatus(`Loading ${type} file...`);
+    if (type === 'eligibility') {
+      const reader = new FileReader();
+      reader.onload = function(ev) {
+        try {
+          const data = new Uint8Array(ev.target.result);
+          const wb = XLSX.read(data, { type: 'array' });
+          const sheet = wb.Sheets[wb.SheetNames[0]];
+          const json = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+          eligData = json;
+          updateStatus(`Loaded ${Array.isArray(eligData) ? eligData.length : 0} eligibility records`);
+          updateProcessButtonState();
+          // If report already present, summarize counts
+          if (eligData && (rawParsedReport || xlsData)) summarizeAndDisplayCounts();
+        } catch (err) {
+          console.error('Eligibility read error', err);
+          updateStatus('Error loading eligibility file');
+        }
+      };
+      reader.onerror = () => updateStatus('Error loading eligibility file');
+      reader.readAsArrayBuffer(file);
+      return;
     }
-
-    window.lastValidationResults = outputResults;
-    renderResults(outputResults, eligMap);
-    updateStatus(`Processed ${outputResults.length} claims successfully`);
-
+    if (type === 'report') {
+      lastReportWasCSV = file.name.toLowerCase().endsWith('.csv');
+      const parsed = await (file.name.toLowerCase().endsWith('.csv') ? parseCsvFile(file) : parseExcelFile(file));
+      rawParsedReport = parsed;
+      const normalized = normalizeReportData(parsed);
+      xlsData = normalized.filter(r => r && r.claimID && String(r.claimID).trim() !== '');
+      if (!xlsData || xlsData.length === 0) {
+        console.warn('Report file contained no recognizable claim rows');
+      }
+      updateStatus(`Loaded ${xlsData.length} report rows`);
+      updateProcessButtonState();
+      // If eligibility file already present, summarize counts
+      if (eligData && (rawParsedReport || xlsData)) summarizeAndDisplayCounts();
+      return;
+    }
   } catch (err) {
-    console.error('Processing stopped due to error:', err);
-    // The updateStatus call in validateReportClaims already set the message
+    console.error('File load error:', err);
+    updateStatus(`Error loading ${type} file`);
   }
 }
 
@@ -904,30 +921,33 @@ function updateProcessButtonState() {
 }
 
 async function handleProcessClick() {
-  if (!eligData) { alert('Please upload eligibility file first'); return; }
-  if (!xlsData || !xlsData.length) { alert('Please upload report file first'); return; }
   try {
+    if (!eligData) { updateStatus('Processing stopped: Eligibility file missing'); return; }
+    if (!xlsData || !xlsData.length) { updateStatus('Processing stopped: Report file missing'); return; }
+
     updateStatus('Processing...');
     usedEligibilities.clear();
     const eligMap = prepareEligibilityMap(eligData);
+
+    // validateReportClaims now fails immediately if any required field is missing
     const results = validateReportClaims(xlsData, eligMap);
-    // Apply optional filter (if filter checkbox present and checked)
+
+    // apply optional filter if needed
+    let outputResults = results;
     if (filterCheckbox && filterCheckbox.checked) {
-      const filtered = results.filter(r => {
-        const provider = (r.provider || r.insuranceCompany || r.packageName || r['Payer Name'] || r['Insurance Company'] || '').toString().toLowerCase();
+      outputResults = results.filter(r => {
+        const provider = (r.provider || r.insuranceCompany || r.packageName || '').toString().toLowerCase();
         return provider.includes('daman') || provider.includes('thiqa');
       });
-      window.lastValidationResults = filtered;
-      renderResults(filtered, eligMap);
-      updateStatus(`Processed ${filtered.length} claims successfully`);
-    } else {
-      window.lastValidationResults = results;
-      renderResults(results, eligMap);
-      updateStatus(`Processed ${results.length} claims successfully`);
     }
+
+    window.lastValidationResults = outputResults;
+    renderResults(outputResults, eligMap);
+    updateStatus(`Processed ${outputResults.length} claims successfully`);
+
   } catch (err) {
-    console.error('Processing error:', err);
-    updateStatus('Processing failed');
+    console.error('Processing stopped due to error:', err);
+    // The updateStatus call in validateReportClaims already set the message
   }
 }
 
