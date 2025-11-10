@@ -164,29 +164,43 @@ function findHeaderRowFromArrays(allRows, maxScan = 10) {
  * ELIGIBILITY MATCHING FUNCTIONS (from first)
  *******************************/
 function prepareEligibilityMap(eligArray) {
-  const eligMap = new Map();
+    console.log('=== Eligibility Array Debug ===');
+    console.log('Total entries in eligArray:', eligArray.length);
+    console.log('First 5 entries:', eligArray.slice(0, 5));
 
-  for (const record of eligArray) {
-    const rawMemberID = String(record.memberID || record['PatientCardID'] || '').trim();
-    if (!rawMemberID) continue;
+    const eligMap = new Map();
 
-    const memberID = normalizeMemberID(rawMemberID);
+    eligArray.forEach((record, index) => {
+        // Try multiple possible member ID fields
+        const rawMemberID = String(record.memberID || record['PatientCardID'] || '').trim();
 
-    if (!eligMap.has(memberID)) eligMap.set(memberID, []);
-    eligMap.get(memberID).push(record);
-  }
+        if (!rawMemberID) {
+            console.log(`Skipping record ${index}: No MemberID found`, record);
+            return; // skip this record
+        }
 
-  // 🔹 Log only the first 5 entries
-  console.log('=== First 5 Entries of Eligibility Map ===');
-  let count = 0;
-  for (const [key, value] of eligMap.entries()) {
-    console.log(key, value);
-    count++;
-    if (count >= 5) break;
-  }
-  console.log('=========================================');
+        // Optional: normalize the memberID
+        const memberID = normalizeMemberID(rawMemberID);
 
-  return eligMap;
+        if (!memberID) {
+            console.log(`Skipping record ${index}: Normalized MemberID empty`, rawMemberID);
+            return;
+        }
+
+        // Add to map
+        if (eligMap.has(memberID)) {
+            console.log(`Duplicate MemberID at record ${index}:`, memberID);
+        }
+        eligMap.set(memberID, record);
+    });
+
+    // Show only the first 5 entries to avoid clutter
+    const firstFive = Array.from(eligMap.entries()).slice(0, 5);
+    console.log('=== First 5 Entries of Eligibility Map ===');
+    firstFive.forEach(([key, value], i) => console.log(i + 1, key, value));
+    console.log('=========================================');
+
+    return eligMap;
 }
 
 function checkClinicianMatch(claimClinicians, eligClinician) {
