@@ -112,8 +112,8 @@ const DateHandler = {
  * DATA NORMALIZATION FUNCTIONS (from first)
  *****************************/
 function normalizeMemberID(id) {
-  if (!id) return '';
-  return String(id).trim().replace(/^0+/, '');
+  if (!id) return "";
+  return String(id).replace(/\D/g, "").trim();
 }
 
 function normalizeClinician(name) {
@@ -213,7 +213,6 @@ function isServiceCategoryValid(serviceCategory, consultationStatus, rawPackage)
   const pkgRaw = rawPackage || '';
   const pkg = pkgRaw.toLowerCase();
 
-  // Consultation rule: allow anything EXCEPT the restricted types
   if (category === 'consultation' && consultationStatus?.toLowerCase() === 'elective') {
     const disallowed = ['dental', 'physio', 'diet', 'occupational', 'speech'];
     if (disallowed.some(term => pkg.includes(term))) {
@@ -225,10 +224,8 @@ function isServiceCategoryValid(serviceCategory, consultationStatus, rawPackage)
     return { valid: true };
   }
 
-  // Check other rules based on category
   const allowedKeywords = SERVICE_PACKAGE_RULES[serviceCategory];
   if (allowedKeywords && allowedKeywords.length > 0) {
-    // If package name is present, at least one keyword must match
     if (pkg && !allowedKeywords.some(keyword => pkg.includes(keyword))) {
       return {
         valid: false,
@@ -237,7 +234,6 @@ function isServiceCategoryValid(serviceCategory, consultationStatus, rawPackage)
     }
   }
 
-  // If no special rule or package is empty, accept
   return { valid: true };
 }
 
@@ -247,44 +243,24 @@ function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians =
 
   if (!eligList.length) return null;
 
-  console.log(`[Diagnostics] Searching eligibilities for member "${memberID}" (normalized: "${normalizedID}")`);
-  console.log(`[Diagnostics] Claim date: ${claimDate} (${DateHandler.format(claimDate)}), Claim clinicians: ${JSON.stringify(claimClinicians)}`);
-
   for (const elig of eligList) {
-    console.log(`[Diagnostics] Checking eligibility ${elig["Eligibility Request Number"] || "(unknown)"}:`);
-
     const eligDate = DateHandler.parse(elig["Answered On"]);
-    if (!DateHandler.isSameDay(claimDate, eligDate)) {
-      console.log(`  ❌ Date mismatch: claim ${DateHandler.format(claimDate)} vs elig ${DateHandler.format(eligDate)}`);
-      continue;
-    }
+    if (!DateHandler.isSameDay(claimDate, eligDate)) continue;
 
     const eligClinician = (elig.Clinician || '').trim();
-    if (eligClinician && claimClinicians.length && !claimClinicians.includes(eligClinician)) {
-      console.log(`  ❌ Clinician mismatch: claim clinicians ${JSON.stringify(claimClinicians)} vs elig clinician "${eligClinician}"`);
-      continue;
-    }
+    if (eligClinician && claimClinicians.length && !claimClinicians.includes(eligClinician)) continue;
 
     const serviceCategory = (elig['Service Category'] || '').trim();
     const consultationStatus = (elig['Consultation Status'] || '').trim();
     const department = (elig.Department || elig.Clinic || '').toLowerCase();
     const categoryCheck = isServiceCategoryValid(serviceCategory, consultationStatus, department);
 
-    if (!categoryCheck.valid) {
-      console.log(`  ❌ Service category mismatch: claim dept "${department}" not valid for category "${serviceCategory}" / consult "${consultationStatus}"`);
-      continue;
-    }
+    if (!categoryCheck.valid) continue;
+    if ((elig.Status || '').toLowerCase() !== 'eligible') continue;
 
-    if ((elig.Status || '').toLowerCase() !== 'eligible') {
-      console.log(`  ❌ Status mismatch: expected Eligible, got "${elig.Status}"`);
-      continue;
-    }
-
-    console.log(`  ✅ Eligibility match found: ${elig["Eligibility Request Number"]}`);
     return elig;
   }
 
-  console.log(`[Diagnostics] No matching eligibility passed all checks for member "${memberID}"`);
   return null;
 }
 
