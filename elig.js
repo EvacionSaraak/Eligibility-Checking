@@ -166,7 +166,6 @@ function prepareEligibilityMap(eligArray) {
   if (!Array.isArray(eligArray) || eligArray.length === 0) return new Map();
   const eligMap = new Map();
 
-  // candidate fields commonly used for member ID in various sheets
   const idCandidates = [
     'Card Number / DHA Member ID',
     'Card Number',
@@ -177,33 +176,25 @@ function prepareEligibilityMap(eligArray) {
     'Policy 1'
   ];
 
-  let headersFound = false;
   let headersRowIndex = -1;
 
-  // Find the first "real" row that probably contains headers or member data
+  // Find the row that contains the "Eligibility Request Number" key
   for (let i = 0; i < eligArray.length; i++) {
     const row = eligArray[i];
     if (!row || typeof row !== 'object') continue;
 
-    const keys = Object.keys(row);
-    const blankKeys = keys.filter(k => !row[k] || row[k] === '').length;
-    const underscoreKeys = keys.filter(k => k.includes('_')).length;
-
-    // Skip if too many blanks or too many underscore keys
-    if (blankKeys > 15 || underscoreKeys > 0) continue;
-
-    // Otherwise, consider this row as the starting row
-    headersFound = true;
-    headersRowIndex = i;
-    break;
+    if (Object.keys(row).some(k => k.includes('Eligibility Request Number'))) {
+      headersRowIndex = i;
+      break;
+    }
   }
 
-  if (!headersFound) {
-    console.warn('No valid eligibility headers/data found in sheet.');
+  if (headersRowIndex === -1) {
+    console.warn('No eligibility header row found containing "Eligibility Request Number".');
     return eligMap;
   }
 
-  // Process rows from the detected starting row
+  // Process all rows after the header row
   for (let i = headersRowIndex; i < eligArray.length; i++) {
     const record = eligArray[i];
     if (!record || typeof record !== 'object') continue;
@@ -221,7 +212,6 @@ function prepareEligibilityMap(eligArray) {
     const memberID = normalizeMemberID(rawMemberID);
     if (!memberID) continue;
 
-    // Build a normalized eligibility record copy (preserve fields for display)
     const eligRecord = Object.assign({}, record);
 
     if (!eligMap.has(memberID)) eligMap.set(memberID, []);
