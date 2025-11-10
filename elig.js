@@ -32,13 +32,16 @@ let reportInput, eligInput, processBtn, exportInvalidBtn, statusEl, resultsConta
 const DateHandler = {
   parse: function(input, options = {}) {
     const preferMDY = !!options.preferMDY;
-    if (!input && input !== 0) return null;
+    if (!input) return null;
     if (input instanceof Date) return isNaN(input) ? null : input;
     if (typeof input === 'number') return this._parseExcelDate(input);
 
     const cleanStr = input.toString().trim().replace(/[,.]/g, '');
     const parsed = this._parseStringDate(cleanStr, preferMDY) || new Date(cleanStr);
-    if (isNaN(parsed)) return null;
+    if (isNaN(parsed)) {
+      console.warn('Unrecognized date:', input);
+      return null;
+    }
     return parsed;
   },
 
@@ -65,8 +68,8 @@ const DateHandler = {
     return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
   },
 
+  // PATCHED: Always parse string dates as UTC
   _parseStringDate: function(dateStr, preferMDY = false) {
-    if (!dateStr || typeof dateStr !== 'string') return null;
     if (dateStr.includes(' ')) {
       dateStr = dateStr.split(' ')[0];
     }
@@ -75,8 +78,7 @@ const DateHandler = {
     if (dmyMdyMatch) {
       const part1 = parseInt(dmyMdyMatch[1], 10);
       const part2 = parseInt(dmyMdyMatch[2], 10);
-      let year = parseInt(dmyMdyMatch[3], 10);
-      if (year < 100) year += 2000; // handle 2-digit years robustly
+      const year = parseInt(dmyMdyMatch[3], 10);
 
       if (part1 > 12 && part2 <= 12) {
         return new Date(Date.UTC(year, part2 - 1, part1)); // dmy
@@ -94,16 +96,13 @@ const DateHandler = {
     // Matches 30-Jun-2025 or 30 Jun 2025
     const textMatch = dateStr.match(/^(\d{1,2})[\/\- ]([a-z]{3,})[\/\- ](\d{2,4})$/i);
     if (textMatch) {
-      const day = parseInt(textMatch[1], 10);
-      let year = parseInt(textMatch[3], 10);
-      if (year < 100) year += 2000;
       const monthIndex = MONTHS.indexOf(textMatch[2].toLowerCase().substr(0, 3));
-      if (monthIndex >= 0) return new Date(Date.UTC(year, monthIndex, day));
+      if (monthIndex >= 0) return new Date(Date.UTC(textMatch[3], monthIndex, textMatch[1]));
     }
 
     // ISO: 2025-07-01
     const isoMatch = dateStr.match(/^(\d{4})[\/\-](\d{2})[\/\-](\d{2})$/);
-    if (isoMatch) return new Date(Date.UTC(parseInt(isoMatch[1],10), parseInt(isoMatch[2],10) - 1, parseInt(isoMatch[3],10)));
+    if (isoMatch) return new Date(Date.UTC(isoMatch[1], isoMatch[2] - 1, isoMatch[3]));
     return null;
   }
 };
