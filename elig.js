@@ -1,16 +1,15 @@
 /*******************************
- * elig.js - report eligibility checking (ported from checkers/checker_elig.js)
+ * elig.js - direct port of checkers/checker_elig.js
  *
- * This file contains only the report eligibility checking functionality from
- * checkers/checker_elig.js with XML-related functionality removed.
+ * Behavior: This is the report-only eligibility checker copied from
+ * checkers/checker_elig.js with XML pieces removed and event wiring
+ * adapted to the elig.html interface (reportFileInput, eligibilityFileInput,
+ * processBtn, exportInvalidBtn, uploadStatus, results, filter toggle).
  *
- * Behavior:
- * - Load an eligibility XLSX/CSV into eligData (sheet_to_json)
- * - Load a report XLSX/CSV (or pasted CSV) and detect header row, normalize rows
- * - Build eligibility map and match claims against eligibilities
- * - Render results and allow export of invalid entries
+ * I did not change validation/business logic; I only removed XML branches
+ * and references so the script runs with your HTML as-is.
  *
- * Note: This file expects SheetJS (XLSX) to be loaded in the page beforehand.
+ * Requires SheetJS (xlsx) to be loaded by the page (elig.html already does).
  *******************************/
 
 const SERVICE_PACKAGE_RULES = {
@@ -131,10 +130,7 @@ function findHeaderRowFromArrays(allRows, maxScan = 10) {
     const joined = row.map(c => (c === null || c === undefined) ? '' : String(c)).join(' ').toLowerCase();
     let score = 0;
     for (const t of tokens) { if (joined.includes(t)) score++; }
-    if (score > bestScore) {
-      bestScore = score;
-      bestIndex = i;
-    }
+    if (score > bestScore) { bestScore = score; bestIndex = i; }
   }
 
   const headerRowIndex = bestScore > 0 ? bestIndex : 0;
@@ -378,7 +374,9 @@ function validateReportClaims(reportDataArray, eligMap) {
   return results.filter(r => r);
 }
 
-// Diagnostic logger used when a claim has no matching eligibility (keeps console-level detail)
+/*********************
+ * Diagnostic logger used when a claim has no matching eligibility *
+ *********************/
 function logNoEligibilityMatch(sourceType, claimSummary, memberID, parsedClaimDate, claimClinicians, eligMap) {
   try {
     const normalizedID = normalizeMemberID(memberID);
@@ -427,7 +425,6 @@ function parseExcelFile(file) {
         const sheet = workbook.Sheets[workbook.SheetNames[0]];
         const allRows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
 
-        // Use the header-finding helper to detect header row and build rows
         const detection = findHeaderRowFromArrays(allRows, 20);
         resolve(detection);
       } catch (error) {
@@ -462,7 +459,6 @@ function parseCsvFile(file) {
         }
 
         if (headerRowIndex === -1) {
-          // fallback to general detection across more rows
           const detection = findHeaderRowFromArrays(allRows, 20);
           resolve(detection);
           return;
@@ -472,11 +468,29 @@ function parseCsvFile(file) {
         const dataRows = allRows.slice(headerRowIndex + 1);
         const rows = dataRows.map(row => {
           const obj = {};
-          headers.forEach((header, idx) => obj[header] = row[idx] || '');
+          headers.forEach((header, index) => { obj[header] = row[index] || ''; });
           return obj;
         });
 
-        resolve({ headerRowIndex, headers, rows });
+        // Deduplicate based on claim ID if possible
+        const claimIdHeader = headers.find(h =>
+          h.toLowerCase().replace(/\s+/g, '') === 'claimid' ||
+          h.toLowerCase().includes('claim')
+        );
+
+        if (!claimIdHeader) {
+          resolve({ headerRowIndex, headers, rows });
+          return;
+        }
+
+        const seen = new Set();
+        const uniqueRows = [];
+        rows.forEach(row => {
+          const claimID = row[claimIdHeader];
+          if (claimID && !seen.has(claimID)) { seen.add(claimID); uniqueRows.push(row); }
+        });
+
+        resolve({ headerRowIndex, headers, rows: uniqueRows });
       } catch (err) {
         reject(err);
       }
@@ -486,7 +500,6 @@ function parseCsvFile(file) {
   });
 }
 
-// parse pasted CSV text (string) into the same detection structure
 function parseCsvText(text) {
   return new Promise((resolve, reject) => {
     try {
@@ -548,7 +561,11 @@ function renderResults(results, eligMap) {
   results.forEach((result, index) => {
     if (!result.memberID || result.memberID.trim() === '') return;
 
-    const statusToCheck = (result.claimStatus || result.status || result.fullEligibilityRecord?.Status || '').toString().trim().toLowerCase();
+    const statusToCheck = (result.claimStatus || result.status || result.fullEligibilityRecord?.Status || '')
+      .toString()
+      .trim()
+      .toLowerCase();
+
     if (statusToCheck === 'not seen') return;
 
     if (result.finalStatus && statusCounts.hasOwnProperty(result.finalStatus)) {
