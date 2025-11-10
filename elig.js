@@ -180,33 +180,30 @@ function prepareEligibilityMap(eligArray) {
   let headersFound = false;
   let headersRowIndex = -1;
 
-  // Find the first row that has at least one of the member ID fields AND does NOT contain "Policy" in any value
+  // Find the first "real" row that probably contains headers or member data
   for (let i = 0; i < eligArray.length; i++) {
     const row = eligArray[i];
     if (!row || typeof row !== 'object') continue;
 
-    // Skip row if any value contains "Policy"
-    const rowValues = Object.values(row).map(v => String(v || '').toLowerCase());
-    if (rowValues.some(v => v.includes('policy'))) continue;
+    const keys = Object.keys(row);
+    const blankKeys = keys.filter(k => !row[k] || row[k] === '').length;
+    const underscoreKeys = keys.filter(k => k.includes('_')).length;
 
-    // Check if row has any of the candidate ID headers
-    for (const k of idCandidates) {
-      if (Object.prototype.hasOwnProperty.call(row, k)) {
-        headersFound = true;
-        headersRowIndex = i;
-        break;
-      }
-    }
+    // Skip if too many blanks or too many underscore keys
+    if (blankKeys > 15 || underscoreKeys > 0) continue;
 
-    if (headersFound) break;
+    // Otherwise, consider this row as the starting row
+    headersFound = true;
+    headersRowIndex = i;
+    break;
   }
 
   if (!headersFound) {
-    console.warn('No valid eligibility headers found in sheet.');
+    console.warn('No valid eligibility headers/data found in sheet.');
     return eligMap;
   }
 
-  // Start processing from the header row onward
+  // Process rows from the detected starting row
   for (let i = headersRowIndex; i < eligArray.length; i++) {
     const record = eligArray[i];
     if (!record || typeof record !== 'object') continue;
