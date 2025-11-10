@@ -18,7 +18,7 @@ const MONTHS = ["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov
 
 // Application state
 let xlsData = null;        // parsed & normalized report rows
-let eligData = null;       // eligibility sheet as array of objects
+let eligData = null;       // eligibility sheet as array of arrays (raw) — NOTE: keep as raw rows for header detection
 let rawParsedReport = null; // raw parsed sheet result (header detection output)
 const usedEligibilities = new Set();
 let lastReportWasCSV = false;
@@ -181,8 +181,9 @@ function prepareEligibilityMap(rawSheetArray) {
   if (!Array.isArray(rawSheetArray) || rawSheetArray.length === 0) return new Map();
 
   // Find the row that contains "Eligibility Request Number"
+  // NOTE: be tolerant of case / extra whitespace by using toString and toLowerCase includes
   let headerRowIndex = rawSheetArray.findIndex(row => 
-    Array.isArray(row) && row.some(cell => String(cell).trim() === "Eligibility Request Number")
+    Array.isArray(row) && row.some(cell => String(cell || '').trim().toLowerCase().includes('eligibility request number'))
   );
 
   if (headerRowIndex === -1) {
@@ -394,7 +395,7 @@ function normalizeReportData(rawData) {
       // generic mapping with fallback header scanning
       const out = {
         claimID: r['ClaimID'] || r['Pri. Claim No'] || r['Pri. Claim ID'] || getField(r, ['ClaimID','Pri. Claim No','Pri. Claim ID','Claim ID','Pri. Claim ID']) || '',
-        memberID: r['Pri. Member ID'] || r['Pri. Patient Insurance Card No'] || r['PatientCardID'] || getField(r, ['PatientCardID','Patient Insurance Card No','Card Number / DHA Member ID','Card Number','MemberID','Member ID']) || '',
+        memberID: r['Pri. Member ID'] || r['Pri. Patient Insurance Card No'] || r['PatientCardID'] || getField(r, ['PatientCardID','Patient Insurance Card No','Card Number / DHA Member ID','Card Numbe[...]
         claimDate: r['Encounter Date'] || r['Adm/Reg. Date'] || r['ClaimDate'] || getField(r, ['Encounter Date','ClaimDate','Adm/Reg. Date','Date']) || '',
         clinician: r['Clinician License'] || r['Admitting License'] || r['OrderDoctor'] || getField(r, ['Clinician License','Clinician','Admitting License','OrderDoctor']) || '',
         department: r['Department'] || r['Clinic'] || r['Admitting Department'] || getField(r, ['Department','Clinic','Admitting Department']) || '',
@@ -826,7 +827,7 @@ function initEligibilityModal(results, eligMap) {
         document.getElementById("modalOverlay").style.display = "block";
         return;
       }
-      let html = `<h3>Eligibilities for ${escapeHtml(member)}</h3><div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;"><thead><tr><th>#</th><th>Request No</th><th>Answered On</th><th>Status</th><th>Clinician</th><th>Service Category</th><th>Package</th></tr></thead><tbody>`;
+      let html = `<h3>Eligibilities for ${escapeHtml(member)}</h3><div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;"><thead><tr><th>#</th><th>Request No</th><th>Answered[...]
       list.forEach((rec, idx) => {
         html += `<tr>
           <td style="padding:6px;border-bottom:1px solid #eee">${idx+1}</td>
@@ -849,7 +850,7 @@ function hideModal() { const overlay = document.getElementById("modalOverlay"); 
 
 function formatEligibilityDetails(record, memberID) {
   if (!record) return '<div>No details</div>';
-  let html = `<div style="margin-bottom:8px;"><strong>Member:</strong> ${escapeHtml(memberID)} <span style="margin-left:8px;" class="status-badge ${((record.Status||'').toLowerCase()==='eligible')?'eligible':'ineligible'}">${escapeHtml(record.Status||'')}</span></div>`;
+  let html = `<div style="margin-bottom:8px;"><strong>Member:</strong> ${escapeHtml(memberID)} <span style="margin-left:8px;" class="status-badge ${((record.Status||'').toLowerCase()==='eligible')?'el[...]
   html += '<table style="width:100%;border-collapse:collapse;"><tbody>';
   Object.entries(record).forEach(([k,v]) => {
     if ((v === null || v === undefined || v === '') && v !== 0) return;
@@ -858,7 +859,7 @@ function formatEligibilityDetails(record, memberID) {
       const p = DateHandler.parse(v);
       disp = p ? DateHandler.format(p) : v;
     }
-    html += `<tr><th style="text-align:left;padding:6px;border-bottom:1px solid #eee;width:30%">${escapeHtml(k)}</th><td style="padding:6px;border-bottom:1px solid #eee">${escapeHtml(disp)}</td></tr>`;
+    html += `<tr><th style="text-align:left;padding:6px;border-bottom:1px solid #eee;width:30%">${escapeHtml(k)}</th><td style="padding:6px;border-bottom:1px solid #eee">${escapeHtml(disp)}</td></tr>`[...]
   });
   html += '</tbody></table>';
   return html;
@@ -904,9 +905,10 @@ async function handleFileUpload(event, type) {
           const data = new Uint8Array(ev.target.result);
           const wb = XLSX.read(data, { type: 'array' });
           const sheet = wb.Sheets[wb.SheetNames[0]];
-          const json = XLSX.utils.sheet_to_json(sheet, { defval: '' });
-          eligData = json;
-          updateStatus(`Loaded ${Array.isArray(eligData) ? eligData.length : 0} eligibility records`);
+          // IMPORTANT: read as array-of-arrays (header: 1) so prepareEligibilityMap can detect header row
+          const allRows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+          eligData = allRows; // now an array-of-arrays (raw rows)
+          updateStatus(`Loaded ${Array.isArray(eligData) ? eligData.length : 0} eligibility rows (raw)`);
           updateProcessButtonState();
           // If report already present, summarize counts
           if (eligData && (rawParsedReport || xlsData)) summarizeAndDisplayCounts();
