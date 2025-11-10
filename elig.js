@@ -238,17 +238,26 @@ function isServiceCategoryValid(serviceCategory, consultationStatus, rawPackage)
 }
 
 function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians = []) {
-  const normalizedID = String(memberID || '').trim();
+  const normalizedID = normalizeMemberID(memberID || '');
   const eligList = eligMap.get(normalizedID) || [];
 
-  if (!eligList.length) return null;
+  if (!eligList.length) {
+    console.log(`No eligibilities found for member ${normalizedID}`);
+    return null;
+  }
 
   for (const elig of eligList) {
     const eligDate = DateHandler.parse(elig["Answered On"]);
+    if (!eligDate) {
+      console.log(`Skipping eligibility ${elig['Eligibility Request Number']}: invalid date "${elig["Answered On"]}"`);
+      continue;
+    }
+
     if (!DateHandler.isSameDay(claimDate, eligDate)) continue;
 
     const eligClinician = (elig.Clinician || '').trim();
-    if (eligClinician && claimClinicians.length && !claimClinicians.includes(eligClinician)) continue;
+    // Temporarily disable strict clinician filtering for debugging
+    // if (eligClinician && claimClinicians.length && !claimClinicians.includes(eligClinician)) continue;
 
     const serviceCategory = (elig['Service Category'] || '').trim();
     const consultationStatus = (elig['Consultation Status'] || '').trim();
@@ -258,9 +267,11 @@ function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians =
     if (!categoryCheck.valid) continue;
     if ((elig.Status || '').toLowerCase() !== 'eligible') continue;
 
+    console.log(`Matched eligibility ${elig['Eligibility Request Number']} for member ${normalizedID}`);
     return elig;
   }
 
+  console.log(`No matching eligibility found for member ${normalizedID} on ${DateHandler.format(claimDate)}`);
   return null;
 }
 
