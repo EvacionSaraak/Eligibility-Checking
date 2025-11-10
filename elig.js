@@ -405,8 +405,11 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
     const claimID = String(row.claimID || row['ClaimID'] || row['Pri. Claim ID'] || '').trim();
     if (!claimID) continue;
 
-    const memberID = String(row.memberID || row['Pri. Member ID'] || row['PatientCardID'] || '').trim();
-    if (!memberID) continue;
+    const rawMemberID = String(row.memberID || row['Pri. Member ID'] || row['PatientCardID'] || '').trim();
+    if (!rawMemberID) continue;
+
+    // 🔹 Minimal fix: normalize member ID for lookup
+    const memberID = normalizeMemberID(rawMemberID);
 
     // Determine provider/insurance based on report type
     let insurance;
@@ -422,12 +425,9 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
         insurance = String(row.insuranceCompany || '').trim();
     }
 
-    // Only log details for the first 3 rows
     if (i < 3) {
       console.log(`\n--- Row ${i + 1} ---`);
       console.log(`ClaimID: ${claimID}, MemberID: ${memberID}, Insurance: ${insurance}`);
-
-      // Show all eligibilities for this member
       const allEligForMember = eligMap.get(memberID) || [];
       console.log('All eligibilities for this member:', allEligForMember);
     }
