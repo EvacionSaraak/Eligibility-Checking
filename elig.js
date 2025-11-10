@@ -386,18 +386,24 @@ function normalizeReportData(rawData) {
 function validateReportClaims(reportDataArray, eligMap) {
   console.log(`Validating ${reportDataArray.length} report rows`);
 
+  const results = [];
+
   for (let i = 0; i < reportDataArray.length; i++) {
     const row = reportDataArray[i];
 
+    // claimID is still required
     if (!row.claimID || String(row.claimID).trim() === '') {
       updateStatus(`Processing stopped: Missing claimID on row ${i + 1}`);
       throw new Error(`Missing claimID on row ${i + 1}`);
     }
 
     const memberID = String(row.memberID || '').trim();
-    if (!memberID) {
-      updateStatus(`Processing stopped: Missing memberID for claim ${row.claimID}`);
-      throw new Error(`Missing memberID for claim ${row.claimID}`);
+    const provider = String(row.provider || '').trim();
+
+    // Skip claim if memberID or provider is missing
+    if (!memberID || !provider) {
+      console.log(`Skipping claim ${row.claimID}: missing memberID or provider`);
+      continue;
     }
 
     const claimDateRaw = row.claimDate;
@@ -406,22 +412,17 @@ function validateReportClaims(reportDataArray, eligMap) {
       updateStatus(`Processing stopped: Invalid claim date "${claimDateRaw}" for claim ${row.claimID}`);
       throw new Error(`Invalid claim date "${claimDateRaw}" for claim ${row.claimID}`);
     }
-  }
 
-  // Only reach here if all required fields are OK
-  const results = reportDataArray.map(row => {
-    const memberID = String(row.memberID || '').trim();
-    const claimDate = DateHandler.parse(row.claimDate, { preferMDY: lastReportWasCSV });
     const formattedDate = DateHandler.format(claimDate);
 
-    const isVVIP = memberID.startsWith('(VVIP)');
-    if (isVVIP) {
-      return {
+    // Handle VVIP members
+    if (memberID.startsWith('(VVIP)')) {
+      results.push({
         claimID: row.claimID,
         memberID,
         encounterStart: formattedDate,
         packageName: row.packageName || '',
-        provider: row.provider || '',
+        provider,
         clinician: row.clinician || '',
         serviceCategory: '',
         consultationStatus: '',
@@ -430,10 +431,11 @@ function validateReportClaims(reportDataArray, eligMap) {
         remarks: ['VVIP member, eligibility check bypassed'],
         finalStatus: 'valid',
         fullEligibilityRecord: null
-      };
+      });
+      continue;
     }
 
-    // proceed with normal eligibility check...
+    // Normal eligibility check
     const eligibility = findEligibilityForClaim(eligMap, claimDate, memberID, [row.clinician]);
     let finalStatus = 'invalid';
     const remarks = [];
@@ -453,12 +455,12 @@ function validateReportClaims(reportDataArray, eligMap) {
       remarks.push(`Eligibility status: ${eligibility.Status}`);
     }
 
-    return {
+    results.push({
       claimID: row.claimID,
       memberID,
       encounterStart: formattedDate,
       packageName: eligibility?.['Package Name'] || row.packageName || '',
-      provider: eligibility?.['Payer Name'] || row.provider || '',
+      provider: eligibility?.['Payer Name'] || provider,
       clinician: eligibility?.['Clinician'] || row.clinician || '',
       serviceCategory: eligibility?.['Service Category'] || '',
       consultationStatus: eligibility?.['Consultation Status'] || '',
@@ -467,8 +469,8 @@ function validateReportClaims(reportDataArray, eligMap) {
       remarks,
       finalStatus,
       fullEligibilityRecord: eligibility
-    };
-  });
+    });
+  }
 
   return results;
 }
