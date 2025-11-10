@@ -163,39 +163,28 @@ function findHeaderRowFromArrays(allRows, maxScan = 10) {
 /*******************************
  * ELIGIBILITY MATCHING FUNCTIONS (from first)
  *******************************/
-function prepareEligibilityMap(eligData) {
+function prepareEligibilityMap(eligArray) {
   const eligMap = new Map();
 
-  eligData.forEach(e => {
-    const rawID =
-      e['Card Number / DHA Member ID'] ||
-      e['Card Number'] ||
-      e['_5'] ||
-      e['MemberID'] ||
-      e['Member ID'] ||
-      e['Patient Insurance Card No'];
+  for (const record of eligArray) {
+    const rawMemberID = String(record.memberID || record['PatientCardID'] || '').trim();
+    if (!rawMemberID) continue;
 
-    if (!rawID) return;
-
-    const memberID = normalizeMemberID(rawID); // ✅ only strips leading zeroes
+    const memberID = normalizeMemberID(rawMemberID);
 
     if (!eligMap.has(memberID)) eligMap.set(memberID, []);
+    eligMap.get(memberID).push(record);
+  }
 
-    const eligRecord = {
-      'Eligibility Request Number': e['Eligibility Request Number'],
-      'Card Number / DHA Member ID': rawID, // preserve original for display
-      'Answered On': e['Answered On'],
-      'Ordered On': e['Ordered On'],
-      'Status': e['Status'],
-      'Clinician': e['Clinician'],
-      'Payer Name': e['Payer Name'],
-      'Service Category': e['Service Category'],
-      'Package Name': e['Package Name'],
-      'Department': e['Department'] || e['Clinic'] || ''
-    };
-
-    eligMap.get(memberID).push(eligRecord);
-  });
+  // 🔹 Log only the first 5 entries
+  console.log('=== First 5 Entries of Eligibility Map ===');
+  let count = 0;
+  for (const [key, value] of eligMap.entries()) {
+    console.log(key, value);
+    count++;
+    if (count >= 5) break;
+  }
+  console.log('=========================================');
 
   return eligMap;
 }
