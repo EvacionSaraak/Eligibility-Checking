@@ -391,6 +391,10 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
   for (let i = 0; i < reportDataArray.length; i++) {
     const row = reportDataArray[i];
 
+    // Log the full claim details before checks
+    console.log(`\n--- Row ${i + 1} ---`);
+    console.log(row);
+
     const claimID = String(row.claimID || row['ClaimID'] || row['Pri. Claim ID'] || '').trim();
     if (!claimID) {
       console.log(`Skipping row ${i + 1}: Missing claimID`);
@@ -416,6 +420,8 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
       default:
         provider = String(row.provider || '').trim();
     }
+
+    console.log(`ClaimID: ${claimID}, MemberID: ${memberID}, Provider: ${provider}`);
 
     if (!provider) {
       console.log(`Skipping claim ${claimID}: provider is blank`);
