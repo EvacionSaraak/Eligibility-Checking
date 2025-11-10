@@ -164,19 +164,24 @@ function findHeaderRowFromArrays(allRows, maxScan = 10) {
  * ELIGIBILITY MATCHING FUNCTIONS (from first)
  *******************************/
 function prepareEligibilityMap(eligArray) {
+    if (!eligArray || eligArray.length === 0) return new Map();
+    // Extract headers from first row
+    const headers = eligArray[0];
     const eligMap = new Map();
-
     eligArray.forEach((record, index) => {
         // Skip header row
         if (index === 0) return;
-
-        const rawMemberID = String(record.memberID || record['Policy1'] || record['_4'] || '').trim();
+        // Build a new record with proper header keys
+        const normalizedRecord = {};
+        for (const key in headers) {
+            const headerName = headers[key].trim();
+            if (headerName) { normalizedRecord[headerName] = record[key] || ''; }
+        }
+        const rawMemberID = String(normalizedRecord['memberID'] || normalizedRecord['Policy1'] || normalizedRecord['Card Number / DHA Member ID'] || '').trim();
         if (!rawMemberID) return;
-
         const memberID = normalizeMemberID(rawMemberID);
         if (!memberID) return;
-
-        eligMap.set(memberID, record);
+        eligMap.set(memberID, normalizedRecord);
     });
 
     // Show first 5 entries
