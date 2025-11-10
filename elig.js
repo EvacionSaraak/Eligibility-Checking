@@ -180,11 +180,16 @@ function prepareEligibilityMap(eligArray) {
   let headersFound = false;
   let headersRowIndex = -1;
 
-  // Find the first row that has at least one of the member ID fields
+  // Find the first row that has at least one of the member ID fields AND does NOT contain "Policy" in any value
   for (let i = 0; i < eligArray.length; i++) {
     const row = eligArray[i];
     if (!row || typeof row !== 'object') continue;
 
+    // Skip row if any value contains "Policy"
+    const rowValues = Object.values(row).map(v => String(v || '').toLowerCase());
+    if (rowValues.some(v => v.includes('policy'))) continue;
+
+    // Check if row has any of the candidate ID headers
     for (const k of idCandidates) {
       if (Object.prototype.hasOwnProperty.call(row, k)) {
         headersFound = true;
