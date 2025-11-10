@@ -391,41 +391,34 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
   for (let i = 0; i < reportDataArray.length; i++) {
     const row = reportDataArray[i];
 
-    console.log(`\n--- Row ${i + 1} ---`);
-    console.log(row);
-
     const claimID = String(row.claimID || row['ClaimID'] || row['Pri. Claim ID'] || '').trim();
-    if (!claimID) {
-      console.log(`Skipping row ${i + 1}: Missing claimID`);
-      continue;
-    }
+    if (!claimID) continue;
 
     const memberID = String(row.memberID || row['Pri. Member ID'] || row['PatientCardID'] || '').trim();
-    if (!memberID) {
-      console.log(`Skipping claim ${claimID}: missing memberID`);
-      continue;
-    }
+    if (!memberID) continue;
 
-    // Determine insurance company instead of provider
     const insuranceCompany = String(
       row['Insurance Company'] ||
       row['Pri. Sponsor'] ||
       ''
     ).trim();
 
-    console.log(`ClaimID: ${claimID}, MemberID: ${memberID}, Insurance: ${insuranceCompany}`);
-
-    // Do NOT skip if insuranceCompany is blank
-    // Previously we skipped claims here, which caused problems
-
     const claimDateRaw = row.claimDate || row['ClaimDate'] || row['Adm/Reg. Date'];
     const claimDate = DateHandler.parse(claimDateRaw, { preferMDY: lastReportWasCSV });
-    if (!claimDate) {
-      console.log(`Skipping claim ${claimID}: invalid claim date "${claimDateRaw}"`);
-      continue;
-    }
+    if (!claimDate) continue;
 
     const formattedDate = DateHandler.format(claimDate);
+
+    // Find all eligibilities sharing the memberID
+    const allEligForMember = eligMap[memberID] || [];
+
+    // Only log detailed info for the first 3 claims
+    if (i < 3) {
+      console.log(`\n--- Row ${i + 1} ---`);
+      console.log(row);
+      console.log(`ClaimID: ${claimID}, MemberID: ${memberID}, Insurance: ${insuranceCompany}`);
+      console.log('All eligibilities for this member:', allEligForMember);
+    }
 
     if (memberID.startsWith('(VVIP)')) {
       results.push({
