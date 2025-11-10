@@ -11,6 +11,54 @@
   <!-- DataTables Bootstrap 5 CSS -->
   <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css" />
 
+  <!-- Inline styles to make mainContent stretch to fill the screen -->
+  <style>
+    /* Ensure the page fills the viewport and remove default body margins */
+    html, body {
+      height: 100%;
+      margin: 0;
+      box-sizing: border-box;
+    }
+
+    /* Layout using flex so the main content grows to fill remaining space */
+    body {
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+    }
+
+    /* Navigation stays its natural height */
+    nav {
+      flex: 0 0 auto;
+    }
+
+    /* Make mainContent take remaining height */
+    #mainContent {
+      flex: 1 1 auto;
+      min-height: 0; /* allows children to flex correctly (important for iframes/scrolling) */
+    }
+
+    /* iframe should fill the #mainContent entirely */
+    #mainIframe {
+      width: 100%;
+      height: 100%;
+      border: none;
+      display: block;
+    }
+
+    /* Optional small layout niceties for the nav */
+    .nav-container {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.5rem 1rem;
+      background: #f8f9fa;
+      border-bottom: 1px solid rgba(0,0,0,0.05);
+    }
+    .nav-left { display: flex; gap: 0.5rem; align-items:center; }
+    .nav-right a { text-decoration: underline; }
+  </style>
+
   <!-- Your custom styles -->
   <!-- <link rel="stylesheet" href="index.css" /> -->
 </head>
@@ -28,7 +76,7 @@
   </nav>
 
   <div id="mainContent">
-    <iframe id="mainIframe" src="elig.html" title="Checker Tool" style="width:100%; height:90vh; border:none;"></iframe>
+    <iframe id="mainIframe" src="elig.html" title="Checker Tool"></iframe>
   </div>
 </body>
 </html>
