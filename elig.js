@@ -697,18 +697,28 @@ function summarizeAndDisplayCounts() {
 /*************************
  * renderResults and modal functions (kept from second)
  *************************/
+/* ------------------------------------------------------------------
+   Updated renderResults: use Bootstrap classes while keeping existing
+   functionality (badges, details / view-all buttons, summary, modal)
+   ------------------------------------------------------------------ */
 function renderResults(results, eligMap) {
   if (!resultsContainer) return;
   resultsContainer.innerHTML = '';
+
   if (!results || results.length === 0) {
-    resultsContainer.innerHTML = '<div class="no-results">No claims to display</div>';
+    resultsContainer.innerHTML = '<div class="text-muted">No claims to display</div>';
     return;
   }
+
+  // Container for table with Bootstrap responsive wrapper
   const tableContainer = document.createElement('div');
-  tableContainer.className = 'analysis-results';
-  tableContainer.style.overflowX = 'auto';
+  tableContainer.className = 'table-responsive analysis-results';
+
+  // Build table using Bootstrap table classes plus existing shared-table class
   const table = document.createElement('table');
-  table.className = 'shared-table';
+  table.className = 'table table-sm table-striped table-hover shared-table';
+
+  // Header
   const thead = document.createElement('thead');
   thead.innerHTML = `
     <tr>
@@ -725,28 +735,42 @@ function renderResults(results, eligMap) {
     </tr>
   `;
   table.appendChild(thead);
+
   const tbody = document.createElement('tbody');
   const statusCounts = { valid: 0, invalid: 0, unknown: 0 };
+  let processedRows = 0;
+
   results.forEach((result, index) => {
-    if (!result.memberID || result.memberID.trim() === '') return;
+    if (!result.memberID || result.memberID.toString().trim() === '') return;
     const statusToCheck = (result.claimStatus || result.status || result.fullEligibilityRecord?.Status || '')
       .toString()
       .trim()
       .toLowerCase();
     if (statusToCheck === 'not seen') return;
+
     if (result.finalStatus && statusCounts.hasOwnProperty(result.finalStatus)) {
       statusCounts[result.finalStatus]++;
     }
+
     const row = document.createElement('tr');
-    row.className = result.finalStatus;
-    const statusBadge = result.status ? `<span class="status-badge ${result.status.toLowerCase() === 'eligible' ? 'eligible' : 'ineligible'}">${escapeHtml(result.status)}</span>` : '';
-    const remarksHTML = result.remarks && result.remarks.length > 0 ? result.remarks.map(r => `<div>${escapeHtml(r)}</div>`).join('') : '<div class="source-note">No remarks</div>';
-    let detailsCell = '<div class="source-note">N/A</div>';
+    row.className = result.finalStatus || '';
+
+    // Status badge using Bootstrap
+    const statusBadge = result.status
+      ? `<span class="badge ${result.status.toString().toLowerCase() === 'eligible' ? 'bg-success' : 'bg-danger'}">${escapeHtml(result.status)}</span>`
+      : '';
+
+    const remarksHTML = result.remarks && result.remarks.length > 0
+      ? result.remarks.map(r => `<div>${escapeHtml(r)}</div>`).join('')
+      : '<div class="source-note">No remarks</div>';
+
+    let detailsCellHtml = '<div class="source-note">N/A</div>';
     if (result.fullEligibilityRecord?.['Eligibility Request Number']) {
-      detailsCell = `<button class="details-btn eligibility-details" data-index="${index}">${escapeHtml(result.fullEligibilityRecord['Eligibility Request Number'])}</button>`;
+      detailsCellHtml = `<button class="btn btn-sm btn-outline-primary eligibility-details" data-index="${index}">${escapeHtml(result.fullEligibilityRecord['Eligibility Request Number'])}</button>`;
     } else if (eligMap && typeof eligMap.get === 'function' && (eligMap.get(result.memberID) || []).length) {
-      detailsCell = `<button class="details-btn show-all-eligibilities" data-member="${escapeHtml(result.memberID)}">View All</button>`;
+      detailsCellHtml = `<button class="btn btn-sm btn-outline-secondary show-all-eligibilities" data-member="${escapeHtml(result.memberID)}">View All</button>`;
     }
+
     row.innerHTML = `
       <td>${escapeHtml(result.claimID)}</td>
       <td>${escapeHtml(result.memberID)}</td>
@@ -757,108 +781,164 @@ function renderResults(results, eligMap) {
       <td class="description-col">${escapeHtml(result.serviceCategory)}</td>
       <td class="description-col">${statusBadge}</td>
       <td class="wrap-col">${remarksHTML}</td>
-      <td>${detailsCell}</td>
+      <td>${detailsCellHtml}</td>
     `;
+
     tbody.appendChild(row);
+    processedRows++;
   });
+
   table.appendChild(tbody);
   tableContainer.appendChild(table);
   resultsContainer.appendChild(tableContainer);
+
+  // Summary counts shown above the table using Bootstrap badges
   const summary = document.createElement('div');
-  summary.className = 'loaded-count';
+  summary.className = 'loaded-count mb-2';
   summary.innerHTML = `
-    Processed ${results.length} claims: 
-    <span class="valid">${statusCounts.valid} valid</span>, 
-    <span class="unknown">${statusCounts.unknown} unknown</span>, 
-    <span class="invalid">${statusCounts.invalid} invalid</span>
+    Processed ${processedRows} claims:
+    <span class="badge bg-success ms-2">${statusCounts.valid} valid</span>
+    <span class="badge bg-secondary ms-1">${statusCounts.unknown} unknown</span>
+    <span class="badge bg-danger ms-1">${statusCounts.invalid} invalid</span>
   `;
   resultsContainer.prepend(summary);
+
+  // Ensure modal wiring for details and view-all buttons
   initEligibilityModal(results, eligMap);
+
+  // Small accessibility hint: make results container focusable and move focus
+  resultsContainer.setAttribute('tabindex', '-1');
+  resultsContainer.focus();
 }
 
 function initEligibilityModal(results, eligMap) {
+  // Create a Bootstrap-style modal (styling provided by tables.css + Bootstrap classes)
   if (!document.getElementById("modalOverlay")) {
     const modalHtml = `
-      <div id="modalOverlay" style="display:none;position:fixed;z-index:9999;left:0;top:0;width:100vw;height:100vh;background:rgba(0,0,0,0.35);">
-        <div id="modalContent" style="
-          background:#fff;
-          width:90%;
-          max-width:1200px;
-          max-height:90vh;
-          overflow:auto;
-          position:absolute;
-          left:50%;
-          top:50%;
-          transform:translate(-50%,-50%);
-          padding:20px;
-          border-radius:8px;
-          box-shadow:0 4px 24px rgba(0,0,0,0.2);
-        ">
-          <button id="modalCloseBtn" style="
-            float:right;
-            font-size:18px;
-            padding:2px 10px;
-            cursor:pointer;
-          " aria-label="Close">&times;</button>
-          <div id="modalTable"></div>
+      <div id="modalOverlay" class="modal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-xl modal-dialog-centered">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title">Eligibility Details</h5>
+              <button type="button" class="btn-close" id="modalCloseBtn" aria-label="Close"></button>
+            </div>
+            <div class="modal-body p-0">
+              <div id="modalTable" class="p-3" style="overflow:auto; max-height:70vh;"></div>
+            </div>
+          </div>
         </div>
       </div>
     `;
     document.body.insertAdjacentHTML("beforeend", modalHtml);
-    document.getElementById("modalCloseBtn").onclick = hideModal;
-    document.getElementById("modalOverlay").onclick = function(e) { if (e.target.id === "modalOverlay") hideModal(); };
+
+    // Wire up close behavior
+    const overlay = document.getElementById("modalOverlay");
+    const closeBtn = document.getElementById("modalCloseBtn");
+    closeBtn.addEventListener('click', hideModal);
+    // Close when clicking backdrop
+    overlay.addEventListener('click', function (e) {
+      if (e.target === overlay) hideModal();
+    });
+
+    // Accessibility: allow ESC to close when modal is shown
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') {
+        const ov = document.getElementById('modalOverlay');
+        if (ov && ov.style.display && ov.style.display !== 'none') hideModal();
+      }
+    });
   }
+
+  // Attach click handlers to any "details" buttons in the results table
   document.querySelectorAll(".eligibility-details").forEach(btn => {
-    btn.onclick = function() {
+    // remove previous handlers to avoid double-binding
+    btn.onclick = null;
+    btn.addEventListener('click', function () {
       const index = parseInt(this.dataset.index, 10);
       const result = results[index];
       if (!result?.fullEligibilityRecord) return;
       const record = result.fullEligibilityRecord;
       document.getElementById("modalTable").innerHTML = formatEligibilityDetails(record, result.memberID);
-      document.getElementById("modalOverlay").style.display = "block";
-    };
+      showModal();
+    });
   });
+
+  // Attach click handlers to "view all eligibilities" buttons
   document.querySelectorAll(".show-all-eligibilities").forEach(btn => {
-    btn.onclick = function() {
+    btn.onclick = null;
+    btn.addEventListener('click', function () {
       const member = this.dataset.member;
-      const list = (eligMap.get(member) || []);
+      const list = (typeof eligMap.get === 'function') ? (eligMap.get(member) || []) : [];
+      const modalTable = document.getElementById("modalTable");
       if (!list.length) {
-        document.getElementById("modalTable").innerHTML = `<div>No eligibilities found for ${escapeHtml(member)}</div>`;
-        document.getElementById("modalOverlay").style.display = "block";
+        modalTable.innerHTML = `<div class="p-3">No eligibilities found for <strong>${escapeHtml(member)}</strong></div>`;
+        showModal();
         return;
       }
-      // build a full table header and open tbody (template literal must be closed)
-      let html = `<h3>Eligibilities for ${escapeHtml(member)}</h3>
-        <div style="overflow-x:auto;">
-          <table style="width:100%;border-collapse:collapse;">
-            <thead>
+
+      // Build a Bootstrap-styled table of eligibilities
+      let html = `<h6 class="px-3 pt-3">Eligibilities for ${escapeHtml(member)}</h6>
+        <div class="table-responsive px-3 pb-3">
+          <table class="table table-sm table-striped table-bordered mb-0">
+            <thead class="table-light">
               <tr>
-                <th style="padding:6px;border-bottom:1px solid #eee">#</th>
-                <th style="padding:6px;border-bottom:1px solid #eee">Request No</th>
-                <th style="padding:6px;border-bottom:1px solid #eee">Answered On</th>
-                <th style="padding:6px;border-bottom:1px solid #eee">Status</th>
-                <th style="padding:6px;border-bottom:1px solid #eee">Clinician</th>
-                <th style="padding:6px;border-bottom:1px solid #eee">Service Category</th>
-                <th style="padding:6px;border-bottom:1px solid #eee">Package Name</th>
+                <th style="min-width:38px">#</th>
+                <th>Request No</th>
+                <th>Answered On</th>
+                <th>Status</th>
+                <th>Clinician</th>
+                <th>Service Category</th>
+                <th>Package Name</th>
               </tr>
             </thead>
             <tbody>`;
+
       list.forEach((rec, idx) => {
+        const answeredOn = escapeHtml(rec['Answered On'] || rec['Ordered On'] || '');
         html += `<tr>
-          <td style="padding:6px;border-bottom:1px solid #eee">${idx+1}</td>
-          <td style="padding:6px;border-bottom:1px solid #eee">${escapeHtml(rec['Eligibility Request Number']||'')}</td>
-          <td style="padding:6px;border-bottom:1px solid #eee">${escapeHtml(rec['Answered On']||rec['Ordered On']||'')}</td>
-          <td style="padding:6px;border-bottom:1px solid #eee">${escapeHtml(rec['Status']||'')}</td>
-          <td style="padding:6px;border-bottom:1px solid #eee">${escapeHtml(rec['Clinician']||'')}</td>
-          <td style="padding:6px;border-bottom:1px solid #eee">${escapeHtml(rec['Service Category']||'')}</td>
-          <td style="padding:6px;border-bottom:1px solid #eee">${escapeHtml(rec['Package Name']||'')}</td>
+          <td>${idx + 1}</td>
+          <td>${escapeHtml(rec['Eligibility Request Number'] || '')}</td>
+          <td>${answeredOn}</td>
+          <td>${escapeHtml(rec['Status'] || '')}</td>
+          <td>${escapeHtml(rec['Clinician'] || '')}</td>
+          <td>${escapeHtml(rec['Service Category'] || '')}</td>
+          <td>${escapeHtml(rec['Package Name'] || '')}</td>
         </tr>`;
       });
+
       html += `</tbody></table></div>`;
-      document.getElementById("modalTable").innerHTML = html;
-      document.getElementById("modalOverlay").style.display = "block";
-    };
+      modalTable.innerHTML = html;
+      showModal();
+    });
   });
+
+  // Helper to show the modal (use classes for appearance, but manage display manually so we don't depend on Bootstrap JS)
+  function showModal() {
+    const overlay = document.getElementById("modalOverlay");
+    if (!overlay) return;
+    overlay.style.display = 'flex';           // tables.css .modal expects to be flex-centered if shown
+    overlay.setAttribute('aria-hidden', 'false');
+    // small delay to allow CSS transitions if any
+    setTimeout(() => overlay.classList.add('show'), 10);
+    // trap focus inside modal
+    const focusable = overlay.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+    if (focusable.length) focusable[0].focus();
+  }
+
+  // Use the existing hideModal function when closing; ensure it also removes .show
+  // (hideModal is declared elsewhere in the file)
+  function hideModalLocal() { hideModal(); }
+
+  // If hideModal is not available for some reason, provide fallback
+  if (typeof hideModal !== 'function') {
+    window.hideModal = function () {
+      const overlay = document.getElementById("modalOverlay");
+      if (!overlay) return;
+      overlay.classList.remove('show');
+      overlay.style.display = 'none';
+      overlay.setAttribute('aria-hidden', 'true');
+    };
+  }
 }
 
 function hideModal() { const overlay = document.getElementById("modalOverlay"); if (overlay) overlay.style.display = "none"; }
