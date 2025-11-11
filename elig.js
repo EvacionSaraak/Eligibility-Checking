@@ -687,6 +687,32 @@ function parseCsvText(text) {
     }
   });
 }
+// Insert this function into elig.js (for example right after the escapeHtml function).
+// It defines summarizeAndDisplayCounts which was being called when eligibility/report
+// files are loaded. This prevents the ReferenceError and updates the status element.
+function summarizeAndDisplayCounts() {
+  try {
+    const eligCount = Array.isArray(eligData) ? eligData.length : 0;
+
+    // Ensure xlsData exists; if not but rawParsedReport exists try to normalize it now
+    if ((!Array.isArray(xlsData) || xlsData.length === 0) && rawParsedReport) {
+      try {
+        const normalized = normalizeReportData(rawParsedReport);
+        xlsData = normalized.filter(r => r && r.claimID && String(r.claimID).trim() !== '');
+      } catch (e) {
+        console.warn('summarizeAndDisplayCounts: failed to normalize report for counting', e);
+      }
+    }
+
+    const claimCount = Array.isArray(xlsData) ? xlsData.length : 0;
+
+    if (statusEl) {
+      statusEl.textContent = `Loaded ${eligCount} eligibilities, ${claimCount} claims — Ready to process files`;
+    }
+  } catch (err) {
+    console.error('summarizeAndDisplayCounts error', err);
+  }
+}
 
 /*************************
  * UI RENDERING FUNCTIONS (kept from second but updated with Bootstrap)
