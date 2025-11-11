@@ -1,131 +1,145 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="utf-8">
   <title>Eligibility Checker</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <!-- Bootstrap CSS -->
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <!-- Main styles moved to tables.css -->
   <link rel="stylesheet" href="tables.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <script src="elig.js"></script>
-  <style>
-    body { background-color: #f7f9fc; }
-    .page-title {
-      color: #0056b3;
-      margin-top: 24px;
-      font-weight: 700;
-      letter-spacing: 1px;
-      text-align: center;
-    }
-    #explanation {
-      background: #eef3fa;
-      border-radius: 8px;
-      border: 1px solid #dee2e6;
-      box-shadow: 0 2px 6px rgba(0,0,0,.03);
-      padding: 18px;
-      margin-bottom: 25px;
-      color: #333;
-    }
-    .form-label { font-weight: 500; color: #333; }
-    .input-group-text { background: #e7eaf1; }
-    .file-upload-area {
-      padding: 24px;
-      background: #fff;
-      border-radius: 8px;
-      box-shadow: 0 2px 8px rgba(0,0,0,.04);
-      border: 1px solid #e3e8ee;
-      margin-bottom: 18px;
-    }
-    .btn-primary, .btn-secondary { min-width: 150px; }
-    #uploadStatus { min-height: 24px; }
-    #results { padding-bottom: 32px; }
-    .step-number { font-weight: 600; color: #0056b3; margin-right: 6px; }
-    .filter-toggle-area {
-      background: #f0f5ff;
-      border: 1px solid #ccd6eb;
-      border-radius: 6px;
-      padding: 10px 14px;
-      margin: 10px 0 18px;
-      text-align: center;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-    }
-    .filter-status {
-      display: inline-block;
-      margin-left: 8px;
-      font-size: 0.9rem;
-      padding: 3px 8px;
-      border-radius: 12px;
-      background: #adb5bd;
-      color: #fff;
-    }
-    .filter-status.active {
-      background: #198754;
-    }
-    @media (max-width: 600px) {
-      .btn-primary, .btn-secondary { min-width: 100px; }
-      .file-upload-area { padding: 14px; }
-      #explanation { padding: 13px; }
-    }
-  </style>
 </head>
 <body>
-  <div class="container" style="max-width: 600px;">
-    <h1 class="page-title">Eligibility Checker</h1>
-
-    <!-- Explanation Box -->
-    <div id="explanation" class="mb-4 mt-3">
-      <b>Welcome!</b> This is a simple tool for checking patient eligibility.
-      <ul class="mb-0 mt-2">
-        <li><span class="step-number">1.</span>Upload your patient report (Clinicpro, Odoo, or InstaHMS).</li>
-        <li><span class="step-number">2.</span>Upload the Eligibility XLSX file.</li>
-        <li><span class="step-number">3.</span>Click <b>Process</b> to check eligibility.</li>
-        <li><span class="step-number">4.</span>Click <b>Export Invalid Rows</b> to download a list of patients not eligible.</li>
-      </ul>
+  <div class="app">
+    <div class="app-header">
+      <!-- header area is intentionally minimal -->
     </div>
 
-    <form>
-      <div class="file-upload-area mb-3">
-        <div class="mb-4">
-          <label for="reportFileInput" class="form-label">Upload Patient Report (Clinicpro, Odoo, or InstaHMS):</label>
-          <div class="input-group">
-            <span class="input-group-text"><i class="bi bi-file-earmark-excel"></i></span>
-            <input type="file" class="form-control" id="reportFileInput" multiple accept=".xls,.xlsx,.csv">
-          </div>
+    <div class="app-content">
+      <aside class="sidebar">
+        <h1 class="page-title">Eligibility Checker</h1>
+
+        <!-- Explanation Box -->
+        <div id="explanation" class="mb-3">
+          <b>Welcome!</b> This is a simple tool for checking patient eligibility.
+          <ul class="mb-0 mt-2">
+            <li><b>1.</b> Upload your patient report (Clinicpro, Odoo, or InstaHMS).</li>
+            <li><b>2.</b> Upload the Eligibility XLSX file.</li>
+            <li><b>3.</b> Click <b>Process</b> to check eligibility.</li>
+            <li><b>4.</b> Click <b>Export Invalid Rows</b> to download patients not eligible.</li>
+          </ul>
         </div>
-        <div class="mb-3">
-          <label for="eligibilityFileInput" class="form-label">Upload Eligibility XLSX:</label>
-          <div class="input-group">
-            <span class="input-group-text"><i class="bi bi-file-earmark-spreadsheet"></i></span>
-            <input type="file" class="form-control" id="eligibilityFileInput" accept=".xlsx">
+
+        <form>
+          <div class="file-upload-area mb-3">
+            <div class="mb-3">
+              <label for="reportFileInput" class="form-label">Upload Patient Report (Clinicpro, Odoo, or InstaHMS):</label>
+              <div class="input-group">
+                <span class="input-group-text"><i class="bi bi-file-earmark-excel"></i></span>
+                <input type="file" class="form-control" id="reportFileInput" multiple accept=".xls,.xlsx,.csv">
+              </div>
+            </div>
+            <div class="mb-3">
+              <label for="eligibilityFileInput" class="form-label">Upload Eligibility XLSX:</label>
+              <div class="input-group">
+                <span class="input-group-text"><i class="bi bi-file-earmark-spreadsheet"></i></span>
+                <input type="file" class="form-control" id="eligibilityFileInput" accept=".xlsx">
+              </div>
+            </div>
           </div>
+
+          <!-- Daman/Thiqa Filter Toggle -->
+          <div class="filter-toggle-area">
+            <label class="form-check-label">
+              <input class="form-check-input me-2" type="checkbox" id="filterDamanThiqa">
+              Show only <b>Daman / Thiqa</b> claims
+            </label>
+            <span id="filterStatus" class="filter-status">OFF</span>
+          </div>
+
+          <div class="d-flex gap-2 mb-2 justify-content-start">
+            <button type="button" id="processBtn" class="btn btn-primary" disabled>
+              <i class="bi bi-play-fill"></i> Process
+            </button>
+            <button type="button" id="exportInvalidBtn" class="btn btn-secondary" disabled>
+              <i class="bi bi-arrow-down-circle"></i> Export Invalid Rows
+            </button>
+          </div>
+          <div id="uploadStatus" class="mt-2 text-primary fs-6"></div>
+        </form>
+
+        <div style="height:18px;"></div>
+        <div style="font-size:0.9rem; color:#58616a;">
+          Tip: Results appear on the right. If the table is long you can scroll it independently; a subtle fade will appear at the bottom to indicate more content.
         </div>
-      </div>
+      </aside>
 
-      <!-- Daman/Thiqa Filter Toggle -->
-      <div class="filter-toggle-area">
-        <label class="form-check-label">
-          <input class="form-check-input me-2" type="checkbox" id="filterDamanThiqa">
-          Show only <b>Daman / Thiqa</b> claims
-        </label>
-        <span id="filterStatus" class="filter-status">OFF</span>
-      </div>
+      <main class="main">
+        <div class="results-header">
+          <div class="results-title">Results</div>
+          <div style="font-size:0.9rem; color:#6c757d;">Table output and export actions</div>
+        </div>
 
-      <div class="d-flex gap-2 mb-2 justify-content-center">
-        <button type="button" id="processBtn" class="btn btn-primary" disabled>
-          <i class="bi bi-play-fill"></i> Process
-        </button>
-        <button type="button" id="exportInvalidBtn" class="btn btn-secondary" disabled>
-          <i class="bi bi-arrow-down-circle"></i> Export Invalid Rows
-        </button>
-      </div>
-      <div id="uploadStatus" class="mt-2 text-primary fs-6 text-center"></div>
-    </form>
+        <!-- This is the scrollable area where generated table(s) will be placed -->
+        <div id="results" aria-live="polite">
+          <!-- Existing behavior: elig.js should populate this #results element with the generated table -->
+          <div class="text-muted">No results yet. Upload files and click Process.</div>
+          <div class="results-footer-space"></div>
+        </div>
 
-    <div id="results" style="margin-top:24px;"></div>
+        <!-- Fade overlay shown only when #results can be scrolled down -->
+        <div class="fade-overlay" id="resultsFade"></div>
+      </main>
+    </div>
   </div>
 
   <!-- Bootstrap Icons CDN -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
   <script src="table_clipboard.js"></script>
+
+  <script>
+    // Show a bottom fade when the right-hand results area is scrollable and not at the bottom.
+    (function () {
+      const results = document.getElementById('results');
+      const fade = document.getElementById('resultsFade');
+
+      if (!results || !fade) return;
+
+      function updateFade() {
+        // If content taller than container, and not scrolled to bottom, show fade
+        const canScroll = results.scrollHeight > results.clientHeight;
+        const notAtBottom = results.scrollTop < (results.scrollHeight - results.clientHeight - 1);
+        if (canScroll && notAtBottom) {
+          fade.style.display = 'block';
+          fade.style.opacity = '1';
+        } else {
+          fade.style.opacity = '0';
+          // keep display:none after transition
+          setTimeout(() => { if (fade.style.opacity === '0') fade.style.display = 'none'; }, 200);
+        }
+      }
+
+      // Update when user scrolls and when window resizes
+      results.addEventListener('scroll', updateFade, { passive: true });
+      window.addEventListener('resize', updateFade);
+
+      // Observe DOM changes inside results (so when elig.js inserts the table we update fade)
+      const mo = new MutationObserver(() => {
+        // small delay to allow layout to settle
+        setTimeout(updateFade, 60);
+      });
+      mo.observe(results, { childList: true, subtree: true });
+
+      // Initial check
+      document.addEventListener('DOMContentLoaded', updateFade);
+      // Also run shortly after load in case scripts populated the results before DOMContentLoaded
+      setTimeout(updateFade, 120);
+      
+      // Expose helper for external scripts to call after they update results
+      window.__elig_updateResultsFade = updateFade;
+    })();
+  </script>
 </body>
 </html>
