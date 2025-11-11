@@ -971,17 +971,50 @@ function hideModal() { const overlay = document.getElementById("modalOverlay"); 
 
 function formatEligibilityDetails(record, memberID) {
   if (!record) return '<div>No details</div>';
-  let html = `<div style="margin-bottom:8px;"><strong>Member:</strong> ${escapeHtml(memberID)} <span style="margin-left:8px;" class="status-badge ${((record.Status||'').toLowerCase()==='eligible')?'el[...]
-  html += '<table style="width:100%;border-collapse:collapse;"><tbody>';
-  Object.entries(record).forEach(([k,v]) => {
-    if ((v === null || v === undefined || v === '') && v !== 0) return;
-    let disp = v;
-    if (DATE_KEYS.some(dk => k.includes(dk)) || k.toLowerCase().includes('answered') || k.toLowerCase().includes('ordered')) {
-      const p = DateHandler.parse(v);
-      disp = p ? DateHandler.format(p) : v;
+
+  // Header with member and status badge
+  const status = (record.Status || '').toString();
+  const statusClass = status.toLowerCase() === 'eligible' ? 'status-badge eligible' : 'status-badge ineligible';
+  let html = `<div class="mb-2"><strong>Member:</strong> ${escapeHtml(memberID)} <span class="${statusClass}" style="margin-left:8px;">${escapeHtml(status)}</span></div>`;
+
+  // Start details table
+  html += '<table class="eligibility-details"><tbody>';
+
+  // Render known important fields first (if present) in a predictable order
+  const preferredKeys = [
+    'Eligibility Request Number', 'Card Number / DHA Member ID', 'Answered On', 'Ordered On',
+    'Status', 'Clinician', 'Payer Name', 'Service Category', 'Package Name'
+  ];
+
+  const used = new Set();
+
+  preferredKeys.forEach(key => {
+    if (Object.prototype.hasOwnProperty.call(record, key)) {
+      const raw = record[key];
+      if (raw === undefined || raw === null || raw === '') return;
+      used.add(key);
+      let disp = raw;
+      if (typeof raw === 'string' && (key.includes('Date') || key.toLowerCase().includes('answered') || key.toLowerCase().includes('ordered'))) {
+        const parsed = DateHandler.parse(raw);
+        disp = parsed ? DateHandler.format(parsed) : raw;
+      }
+      html += `<tr><th>${escapeHtml(key)}</th><td>${escapeHtml(String(disp))}</td></tr>`;
     }
-    html += `<tr><th style="text-align:left;padding:6px;border-bottom:1px solid #eee;width:30%">${escapeHtml(k)}</th><td style="padding:6px;border-bottom:1px solid #eee">${escapeHtml(String(disp))}</t[...]
   });
+
+  // Render any remaining fields
+  Object.keys(record).forEach(key => {
+    if (used.has(key)) return;
+    const raw = record[key];
+    if (raw === undefined || raw === null || raw === '') return;
+    let disp = raw;
+    if (typeof raw === 'string' && (key.includes('Date') || key.toLowerCase().includes('answered') || key.toLowerCase().includes('ordered'))) {
+      const parsed = DateHandler.parse(raw);
+      disp = parsed ? DateHandler.format(parsed) : raw;
+    }
+    html += `<tr><th>${escapeHtml(key)}</th><td>${escapeHtml(String(disp))}</td></tr>`;
+  });
+
   html += '</tbody></table>';
   return html;
 }
