@@ -82,7 +82,15 @@
       <main class="main" id="mainPanel">
         <div class="results-header">
           <div class="results-title">Results</div>
-          <div style="font-size:0.9rem; color:#6c757d;">Table output and export actions</div>
+
+          <!-- Result-window-only filters (invalid-only default checked) -->
+          <div class="d-flex align-items-center gap-2">
+            <div class="form-check form-switch mb-0">
+              <input class="form-check-input" type="checkbox" id="filterInvalidOnly" checked>
+              <label class="form-check-label small" for="filterInvalidOnly">Invalid only</label>
+            </div>
+            <div style="font-size:0.9rem; color:#6c757d;">Table output and export actions</div>
+          </div>
         </div>
 
         <!-- This is the scrollable area where generated table(s) will be placed -->
