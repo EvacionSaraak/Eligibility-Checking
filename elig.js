@@ -797,9 +797,10 @@ function renderResults(results, eligMap) {
 
     let detailsCellHtml = '<div class="source-note">N/A</div>';
     if (result.fullEligibilityRecord?.['Eligibility Request Number']) {
-      detailsCellHtml = `<button class="btn btn-sm btn-outline-primary eligibility-details" data-index="${index}">${escapeHtml(result.fullEligibilityRecord['Eligibility Request Number'])}</button>`;
+      detailsCellHtml = `<button class="btn btn-sm btn-outline-primary eligibility-details" data-index="${index}" data-claimdate="${escapeHtml(result.encounterStart)}">${escapeHtml(result.fullEligibilityRecord['Eligibility Request Number'])}</button>`;
     } else if (eligMap && typeof eligMap.get === 'function' && (eligMap.get(result.memberID) || []).length) {
-      detailsCellHtml = `<button class="btn btn-sm btn-outline-secondary show-all-eligibilities" data-member="${escapeHtml(result.memberID)}">View All</button>`;
+      // include claim date so "View All" can highlight rows relative to this claim
+      detailsCellHtml = `<button class="btn btn-sm btn-outline-secondary show-all-eligibilities" data-member="${escapeHtml(result.memberID)}" data-claimdate="${escapeHtml(result.encounterStart)}">View All</button>`;
     }
 
     row.innerHTML = `
@@ -846,7 +847,7 @@ function renderResults(results, eligMap) {
  * initEligibilityModal (Bootstrap-flavored) - unchanged
  *************************/
 function initEligibilityModal(results, eligMap) {
-  // Create a Bootstrap-style modal (styling provided by tables.css + Bootstrap classes)
+  // Ensure modal exists (Bootstrap-flavored modal markup)
   if (!document.getElementById("modalOverlay")) {
     const modalHtml = `
       <div id="modalOverlay" class="modal" tabindex="-1" aria-hidden="true">
@@ -869,12 +870,9 @@ function initEligibilityModal(results, eligMap) {
     const overlay = document.getElementById("modalOverlay");
     const closeBtn = document.getElementById("modalCloseBtn");
     closeBtn.addEventListener('click', hideModal);
-    // Close when clicking backdrop
     overlay.addEventListener('click', function (e) {
       if (e.target === overlay) hideModal();
     });
-
-    // Accessibility: allow ESC to close when modal is shown
     document.addEventListener('keydown', function (e) {
       if (e.key === 'Escape') {
         const ov = document.getElementById('modalOverlay');
@@ -883,7 +881,7 @@ function initEligibilityModal(results, eligMap) {
     });
   }
 
-  // Attach click handlers to any "details" buttons in the results table
+  // DETAILS button: show single eligibility record
   document.querySelectorAll(".eligibility-details").forEach(btn => {
     // remove previous handlers to avoid double-binding
     btn.onclick = null;
@@ -892,25 +890,36 @@ function initEligibilityModal(results, eligMap) {
       const result = results[index];
       if (!result?.fullEligibilityRecord) return;
       const record = result.fullEligibilityRecord;
-      document.getElementById("modalTable").innerHTML = formatEligibilityDetails(record, result.memberID);
+
+      // derive claim date from the result (formatted string)
+      const claimDateStr = this.dataset.claimdate || result.encounterStart || '';
+      const claimDate = claimDateStr ? DateHandler.parse(claimDateStr) : null;
+
+      // pass claimDate into formatEligibilityDetails so it can highlight date rows
+      document.getElementById("modalTable").innerHTML = formatEligibilityDetails(record, result.memberID, claimDate);
       showModal();
     });
   });
 
-  // Attach click handlers to "view all eligibilities" buttons
+  // VIEW ALL button: show all eligibilities for member, highlight by claim date if provided
   document.querySelectorAll(".show-all-eligibilities").forEach(btn => {
     btn.onclick = null;
     btn.addEventListener('click', function () {
       const member = this.dataset.member;
+      // dataset.claimdate may be present (passed from renderResults)
+      const claimDateStr = this.dataset.claimdate || '';
+      const claimDate = claimDateStr ? DateHandler.parse(claimDateStr) : null;
+
       const list = (typeof eligMap.get === 'function') ? (eligMap.get(member) || []) : [];
       const modalTable = document.getElementById("modalTable");
+
       if (!list.length) {
         modalTable.innerHTML = `<div class="p-3">No eligibilities found for <strong>${escapeHtml(member)}</strong></div>`;
         showModal();
         return;
       }
 
-      // Build a Bootstrap-styled table of eligibilities
+      // Build a Bootstrap-styled table of eligibilities and highlight rows:
       let html = `<h6 class="px-3 pt-3">Eligibilities for ${escapeHtml(member)}</h6>
         <div class="table-responsive px-3 pb-3">
           <table class="table table-sm table-striped table-bordered mb-0">
@@ -928,11 +937,23 @@ function initEligibilityModal(results, eligMap) {
             <tbody>`;
 
       list.forEach((rec, idx) => {
-        const answeredOn = escapeHtml(rec['Answered On'] || rec['Ordered On'] || '');
-        html += `<tr>
+        const answeredOnRaw = rec['Answered On'] || rec['Ordered On'] || '';
+        const eligDate = DateHandler.parse(answeredOnRaw);
+        // Determine row class based on date comparison:
+        // - If claimDate is available and eligDate exists:
+        //     same day -> highlight yellow (table-warning)
+        //     different day -> highlight red (table-danger)
+        // - If claimDate not available or eligDate missing -> no extra highlight
+        let trClass = '';
+        if (claimDate && eligDate) {
+          if (DateHandler.isSameDay(claimDate, eligDate)) trClass = 'table-warning';
+          else trClass = 'table-danger';
+        }
+
+        html += `<tr class="${trClass}">
           <td>${idx + 1}</td>
           <td>${escapeHtml(rec['Eligibility Request Number'] || '')}</td>
-          <td>${answeredOn}</td>
+          <td>${escapeHtml(answeredOnRaw || '')}</td>
           <td>${escapeHtml(rec['Status'] || '')}</td>
           <td>${escapeHtml(rec['Clinician'] || '')}</td>
           <td>${escapeHtml(rec['Service Category'] || '')}</td>
@@ -946,6 +967,7 @@ function initEligibilityModal(results, eligMap) {
     });
   });
 
+  // Helper to show the modal (manage display manually)
   function showModal() {
     const overlay = document.getElementById("modalOverlay");
     if (!overlay) return;
@@ -956,6 +978,7 @@ function initEligibilityModal(results, eligMap) {
     if (focusable.length) focusable[0].focus();
   }
 
+  // ensure hideModal exists (fallback)
   if (typeof hideModal !== 'function') {
     window.hideModal = function () {
       const overlay = document.getElementById("modalOverlay");
