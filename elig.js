@@ -694,12 +694,10 @@ function summarizeAndDisplayCounts() {
   }
 }
 
-/*************************
- * renderResults and modal functions (kept from second)
- *************************/
 /* ------------------------------------------------------------------
-   Updated renderResults: use Bootstrap classes while keeping existing
-   functionality (badges, details / view-all buttons, summary, modal)
+   renderResults (updated): color entire rows based on status/tags,
+   combining Bootstrap contextual table classes with existing custom
+   CSS classes (.valid, .invalid, .unknown, .daman-only, .thiqa-only).
    ------------------------------------------------------------------ */
 function renderResults(results, eligMap) {
   if (!resultsContainer) return;
@@ -740,6 +738,13 @@ function renderResults(results, eligMap) {
   const statusCounts = { valid: 0, invalid: 0, unknown: 0 };
   let processedRows = 0;
 
+  // mapping from our semantic finalStatus -> Bootstrap contextual table class
+  const finalStatusToBootstrap = {
+    valid: 'table-success',
+    invalid: 'table-danger',
+    unknown: 'table-warning'
+  };
+
   results.forEach((result, index) => {
     if (!result.memberID || result.memberID.toString().trim() === '') return;
     const statusToCheck = (result.claimStatus || result.status || result.fullEligibilityRecord?.Status || '')
@@ -753,7 +758,27 @@ function renderResults(results, eligMap) {
     }
 
     const row = document.createElement('tr');
-    row.className = result.finalStatus || '';
+
+    // Add semantic class (keeps legacy colors from tables.css) and Bootstrap contextual class
+    const finalStatus = (result.finalStatus || '').toString().toLowerCase();
+    if (finalStatus) {
+      row.classList.add(finalStatus); // e.g. 'valid', 'invalid', 'unknown' -> maps to CSS in tables.css
+      const bs = finalStatusToBootstrap[finalStatus];
+      if (bs) row.classList.add(bs); // e.g. 'table-success'
+    }
+
+    // Tag-based coloring: detect provider keywords for Daman/Thiqa and apply tag classes
+    const provider = (result.provider || result.insuranceCompany || '').toString().toLowerCase();
+    if (provider.includes('daman')) {
+      row.classList.add('daman-only');
+    } else if (provider.includes('thiqa')) {
+      row.classList.add('thiqa-only');
+    }
+
+    // If eligibility record explicitly indicates something like 'VVIP', give a subtle highlight
+    if ((result.finalStatus || '').toLowerCase() === 'vvip' || (result.status || '').toString().toLowerCase() === 'vvip') {
+      row.classList.add('selected'); // keep existing .selected style for emphasis if present
+    }
 
     // Status badge using Bootstrap
     const statusBadge = result.status
