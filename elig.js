@@ -872,6 +872,11 @@ function renderResults(results, eligMap) {
 /*************************
  * initEligibilityModal (Bootstrap-flavored) - unchanged
  *************************/
+// Replace the existing initEligibilityModal function with this version,
+// and add the helper generateAndSendDebugLog below. This adds a "Send debug log"
+// button to the modal header which gathers relevant context and downloads the log
+// (and copies to clipboard) so you can paste or attach it to an issue/email.
+
 function initEligibilityModal(results, eligMap) {
   // Ensure modal exists (Bootstrap-flavored modal markup)
   if (!document.getElementById("modalOverlay")) {
@@ -879,8 +884,12 @@ function initEligibilityModal(results, eligMap) {
       <div id="modalOverlay" class="modal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-xl modal-dialog-centered">
           <div class="modal-content">
-            <div class="modal-header">
-              <h5 class="modal-title">Eligibility Details</h5>
+            <div class="modal-header d-flex align-items-center">
+              <h5 class="modal-title me-auto">Eligibility Details</h5>
+              <!-- Debug button to generate a diagnostic log -->
+              <button type="button" class="btn btn-sm btn-outline-info me-2" id="modalDebugBtn" title="Generate debug log for this modal" style="display:none;">
+                <i class="bi bi-bug-fill"></i> Send debug log
+              </button>
               <button type="button" class="btn-close" id="modalCloseBtn" aria-label="Close"></button>
             </div>
             <div class="modal-body p-0">
@@ -905,6 +914,13 @@ function initEligibilityModal(results, eligMap) {
         if (ov && ov.style.display && ov.style.display !== 'none') hideModal();
       }
     });
+
+    // Debug button handler (calls helper to build log and download/send it)
+    const debugBtn = document.getElementById('modalDebugBtn');
+    debugBtn.addEventListener('click', () => {
+      const ctx = window.__elig_current_debug || null;
+      generateAndSendDebugLog(ctx, results, eligMap);
+    });
   }
 
   // DETAILS button: show single eligibility record
@@ -920,6 +936,19 @@ function initEligibilityModal(results, eligMap) {
       // derive claim date from the result (formatted string)
       const claimDateStr = this.dataset.claimdate || result.encounterStart || '';
       const claimDate = claimDateStr ? DateHandler.parse(claimDateStr) : null;
+
+      // set debug context so the debug button knows what to include
+      window.__elig_current_debug = {
+        mode: 'single',
+        member: result.memberID,
+        claimDate: claimDateStr || '',
+        record,
+        resultIndex: index
+      };
+
+      // make debug button visible
+      const debugBtn = document.getElementById('modalDebugBtn');
+      if (debugBtn) debugBtn.style.display = '';
 
       // pass claimDate into formatEligibilityDetails so it can highlight date rows
       document.getElementById("modalTable").innerHTML = formatEligibilityDetails(record, result.memberID, claimDate);
@@ -938,6 +967,18 @@ function initEligibilityModal(results, eligMap) {
 
       const list = (typeof eligMap.get === 'function') ? (eligMap.get(member) || []) : [];
       const modalTable = document.getElementById("modalTable");
+
+      // set debug context to include member/list + claim date for "send debug"
+      window.__elig_current_debug = {
+        mode: 'list',
+        member,
+        claimDate: claimDateStr || '',
+        listSnapshot: list.slice(0, 200) // limit size to avoid huge logs
+      };
+
+      // make debug button visible
+      const debugBtn = document.getElementById('modalDebugBtn');
+      if (debugBtn) debugBtn.style.display = '';
 
       if (!list.length) {
         modalTable.innerHTML = `<div class="p-3">No eligibilities found for <strong>${escapeHtml(member)}</strong></div>`;
@@ -965,11 +1006,6 @@ function initEligibilityModal(results, eligMap) {
       list.forEach((rec, idx) => {
         const answeredOnRaw = rec['Answered On'] || rec['Ordered On'] || '';
         const eligDate = DateHandler.parse(answeredOnRaw);
-        // Determine row class based on date comparison:
-        // - If claimDate is available and eligDate exists:
-        //     same day -> highlight yellow (table-warning)
-        //     different day -> highlight red (table-danger)
-        // - If claimDate not available or eligDate missing -> no extra highlight
         let trClass = '';
         if (claimDate && eligDate) {
           if (DateHandler.isSameDay(claimDate, eligDate)) trClass = 'table-warning';
@@ -1016,6 +1052,69 @@ function initEligibilityModal(results, eligMap) {
   }
 }
 
+/* Helper: gather debug info and prompt download + copy to clipboard.
+   ctx is the object we set on window.__elig_current_debug (mode/member/claimDate/record/listSnapshot).
+   results and eligMap are passed for extra context. */
+function generateAndSendDebugLog(ctx, results, eligMap) {
+  try {
+    const timestamp = new Date().toISOString();
+    const env = {
+      timestamp,
+      pageUrl: window.location.href,
+      userAgent: navigator.userAgent,
+      platform: navigator.platform,
+      viewport: { width: window.innerWidth, height: window.innerHeight }
+    };
+
+    const payload = {
+      env,
+      context: ctx || null,
+      lastValidationResultsCount: Array.isArray(window.lastValidationResults) ? window.lastValidationResults.length : 0,
+      lastEligMapSize: (lastEligMap && typeof lastEligMap.size === 'number') ? lastEligMap.size : (eligMap && typeof eligMap.size === 'number' ? eligMap.size : null),
+      // include a small sample of lastValidationResults if present
+      lastValidationSample: (window.lastValidationResults && Array.isArray(window.lastValidationResults)) ? window.lastValidationResults.slice(0,50) : []
+    };
+
+    // If ctx includes member, include elig entries for that member (limit to 200)
+    if (ctx && ctx.member && (typeof eligMap?.get === 'function')) {
+      const memberKey = normalizeMemberID(ctx.member);
+      const memberEntries = eligMap.get(memberKey) || [];
+      payload.memberEligibilities = memberEntries.slice(0,200);
+    }
+
+    const text = JSON.stringify(payload, null, 2);
+
+    // Trigger download
+    const blob = new Blob([text], { type: 'application/json' });
+    const filename = `eligibility-debug-${timestamp.replace(/[:.]/g,'-')}.json`;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+
+    // Copy to clipboard for convenience if allowed
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).catch(() => {/* ignore */});
+    }
+
+    // Provide user feedback in modal
+    const modalTable = document.getElementById('modalTable');
+    if (modalTable) {
+      const notice = document.createElement('div');
+      notice.className = 'alert alert-success mt-2';
+      notice.textContent = `Debug log prepared and downloaded as ${filename}. A sample was copied to clipboard. Attach this file to your issue.`;
+      modalTable.prepend(notice);
+      setTimeout(() => { if (notice.parentNode) notice.remove(); }, 8000);
+    }
+  } catch (err) {
+    console.error('Failed to generate debug log', err);
+    alert('Failed to create debug log: ' + (err && err.message ? err.message : String(err)));
+  }
+}
 function hideModal() { const overlay = document.getElementById("modalOverlay"); if (overlay) overlay.style.display = "none"; }
 
 function formatEligibilityDetails(record, memberID) {
