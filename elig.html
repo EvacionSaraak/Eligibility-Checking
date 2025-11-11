@@ -18,7 +18,7 @@
     </div>
 
     <div class="app-content">
-      <aside class="sidebar">
+      <aside class="sidebar" id="sidebar">
         <h1 class="page-title">Eligibility Checker</h1>
 
         <!-- Explanation Box -->
@@ -76,7 +76,10 @@
         </div>
       </aside>
 
-      <main class="main">
+      <!-- resizer handle between columns -->
+      <div id="dragHandle" class="drag-handle" role="separator" aria-orientation="vertical" tabindex="0" aria-label="Resize sidebar"></div>
+
+      <main class="main" id="mainPanel">
         <div class="results-header">
           <div class="results-title">Results</div>
           <div style="font-size:0.9rem; color:#6c757d;">Table output and export actions</div>
@@ -100,45 +103,113 @@
   <script src="table_clipboard.js"></script>
 
   <script>
-    // Show a bottom fade when the right-hand results area is scrollable and not at the bottom.
+    // Resizable sidebar implementation.
     (function () {
-      const results = document.getElementById('results');
-      const fade = document.getElementById('resultsFade');
+      const handle = document.getElementById('dragHandle');
+      const sidebar = document.getElementById('sidebar');
+      const container = document.querySelector('.app-content');
+      const STORAGE_KEY = 'elig_sidebar_width';
 
-      if (!results || !fade) return;
+      if (!handle || !sidebar || !container) return;
 
-      function updateFade() {
-        // If content taller than container, and not scrolled to bottom, show fade
-        const canScroll = results.scrollHeight > results.clientHeight;
-        const notAtBottom = results.scrollTop < (results.scrollHeight - results.clientHeight - 1);
-        if (canScroll && notAtBottom) {
-          fade.style.display = 'block';
-          fade.style.opacity = '1';
-        } else {
-          fade.style.opacity = '0';
-          // keep display:none after transition
-          setTimeout(() => { if (fade.style.opacity === '0') fade.style.display = 'none'; }, 200);
-        }
+      // Minimum and maximum sizes (in px)
+      const MIN_WIDTH = 220;
+      const MAX_WIDTH_PCT = 0.7; // max 70% of container width
+      let dragging = false;
+      let startX = 0;
+      let startWidth = 0;
+
+      // Initialize from persisted width if available
+      function applyStored() {
+        try {
+          const raw = localStorage.getItem(STORAGE_KEY);
+          if (!raw) return;
+          const px = parseInt(raw, 10);
+          if (isNaN(px)) return;
+          const maxAllowed = Math.floor(container.clientWidth * MAX_WIDTH_PCT);
+          const widthToSet = Math.min(Math.max(px, MIN_WIDTH), maxAllowed);
+          sidebar.style.width = widthToSet + 'px';
+        } catch (e) { /* ignore storage errors */ }
+      }
+      applyStored();
+
+      function startDrag(e) {
+        e.preventDefault();
+        dragging = true;
+        startX = (e.touches ? e.touches[0].clientX : e.clientX);
+        startWidth = sidebar.getBoundingClientRect().width;
+        document.documentElement.classList.add('dragging'); // change cursor
+        window.addEventListener('mousemove', onDrag);
+        window.addEventListener('touchmove', onDrag, { passive: false });
+        window.addEventListener('mouseup', endDrag);
+        window.addEventListener('touchend', endDrag);
       }
 
-      // Update when user scrolls and when window resizes
-      results.addEventListener('scroll', updateFade, { passive: true });
-      window.addEventListener('resize', updateFade);
+      function onDrag(e) {
+        if (!dragging) return;
+        e.preventDefault();
+        const clientX = (e.touches ? e.touches[0].clientX : e.clientX);
+        const delta = clientX - startX;
+        const containerRect = container.getBoundingClientRect();
+        const maxAllowed = Math.floor(containerRect.width * MAX_WIDTH_PCT);
+        let newWidth = Math.round(startWidth + delta);
+        newWidth = Math.max(MIN_WIDTH, Math.min(newWidth, maxAllowed));
+        sidebar.style.width = newWidth + 'px';
+        // Persist
+        try { localStorage.setItem(STORAGE_KEY, String(newWidth)); } catch (err) {}
+      }
 
-      // Observe DOM changes inside results (so when elig.js inserts the table we update fade)
-      const mo = new MutationObserver(() => {
-        // small delay to allow layout to settle
-        setTimeout(updateFade, 60);
+      function endDrag() {
+        if (!dragging) return;
+        dragging = false;
+        document.documentElement.classList.remove('dragging');
+        window.removeEventListener('mousemove', onDrag);
+        window.removeEventListener('touchmove', onDrag);
+        window.removeEventListener('mouseup', endDrag);
+        window.removeEventListener('touchend', endDrag);
+      }
+
+      // Keyboard accessibility: left/right to shrink/expand
+      handle.addEventListener('keydown', (ev) => {
+        const step = 20;
+        if (ev.key === 'ArrowLeft' || ev.key === 'Left') {
+          const cur = sidebar.getBoundingClientRect().width;
+          const next = Math.max(MIN_WIDTH, cur - step);
+          sidebar.style.width = next + 'px';
+          try { localStorage.setItem(STORAGE_KEY, String(next)); } catch (err) {}
+          ev.preventDefault();
+        } else if (ev.key === 'ArrowRight' || ev.key === 'Right') {
+          const containerRect = container.getBoundingClientRect();
+          const maxAllowed = Math.floor(containerRect.width * MAX_WIDTH_PCT);
+          const cur = sidebar.getBoundingClientRect().width;
+          const next = Math.min(maxAllowed, cur + step);
+          sidebar.style.width = next + 'px';
+          try { localStorage.setItem(STORAGE_KEY, String(next)); } catch (err) {}
+          ev.preventDefault();
+        } else if (ev.key === 'Home') {
+          sidebar.style.width = MIN_WIDTH + 'px';
+          try { localStorage.setItem(STORAGE_KEY, String(MIN_WIDTH)); } catch (err) {}
+        } else if (ev.key === 'End') {
+          const containerRect = container.getBoundingClientRect();
+          const maxAllowed = Math.floor(containerRect.width * MAX_WIDTH_PCT);
+          sidebar.style.width = maxAllowed + 'px';
+          try { localStorage.setItem(STORAGE_KEY, String(maxAllowed)); } catch (err) {}
+        }
       });
-      mo.observe(results, { childList: true, subtree: true });
 
-      // Initial check
-      document.addEventListener('DOMContentLoaded', updateFade);
-      // Also run shortly after load in case scripts populated the results before DOMContentLoaded
-      setTimeout(updateFade, 120);
-      
-      // Expose helper for external scripts to call after they update results
-      window.__elig_updateResultsFade = updateFade;
+      handle.addEventListener('mousedown', startDrag);
+      handle.addEventListener('touchstart', startDrag, { passive: false });
+
+      // If the iframe or parent resizes, ensure stored width stays within new constraints
+      window.addEventListener('resize', () => {
+        const curWidth = sidebar.getBoundingClientRect().width;
+        const maxAllowed = Math.floor(container.clientWidth * MAX_WIDTH_PCT);
+        if (curWidth > maxAllowed) {
+          const newW = Math.floor(Math.max(MIN_WIDTH, Math.min(curWidth, maxAllowed)));
+          sidebar.style.width = newW + 'px';
+          try { localStorage.setItem(STORAGE_KEY, String(newW)); } catch (err) {}
+        }
+      });
     })();
   </script>
 </body>
