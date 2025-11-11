@@ -1,10 +1,11 @@
 /*******************************
- * elig-fixed.js
+ * elig.js (updated)
  *
- * Report-only script: fixed core functions (from working script)
- * - retains report-only UI/behavior from second script
- * - uses robust DateHandler, normalization, and eligibility logic from the first (working) script
- * - no XML mode included
+ * Adds a "Invalid only" result-window-only checkbox (enabled by default).
+ * The script uses window.lastValidationResults (the last processed results)
+ * and a stored eligMap to re-render the displayed results when the checkbox
+ * changes. The checkbox filters only the displayed results (does not change
+ * exported data or the underlying processed results).
  *******************************/
 
 const SERVICE_PACKAGE_RULES = {
@@ -23,8 +24,11 @@ let rawParsedReport = null; // raw parsed sheet result (header detection output)
 const usedEligibilities = new Set();
 let lastReportWasCSV = false;
 
+// Keep last eligibility map so UI filters can re-render without rebuilding the map
+let lastEligMap = null;
+
 // DOM Elements (lookups performed in initializeEventListeners)
-let reportInput, eligInput, processBtn, exportInvalidBtn, statusEl, resultsContainer, filterCheckbox, filterStatus, pasteTextarea, pasteBtn;
+let reportInput, eligInput, processBtn, exportInvalidBtn, statusEl, resultsContainer, filterCheckbox, filterStatus, pasteTextarea, pasteBtn, invalidOnlyCheckbox;
 
 /*************************
  * DATE HANDLING UTILITIES (From first script)
@@ -175,46 +179,47 @@ function findHeaderRowFromArrays(allRows, maxScan = 10) {
 }
 
 /*******************************
- * ELIGIBILITY MATCHING FUNCTIONS (from first)
+ * ELIGIBILITY MATCHING FUNCTIONS (kept & robust)
  *******************************/
 function prepareEligibilityMap(rawSheetArray) {
-  if (!rawSheetArray || rawSheetArray.length === 0) return new Map();
+  if (!Array.isArray(rawSheetArray) || rawSheetArray.length === 0) return new Map();
 
-  const eligMap = new Map();
+  // Find the row that contains "Eligibility Request Number"
+  let headerRowIndex = rawSheetArray.findIndex(row => 
+    Array.isArray(row) && row.some(cell => String(cell || '').trim().toLowerCase().includes('eligibility request number'))
+  );
 
-  // If rows are array-of-arrays (header row present), detect header and convert to objects
-  // Heuristic: first row is an array and elements are primitive values -> treat as array-of-arrays
-  const looksLikeArrayOfArrays = Array.isArray(rawSheetArray[0]);
+  // If not found and input is array-of-objects, we'll handle in other path below
+  if (headerRowIndex === -1 && Array.isArray(rawSheetArray[0])) {
+    // try looser detection
+    headerRowIndex = rawSheetArray.findIndex(row => Array.isArray(row) && row.some(cell => String(cell || '').trim() !== ''));
+  }
 
-  if (looksLikeArrayOfArrays) {
-    // find header row (similar to earlier logic)
-    let headerRowIndex = rawSheetArray.findIndex(row => 
-      Array.isArray(row) && row.some(cell => String(cell || '').trim().toLowerCase().includes('eligibility request number'))
-    );
+  // If array-of-arrays input, convert rows to objects using headers
+  if (Array.isArray(rawSheetArray[0])) {
     if (headerRowIndex === -1) {
-      // fallback: try to detect a row with several non-empty cells
-      headerRowIndex = 0;
-      for (let i = 0; i < Math.min(10, rawSheetArray.length); i++) {
-        const row = (rawSheetArray[i] || []).map(c => String(c || '').trim());
-        const nonEmpty = row.filter(c => c !== '').length;
-        if (nonEmpty >= 3) { headerRowIndex = i; break; }
-      }
+      console.warn("No eligibility header row detected in array-of-arrays; returning empty map");
+      return new Map();
     }
 
-    const headers = (rawSheetArray[headerRowIndex] || []).map(h => String(h || '').trim());
+    const headers = rawSheetArray[headerRowIndex].map(h => String(h || '').trim());
+    const eligMap = new Map();
+
     for (let i = headerRowIndex + 1; i < rawSheetArray.length; i++) {
       const row = rawSheetArray[i];
       if (!Array.isArray(row)) continue;
 
-      // Skip mostly-empty rows
-      const blankCount = row.filter((v) => v === null || v === undefined || String(v).trim() === '').length;
-      if (blankCount > headers.length / 1.6) continue; // tolerate some blanks but skip junk
+      // Skip mostly empty rows
+      const blankOrJunkCount = row.filter((v, idx) => {
+        const key = headers[idx] || '';
+        return v === undefined || v === null || v === '' || key.startsWith('_') || key.toLowerCase().includes('policy');
+      }).length;
+      if (blankOrJunkCount > headers.length / 2) continue;
 
-      // Build object record
       const record = {};
       headers.forEach((h, idx) => record[h] = row[idx] !== undefined ? row[idx] : '');
 
-      // Find raw member id from candidate headers
+      // Normalize member ID
       const idCandidates = [
         'Card Number / DHA Member ID', 'Card Number', 'MemberID', 'Member ID',
         'Patient Insurance Card No', 'Policy1', 'Policy 1', 'PatientCardID'
@@ -227,7 +232,6 @@ function prepareEligibilityMap(rawSheetArray) {
         }
       }
       if (!rawMemberID) continue;
-
       const memberID = normalizeMemberID(rawMemberID);
       if (!memberID) continue;
 
@@ -235,15 +239,16 @@ function prepareEligibilityMap(rawSheetArray) {
       eligMap.get(memberID).push(record);
     }
 
-    console.log("prepareEligibilityMap (arrays) => members:", eligMap.size);
+    console.log("Elig Map (arrays) built successfully. Members:", eligMap.size);
     return eligMap;
   }
 
-  // Otherwise assume array-of-objects (each row already an object with headers as keys)
-  // Candidate member id keys used by other version
+  // Otherwise assume array-of-objects (headers already mapped)
+  const eligMap = new Map();
   const idCandidatesObj = ['Card Number / DHA Member ID', 'Card Number', '_5', 'MemberID', 'Member ID', 'Patient Insurance Card No', 'PatientCardID'];
-  for (const e of rawSheetArray) {
-    if (!e || typeof e !== 'object') continue;
+
+  rawSheetArray.forEach(e => {
+    if (!e || typeof e !== 'object') return;
     let rawMemberID = '';
     for (const k of idCandidatesObj) {
       if (Object.prototype.hasOwnProperty.call(e, k) && e[k]) {
@@ -251,16 +256,15 @@ function prepareEligibilityMap(rawSheetArray) {
         break;
       }
     }
-    if (!rawMemberID) continue;
+    if (!rawMemberID) return;
     const memberID = normalizeMemberID(rawMemberID);
-    if (!memberID) continue;
+    if (!memberID) return;
 
     if (!eligMap.has(memberID)) eligMap.set(memberID, []);
-    // store the original object to keep all fields (consistent with checker_elig)
     eligMap.get(memberID).push(e);
-  }
+  });
 
-  console.log("prepareEligibilityMap (objects) => members:", eligMap.size);
+  console.log("Elig Map (objects) built successfully. Members:", eligMap.size);
   return eligMap;
 }
 
@@ -295,11 +299,11 @@ function isServiceCategoryValid(serviceCategory, consultationStatus, rawPackage)
   return { valid: true };
 }
 
+/* Ensure lookups normalize the incoming member id before Map.get */
 function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians = []) {
   const normalizedID = normalizeMemberID(memberID || '');
   const eligList = eligMap.get(normalizedID) || [];
   if (!eligList.length) return null;
-
   console.log(`[Diagnostics] Searching eligibilities for member "${memberID}" (normalized: "${normalizedID}")`);
   console.log(`[Diagnostics] Claim date: ${claimDate} (${DateHandler.format(claimDate)}), Claim clinicians: ${JSON.stringify(claimClinicians)}`);
   for (const elig of eligList) {
@@ -329,7 +333,6 @@ function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians =
     console.log(`  ✅ Eligibility match found: ${elig["Eligibility Request Number"]}`);
     return elig;
   }
-
   console.log(`[Diagnostics] No matching eligibility passed all checks for member "${memberID}"`);
   return null;
 }
@@ -338,13 +341,9 @@ function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians =
  * Normalize & validate report rows (use working version's normalizeReportData)
  *************************/
 function normalizeReportData(rawData) {
-  // rawData expected shape: { headers: [...], rows: [...] } (from findHeaderRowFromArrays)
-  // But keep compatibility if rawData is an array (older shape)
   if (!rawData) return [];
 
-  // Backwards compatibility: if function received array-of-objects (already parsed sheet_to_json)
   if (Array.isArray(rawData) && rawData.length > 0 && typeof rawData[0] === 'object' && !rawData.headers) {
-    // trying to detect known formats from object keys
     const sample = rawData[0];
     const isInsta = sample.hasOwnProperty('Pri. Claim No');
     const isOdoo = sample.hasOwnProperty('Pri. Claim ID');
@@ -385,7 +384,6 @@ function normalizeReportData(rawData) {
     });
   }
 
-  // Otherwise assume rawData has headers + rows from detection function
   const rows = rawData.rows || [];
   const headers = rawData.headers || [];
 
@@ -397,7 +395,6 @@ function normalizeReportData(rawData) {
   }
 
   return rows.map(r => {
-    // Use the same mapping logic as the working script's normalizeReportData
     const isInsta = !!(r['Pri. Claim No'] || r['Pri. Patient Insurance Card No']);
     const isOdoo = !!r['Pri. Claim ID'];
 
@@ -423,10 +420,9 @@ function normalizeReportData(rawData) {
         claimStatus: r['Codification Status'] || ''
       };
     } else {
-      // generic mapping with fallback header scanning
       const out = {
         claimID: r['ClaimID'] || r['Pri. Claim No'] || r['Pri. Claim ID'] || getField(r, ['ClaimID','Pri. Claim No','Pri. Claim ID','Claim ID','Pri. Claim ID']) || '',
-        memberID: r['Pri. Member ID'] || r['Pri. Patient Insurance Card No'] || r['PatientCardID'] || getField(r, ['PatientCardID','Patient Insurance Card No','Card Number / DHA Member ID','Card Number','Member ID']) || '',
+        memberID: r['Pri. Member ID'] || r['Pri. Patient Insurance Card No'] || r['PatientCardID'] || getField(r, ['PatientCardID','Patient Insurance Card No','Card Number / DHA Member ID']) || '',
         claimDate: r['Encounter Date'] || r['Adm/Reg. Date'] || r['ClaimDate'] || getField(r, ['Encounter Date','ClaimDate','Adm/Reg. Date','Date']) || '',
         clinician: r['Clinician License'] || r['Admitting License'] || r['OrderDoctor'] || getField(r, ['Clinician License','Clinician','Admitting License','OrderDoctor']) || '',
         department: r['Department'] || r['Clinic'] || r['Admitting Department'] || getField(r, ['Department','Clinic','Admitting Department']) || '',
@@ -435,7 +431,6 @@ function normalizeReportData(rawData) {
         claimStatus: r['Codification Status'] || r['VisitStatus'] || r['Status'] || getField(r, ['Codification Status','VisitStatus','Status','Claim Status']) || ''
       };
 
-      // If still missing memberID / claimID — scan headers for likely column
       if (!out.memberID) {
         for (const h of headers) {
           const val = r[h];
@@ -694,42 +689,24 @@ function parseCsvText(text) {
 }
 
 /*************************
- * UI RENDERING FUNCTIONS (kept from second)
+ * UI RENDERING FUNCTIONS (kept from second but updated with Bootstrap)
  *************************/
 function escapeHtml(s) {
   if (s === null || s === undefined) return '';
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#x27;');
 }
 
-/*************************
- * summarizeAndDisplayCounts (kept)
- *************************/
-function summarizeAndDisplayCounts() {
-  try {
-    const eligCount = Array.isArray(eligData) ? eligData.length : 0;
-    // Ensure xlsData exists, if not but rawParsedReport exists try to normalize it now
-    if ((!Array.isArray(xlsData) || xlsData.length === 0) && rawParsedReport) {
-      try {
-        const normalized = normalizeReportData(rawParsedReport);
-        xlsData = normalized.filter(r => r && r.claimID && String(r.claimID).trim() !== '');
-      } catch (e) {
-        console.warn('summarizeAndDisplayCounts: failed to normalize report for counting', e);
-      }
-    }
-    const claimCount = Array.isArray(xlsData) ? xlsData.length : 0;
-    if (statusEl) {
-      statusEl.textContent = `Loaded ${eligCount} eligibilities, ${claimCount} claims — Ready to process files`;
-    }
-  } catch (err) {
-    console.error('summarizeAndDisplayCounts error', err);
-  }
+/* Helper to get displayed results according to "Invalid only" checkbox */
+function getDisplayedResultsFromStored(results) {
+  const raw = results || window.lastValidationResults || [];
+  const invalidOnly = (invalidOnlyCheckbox && invalidOnlyCheckbox.checked) ? true : false;
+  if (!invalidOnly) return raw;
+  return raw.filter(r => r && r.finalStatus === 'invalid');
 }
 
-/* ------------------------------------------------------------------
-   renderResults (updated): color entire rows based on status/tags,
-   combining Bootstrap contextual table classes with existing custom
-   CSS classes (.valid, .invalid, .unknown, .daman-only, .thiqa-only).
-   ------------------------------------------------------------------ */
+/*************************
+ * renderResults (updated): color entire rows etc.
+ *************************/
 function renderResults(results, eligMap) {
   if (!resultsContainer) return;
   resultsContainer.innerHTML = '';
@@ -793,9 +770,9 @@ function renderResults(results, eligMap) {
     // Add semantic class (keeps legacy colors from tables.css) and Bootstrap contextual class
     const finalStatus = (result.finalStatus || '').toString().toLowerCase();
     if (finalStatus) {
-      row.classList.add(finalStatus); // e.g. 'valid', 'invalid', 'unknown' -> maps to CSS in tables.css
+      row.classList.add(finalStatus);
       const bs = finalStatusToBootstrap[finalStatus];
-      if (bs) row.classList.add(bs); // e.g. 'table-success'
+      if (bs) row.classList.add(bs);
     }
 
     // Tag-based coloring: detect provider keywords for Daman/Thiqa and apply tag classes
@@ -806,12 +783,10 @@ function renderResults(results, eligMap) {
       row.classList.add('thiqa-only');
     }
 
-    // If eligibility record explicitly indicates something like 'VVIP', give a subtle highlight
     if ((result.finalStatus || '').toLowerCase() === 'vvip' || (result.status || '').toString().toLowerCase() === 'vvip') {
-      row.classList.add('selected'); // keep existing .selected style for emphasis if present
+      row.classList.add('selected');
     }
 
-    // Status badge using Bootstrap
     const statusBadge = result.status
       ? `<span class="badge ${result.status.toString().toLowerCase() === 'eligible' ? 'bg-success' : 'bg-danger'}">${escapeHtml(result.status)}</span>`
       : '';
@@ -860,13 +835,16 @@ function renderResults(results, eligMap) {
   resultsContainer.prepend(summary);
 
   // Ensure modal wiring for details and view-all buttons
-  initEligibilityModal(results, eligMap);
+  initEligibilityModal(results, lastEligMap);
 
   // Small accessibility hint: make results container focusable and move focus
   resultsContainer.setAttribute('tabindex', '-1');
   resultsContainer.focus();
 }
 
+/*************************
+ * initEligibilityModal (Bootstrap-flavored) - unchanged
+ *************************/
 function initEligibilityModal(results, eligMap) {
   // Create a Bootstrap-style modal (styling provided by tables.css + Bootstrap classes)
   if (!document.getElementById("modalOverlay")) {
@@ -968,24 +946,16 @@ function initEligibilityModal(results, eligMap) {
     });
   });
 
-  // Helper to show the modal (use classes for appearance, but manage display manually so we don't depend on Bootstrap JS)
   function showModal() {
     const overlay = document.getElementById("modalOverlay");
     if (!overlay) return;
-    overlay.style.display = 'flex';           // tables.css .modal expects to be flex-centered if shown
+    overlay.style.display = 'flex';
     overlay.setAttribute('aria-hidden', 'false');
-    // small delay to allow CSS transitions if any
     setTimeout(() => overlay.classList.add('show'), 10);
-    // trap focus inside modal
     const focusable = overlay.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
     if (focusable.length) focusable[0].focus();
   }
 
-  // Use the existing hideModal function when closing; ensure it also removes .show
-  // (hideModal is declared elsewhere in the file)
-  function hideModalLocal() { hideModal(); }
-
-  // If hideModal is not available for some reason, provide fallback
   if (typeof hideModal !== 'function') {
     window.hideModal = function () {
       const overlay = document.getElementById("modalOverlay");
@@ -1001,7 +971,7 @@ function hideModal() { const overlay = document.getElementById("modalOverlay"); 
 
 function formatEligibilityDetails(record, memberID) {
   if (!record) return '<div>No details</div>';
-  let html = `<div style="margin-bottom:8px;"><strong>Member:</strong> ${escapeHtml(memberID)} <span style="margin-left:8px;" class="status-badge ${((record.Status||'').toLowerCase()==='eligible')?'eligible':'ineligible'}">${escapeHtml(record.Status||'')}</span></div>`;
+  let html = `<div style="margin-bottom:8px;"><strong>Member:</strong> ${escapeHtml(memberID)} <span style="margin-left:8px;" class="status-badge ${((record.Status||'').toLowerCase()==='eligible')?'el[...]
   html += '<table style="width:100%;border-collapse:collapse;"><tbody>';
   Object.entries(record).forEach(([k,v]) => {
     if ((v === null || v === undefined || v === '') && v !== 0) return;
@@ -1010,7 +980,7 @@ function formatEligibilityDetails(record, memberID) {
       const p = DateHandler.parse(v);
       disp = p ? DateHandler.format(p) : v;
     }
-    html += `<tr><th style="text-align:left;padding:6px;border-bottom:1px solid #eee;width:30%">${escapeHtml(k)}</th><td style="padding:6px;border-bottom:1px solid #eee">${escapeHtml(String(disp))}</td></tr>`;
+    html += `<tr><th style="text-align:left;padding:6px;border-bottom:1px solid #eee;width:30%">${escapeHtml(k)}</th><td style="padding:6px;border-bottom:1px solid #eee">${escapeHtml(String(disp))}</t[...]
   });
   html += '</tbody></table>';
   return html;
@@ -1136,6 +1106,7 @@ async function handleProcessClick() {
 
     usedEligibilities.clear();
     const eligMap = prepareEligibilityMap(eligData);
+    lastEligMap = eligMap; // save for UI filtering
 
     // Detect report type automatically
     let reportType = 'Clinicpro'; // default
@@ -1152,15 +1123,18 @@ async function handleProcessClick() {
     let outputResults = results;
     if (filterCheckbox && filterCheckbox.checked) {
       outputResults = results.filter(r => {
-        const insurance = (r.insuranceCompany || '').toString().toLowerCase();
+        const insurance = (r.insuranceCompany || r.provider || r.packageName || '').toString().toLowerCase();
         return insurance.includes('daman') || insurance.includes('thiqa');
       });
     }
 
     window.lastValidationResults = outputResults;
 
+    // Determine what to display based on the "Invalid only" checkbox (enabled by default)
+    const displayedResults = getDisplayedResultsFromStored(outputResults);
+
     // Render results
-    renderResults(outputResults, eligMap);
+    renderResults(displayedResults, eligMap);
 
     updateStatus(`Processed ${outputResults.length} claims successfully`);
 
@@ -1176,19 +1150,25 @@ function onFilterToggle() {
   const on = filterCheckbox && filterCheckbox.checked;
   filterStatus.textContent = on ? 'ON' : 'OFF';
   filterStatus.classList.toggle('active', on);
-  if (window.lastValidationResults) {
-    const eligMap = eligData ? prepareEligibilityMap(eligData) : new Map();
-    // Re-render with filtering honored by renderResults wrapper in handleProcessClick
-    if (on) {
-      const filtered = window.lastValidationResults.filter(r => {
-        const provider = (r.provider || r.insuranceCompany || r.packageName || r['Payer Name'] || r['Insurance Company'] || '').toString().toLowerCase();
-        return provider.includes('daman') || provider.includes('thiqa');
-      });
-      renderResults(filtered, eligMap);
-    } else {
-      renderResults(window.lastValidationResults, eligMap);
-    }
+
+  if (!window.lastValidationResults) return;
+
+  // Start from the processed results, then apply the Daman/Thiqa filter (if any), then the Invalid-only filter
+  let base = window.lastValidationResults.slice();
+
+  if (on) {
+    base = base.filter(r => {
+      const provider = (r.provider || r.insuranceCompany || r.packageName || r['Payer Name'] || r['Insurance Company'] || '').toString().toLowerCase();
+      return provider.includes('daman') || provider.includes('thiqa');
+    });
   }
+
+  // Apply invalid-only display filter if active
+  const displayed = getDisplayedResultsFromStored(base);
+
+  // Use the last eligMap if available
+  const eligMap = lastEligMap || (eligData ? prepareEligibilityMap(eligData) : new Map());
+  renderResults(displayed, eligMap);
 }
 
 function initializeEventListeners() {
@@ -1202,12 +1182,34 @@ function initializeEventListeners() {
   filterStatus = document.getElementById('filterStatus');
   pasteTextarea = document.getElementById('pasteCsvTextarea');
   pasteBtn = document.getElementById('pasteCsvBtn');
+  invalidOnlyCheckbox = document.getElementById('filterInvalidOnly');
 
   if (eligInput) eligInput.addEventListener('change', (e) => handleFileUpload(e, 'eligibility'));
   if (reportInput) reportInput.addEventListener('change', (e) => handleFileUpload(e, 'report'));
   if (processBtn) processBtn.addEventListener('click', handleProcessClick);
   if (exportInvalidBtn) exportInvalidBtn.addEventListener('click', () => exportInvalidEntries(window.lastValidationResults || []));
   if (filterCheckbox) filterCheckbox.addEventListener('change', onFilterToggle);
+
+  // invalid-only checkbox: enabled by default, re-render when toggled
+  if (invalidOnlyCheckbox) {
+    invalidOnlyCheckbox.checked = true;
+    invalidOnlyCheckbox.addEventListener('change', () => {
+      if (!window.lastValidationResults) return;
+      const base = window.lastValidationResults.slice();
+      // If Daman/Thiqa filter is on, respect it too
+      let preFiltered = base;
+      if (filterCheckbox && filterCheckbox.checked) {
+        preFiltered = base.filter(r => {
+          const provider = (r.provider || r.insuranceCompany || r.packageName || '').toString().toLowerCase();
+          return provider.includes('daman') || provider.includes('thiqa');
+        });
+      }
+      const displayed = getDisplayedResultsFromStored(preFiltered);
+      const eligMap = lastEligMap || (eligData ? prepareEligibilityMap(eligData) : new Map());
+      renderResults(displayed, eligMap);
+    });
+  }
+
   if (pasteBtn) pasteBtn.addEventListener('click', handlePasteCsvClick);
 
   if (filterStatus) onFilterToggle();
