@@ -115,7 +115,7 @@ const DateHandler = {
     const textMatch = dateStr.match(/^(\d{1,2})[\/\- ]([a-z]{3,})[\/\- ](\d{2,4})$/i);
     if (textMatch) {
       const monthIndex = MONTHS.indexOf(textMatch[2].toLowerCase().substr(0, 3));
-      if (monthIndex >= 0) return new Date(Date.UTC(textMatch[3], monthIndex, textMatch[1]));
+      if (monthIndex >= 0) return new Date(Date.UTC(parseInt(textMatch[3], 10), monthIndex, parseInt(textMatch[1], 10)));
     }
 
     const isoMatch = dateStr.match(/^(\d{4})[\/\-](\d{2})[\/\-](\d{2})$/);
@@ -422,7 +422,19 @@ function logNoEligibilityMatch(sourceType, claimSummary, memberID, parsedClaimDa
 function normalizeReportData(rawData) {
   if (!rawData) return [];
 
-  if (Array.isArray(rawData) && rawData.length > 0 && typeof rawData[0] === 'object' && !rawData.headers) {
+  // If the input is an array-of-arrays (what XLSX.utils.sheet_to_json(..., {header:1}) returns),
+  // convert it into a { headers, rows } shape using the helper so downstream mapping can work.
+  if (Array.isArray(rawData) && rawData.length > 0 && Array.isArray(rawData[0])) {
+    const detection = findHeaderRowFromArrays(rawData, 50);
+    // detection.headers is an array of header strings, detection.rows is array-of-objects keyed by headers
+    rawData = {
+      headers: detection.headers,
+      rows: detection.rows
+    };
+  }
+
+  // If rawData is an array of plain objects (not the {headers, rows} shape), handle that too.
+  if (Array.isArray(rawData) && rawData.length > 0 && !rawData.headers && typeof rawData[0] === 'object' && !Array.isArray(rawData[0])) {
     const sample = rawData[0];
     const isInsta = sample.hasOwnProperty('Pri. Claim No');
     const isOdoo = sample.hasOwnProperty('Pri. Claim ID');
@@ -643,7 +655,7 @@ function renderResults(results, eligMap) {
       if (bs) row.classList.add(bs);
     }
 
-    const provider = (result.provider || result.insuranceCompany || '').toString().toLowerCase();
+    const provider = (result.provider || result.insuranceCompany || result.packageName || '').toString().toLowerCase();
     if (provider.includes('daman')) row.classList.add('daman-only');
     else if (provider.includes('thiqa')) row.classList.add('thiqa-only');
 
@@ -661,9 +673,9 @@ function renderResults(results, eligMap) {
 
     let detailsCellHtml = '<div class="source-note">N/A</div>';
     if (result.fullEligibilityRecord?.['Eligibility Request Number']) {
-      detailsCellHtml = `<button class="btn btn-sm btn-outline-primary eligibility-details" data-index="${index}" data-claimdate="${escapeHtml(result.encounterStart)}">${escapeHtml(result.fullEligibilityRecord['Eligibility Request Number'])}</button>`;
+      detailsCellHtml = `<button class="btn btn-sm btn-outline-primary eligibility-details" data-index="${index}" data-claimdate="${escapeHtml(result.encounterStart)}">${escapeHtml(result.fullEligibil[...]
     } else if (eligMap && typeof eligMap.get === 'function' && (eligMap.get(result.memberID) || []).length) {
-      detailsCellHtml = `<button class="btn btn-sm btn-outline-secondary show-all-eligibilities" data-member="${escapeHtml(result.memberID)}" data-claimdate="${escapeHtml(result.encounterStart)}">View All</button>`;
+      detailsCellHtml = `<button class="btn btn-sm btn-outline-secondary show-all-eligibilities" data-member="${escapeHtml(result.memberID)}" data-claimdate="${escapeHtml(result.encounterStart)}">View[...]
     }
 
     row.innerHTML = `
@@ -732,7 +744,7 @@ function initEligibilityModal(results, eligMap) {
     const closeBtn = document.getElementById("modalCloseBtn");
     closeBtn.addEventListener('click', hideModal);
     overlay.addEventListener('click', function (e) { if (e.target === overlay) hideModal(); });
-    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') { const ov = document.getElementById('modalOverlay'); if (ov && ov.style.display && ov.style.display !== 'none') hideModal(); } });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') { const ov = document.getElementById('modalOverlay'); if (ov && ov.style.display && ov.style.display !== 'none') hideMod[...]
 
     const debugBtn = document.getElementById('modalDebugBtn');
     debugBtn.addEventListener('click', () => {
