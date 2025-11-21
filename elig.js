@@ -119,7 +119,7 @@ const DateHandler = {
     }
 
     const isoMatch = dateStr.match(/^(\d{4})[\/\-](\d{2})[\/\-](\d{2})$/);
-    if (isoMatch) return new Date(Date.UTC(isoMatch[1], isoMatch[2] - 1, isoMatch[3]));
+    if (isoMatch) return new Date(Date.UTC(parseInt(isoMatch[1], 10), parseInt(isoMatch[2], 10) - 1, parseInt(isoMatch[3], 10)));
     return null;
   }
 };
@@ -671,11 +671,14 @@ function renderResults(results, eligMap) {
       ? result.remarks.map(r => `<div>${escapeHtml(r)}</div>`).join('')
       : '<div class="source-note">No remarks</div>';
 
+    // Build details button html without truncation
     let detailsCellHtml = '<div class="source-note">N/A</div>';
-    if (result.fullEligibilityRecord?.['Eligibility Request Number']) {
-      detailsCellHtml = `<button class="btn btn-sm btn-outline-primary eligibility-details" data-index="${index}" data-claimdate="${escapeHtml(result.encounterStart)}">${escapeHtml(result.fullEligibil[...]
+    if (result.fullEligibilityRecord && result.fullEligibilityRecord['Eligibility Request Number']) {
+      // If a full eligibility record is attached to this result, show a primary "View details" button that opens the modal with the single record
+      detailsCellHtml = `<button class="btn btn-sm btn-outline-primary eligibility-details" data-index="${index}" data-claimdate="${escapeHtml(result.encounterStart)}">View details</button>`;
     } else if (eligMap && typeof eligMap.get === 'function' && (eligMap.get(result.memberID) || []).length) {
-      detailsCellHtml = `<button class="btn btn-sm btn-outline-secondary show-all-eligibilities" data-member="${escapeHtml(result.memberID)}" data-claimdate="${escapeHtml(result.encounterStart)}">View[...]
+      // Otherwise, if there are eligibilities in the map for this member, offer a secondary button to view all eligibilities for the member
+      detailsCellHtml = `<button class="btn btn-sm btn-outline-secondary show-all-eligibilities" data-member="${escapeHtml(result.memberID)}" data-claimdate="${escapeHtml(result.encounterStart)}">View eligibilities</button>`;
     }
 
     row.innerHTML = `
@@ -744,7 +747,12 @@ function initEligibilityModal(results, eligMap) {
     const closeBtn = document.getElementById("modalCloseBtn");
     closeBtn.addEventListener('click', hideModal);
     overlay.addEventListener('click', function (e) { if (e.target === overlay) hideModal(); });
-    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') { const ov = document.getElementById('modalOverlay'); if (ov && ov.style.display && ov.style.display !== 'none') hideMod[...]
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') {
+        const ov = document.getElementById('modalOverlay');
+        if (ov && ov.style.display && ov.style.display !== 'none') hideModal();
+      }
+    });
 
     const debugBtn = document.getElementById('modalDebugBtn');
     debugBtn.addEventListener('click', () => {
@@ -858,7 +866,7 @@ function generateAndSendDebugLog(ctx, results, eligMap) {
       lastValidationSample: (window.lastValidationResults && Array.isArray(window.lastValidationResults)) ? window.lastValidationResults.slice(0,50) : []
     };
 
-    if (ctx && ctx.member && (typeof eligMap?.get === 'function')) {
+    if (ctx && ctx.member && eligMap && typeof eligMap.get === 'function') {
       const memberKey = normalizeMemberID(ctx.member);
       const memberEntries = eligMap.get(memberKey) || [];
       payload.memberEligibilities = memberEntries.slice(0,200);
