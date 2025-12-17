@@ -30,6 +30,11 @@ let lastReportWasCSV = false;
 // Keep last eligibility map so UI filters can re-render without rebuilding the map
 let lastEligMap = null;
 
+// Web Workers configuration for parallel processing
+const WORKER_COUNT = navigator.hardwareConcurrency || 4; // Use available CPU cores
+let workerPool = [];
+let isProcessing = false;
+
 // DOM Elements (lookups performed in initializeEventListeners)
 let reportInput, eligInput, processBtn, exportInvalidBtn, statusEl, resultsContainer, filterCheckbox, filterStatus, pasteTextarea, pasteBtn, invalidOnlyCheckbox;
 
@@ -354,6 +359,62 @@ function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians =
   return null;
 }
 
+/**
+ * Enhanced version that returns both eligibility and reasons for rejection
+ */
+function findEligibilityForClaimWithReasons(eligMap, claimDate, memberID, claimClinicians = []) {
+  const normalizedID = normalizeMemberID(memberID || '');
+  const eligList = eligMap.get(normalizedID) || [];
+  if (!eligList.length) return { eligibility: null, reasons: ['No eligibility records found for this member'] };
+  
+  const rejectionReasons = [];
+  
+  for (const elig of eligList) {
+    const currentReasons = [];
+    const eligReqNum = elig['Eligibility Request Number'] || 'Unknown';
+    
+    // Check date match
+    const eligDate = DateHandler.parse(elig["Answered On"]);
+    if (!DateHandler.isSameDay(claimDate, eligDate)) {
+      currentReasons.push(`Date mismatch: eligibility ${eligReqNum} dated ${DateHandler.format(eligDate)}, claim dated ${DateHandler.format(claimDate)}`);
+      rejectionReasons.push(...currentReasons);
+      continue;
+    }
+    
+    // Check clinician match
+    const eligClinician = (elig.Clinician || '').trim();
+    if (eligClinician && claimClinicians.length && !claimClinicians.includes(eligClinician)) {
+      currentReasons.push(`Clinician mismatch: eligibility has "${eligClinician}", claim has "${claimClinicians.join(', ')}"`);
+      rejectionReasons.push(...currentReasons);
+      continue;
+    }
+    
+    // Check service category
+    const serviceCategory = (elig['Service Category'] || '').trim();
+    const consultationStatus = (elig['Consultation Status'] || '').trim();
+    const department = (elig.Department || elig.Clinic || '').toLowerCase();
+    const categoryCheck = isServiceCategoryValid(serviceCategory, consultationStatus, department);
+    if (!categoryCheck.valid) {
+      currentReasons.push(categoryCheck.reason);
+      rejectionReasons.push(...currentReasons);
+      continue;
+    }
+    
+    // Check eligibility status
+    if ((elig.Status || '').toLowerCase() !== 'eligible') {
+      currentReasons.push(`Status is "${elig.Status}" not "Eligible"`);
+      rejectionReasons.push(...currentReasons);
+      continue;
+    }
+    
+    // If we get here, this eligibility matches
+    return { eligibility: elig, reasons: [] };
+  }
+  
+  // No match found, return all rejection reasons
+  return { eligibility: null, reasons: rejectionReasons.length > 0 ? rejectionReasons : ['No matching eligibility found'] };
+}
+
 function checkClinicianMatch(claimClinicians, eligClinician) {
   if (!eligClinician || !claimClinicians?.length) return true;
   const normElig = normalizeClinician(eligClinician);
@@ -556,18 +617,33 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
     const formattedDate = DateHandler.format(claimDate);
 
     if (memberID.startsWith('(VVIP)')) {
-      results.push({ claimID, memberID, encounterStart: formattedDate, status: 'VVIP', finalStatus: 'valid', remarks: ['VVIP member, eligibility check bypassed'], fullEligibilityRecord: null });
+      results.push({ 
+        claimID, memberID, encounterStart: formattedDate, status: 'VVIP', 
+        finalStatus: 'valid', remarks: ['VVIP member, eligibility check bypassed'], 
+        fullEligibilityRecord: null, ineligibilityReasons: [] 
+      });
       continue;
     }
 
-    const eligibility = findEligibilityForClaim(eligMap, claimDate, memberID, [row.clinician]);
+    const { eligibility, reasons } = findEligibilityForClaimWithReasons(eligMap, claimDate, memberID, [row.clinician]);
     let finalStatus = 'invalid', remarks = [];
-    if (!eligibility) remarks.push(`No matching eligibility found for ${memberID} on ${formattedDate}`);
-    else if (eligibility.Status?.toLowerCase() === 'eligible') {
+    let ineligibilityReasons = [];
+    
+    if (!eligibility) {
+      remarks.push(`No matching eligibility found for ${memberID} on ${formattedDate}`);
+      ineligibilityReasons = reasons;
+    } else if (eligibility.Status?.toLowerCase() === 'eligible') {
       const categoryCheck = isServiceCategoryValid(eligibility['Service Category'], eligibility['Consultation Status'], (row.department || '').toLowerCase());
-      if (categoryCheck.valid) finalStatus = 'valid';
-      else remarks.push(categoryCheck.reason || 'Service category mismatch');
-    } else remarks.push(`Eligibility status: ${eligibility.Status}`);
+      if (categoryCheck.valid) {
+        finalStatus = 'valid';
+      } else {
+        remarks.push(categoryCheck.reason || 'Service category mismatch');
+        ineligibilityReasons = [categoryCheck.reason || 'Service category mismatch'];
+      }
+    } else {
+      remarks.push(`Eligibility status: ${eligibility.Status}`);
+      ineligibilityReasons = [`Eligibility status: ${eligibility.Status}`];
+    }
 
     results.push({
       claimID, memberID, encounterStart: formattedDate,
@@ -578,7 +654,8 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
       consultationStatus: eligibility?.['Consultation Status'] || '',
       status: eligibility?.Status || '',
       claimStatus: row.claimStatus || '',
-      remarks, finalStatus, fullEligibilityRecord: eligibility
+      remarks, finalStatus, fullEligibilityRecord: eligibility,
+      ineligibilityReasons
     });
   }
   return results;
@@ -870,6 +947,47 @@ function generateAndSendDebugLog(ctx, results, eligMap) {
       const memberKey = normalizeMemberID(ctx.member);
       const memberEntries = eligMap.get(memberKey) || [];
       payload.memberEligibilities = memberEntries.slice(0,200);
+      
+      // Add ineligibility reasons for each eligibility record
+      if (ctx.claimDate && memberEntries.length > 0) {
+        const claimDate = DateHandler.parse(ctx.claimDate);
+        const claimClinicians = ctx.record?.Clinician ? [ctx.record.Clinician] : [];
+        
+        payload.memberEligibilitiesWithReasons = memberEntries.slice(0, 200).map(elig => {
+          const eligDate = DateHandler.parse(elig["Answered On"]);
+          const reasons = [];
+          
+          // Check date match
+          if (!DateHandler.isSameDay(claimDate, eligDate)) {
+            reasons.push(`Date mismatch: eligibility dated ${DateHandler.format(eligDate)}, claim dated ${DateHandler.format(claimDate)}`);
+          }
+          
+          // Check clinician match
+          const eligClinician = (elig.Clinician || '').trim();
+          if (eligClinician && claimClinicians.length && !claimClinicians.includes(eligClinician)) {
+            reasons.push(`Clinician mismatch: eligibility has "${eligClinician}", claim has "${claimClinicians.join(', ')}"`);
+          }
+          
+          // Check service category
+          const serviceCategory = (elig['Service Category'] || '').trim();
+          const consultationStatus = (elig['Consultation Status'] || '').trim();
+          const department = (elig.Department || elig.Clinic || '').toLowerCase();
+          const categoryCheck = isServiceCategoryValid(serviceCategory, consultationStatus, department);
+          if (!categoryCheck.valid) {
+            reasons.push(categoryCheck.reason);
+          }
+          
+          // Check eligibility status
+          if ((elig.Status || '').toLowerCase() !== 'eligible') {
+            reasons.push(`Status is "${elig.Status}" not "Eligible"`);
+          }
+          
+          return {
+            ...elig,
+            reasons: reasons.length > 0 ? reasons : ['Eligible - no issues found']
+          };
+        });
+      }
     }
 
     const text = JSON.stringify(payload, null, 2);
@@ -989,6 +1107,142 @@ function exportInvalidEntries(results) {
 }
 
 /* ===========================
+   Worker Pool Management
+   =========================== */
+function initializeWorkerPool() {
+  // Clean up existing workers
+  terminateWorkerPool();
+  
+  // Create new worker pool
+  workerPool = [];
+  for (let i = 0; i < WORKER_COUNT; i++) {
+    try {
+      const worker = new Worker('eligibility-worker.js');
+      workerPool.push({
+        worker,
+        id: i,
+        busy: false
+      });
+    } catch (err) {
+      console.warn('Failed to create worker', i, err);
+    }
+  }
+  
+  console.log(`Initialized worker pool with ${workerPool.length} workers`);
+}
+
+function terminateWorkerPool() {
+  workerPool.forEach(w => {
+    if (w && w.worker) {
+      try {
+        w.worker.terminate();
+      } catch (e) {
+        console.warn('Error terminating worker', e);
+      }
+    }
+  });
+  workerPool = [];
+}
+
+/**
+ * Process claims using Web Workers for parallel processing
+ */
+async function processClaimsWithWorkers(claims, eligMap, reportType) {
+  if (workerPool.length === 0) {
+    initializeWorkerPool();
+  }
+  
+  // Fallback to single-threaded if no workers available
+  if (workerPool.length === 0) {
+    console.warn('No workers available, falling back to single-threaded processing');
+    return validateReportClaims(claims, eligMap, reportType);
+  }
+  
+  return new Promise((resolve, reject) => {
+    const batchSize = Math.ceil(claims.length / workerPool.length);
+    const batches = [];
+    
+    // Divide claims into batches
+    for (let i = 0; i < claims.length; i += batchSize) {
+      batches.push(claims.slice(i, i + batchSize));
+    }
+    
+    console.log(`Processing ${claims.length} claims in ${batches.length} batches using ${workerPool.length} workers`);
+    
+    const results = [];
+    let completedBatches = 0;
+    let processedCount = 0;
+    const startTime = Date.now();
+    
+    // Convert Map to plain object for worker transfer
+    const eligMapObject = {};
+    eligMap.forEach((value, key) => {
+      eligMapObject[key] = value;
+    });
+    
+    batches.forEach((batch, batchIndex) => {
+      if (batchIndex >= workerPool.length) return; // Skip if more batches than workers
+      
+      const workerInfo = workerPool[batchIndex];
+      workerInfo.busy = true;
+      
+      const messageHandler = (e) => {
+        const { type, data } = e.data;
+        
+        if (type === 'PROGRESS') {
+          processedCount = batches.slice(0, completedBatches).reduce((sum, b) => sum + b.length, 0) + data.processed;
+          const percentage = Math.floor((processedCount / claims.length) * 100);
+          const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+          updateStatus(`Processing: ${percentage}% (${processedCount}/${claims.length}) - ${elapsed}s elapsed`);
+        } else if (type === 'BATCH_COMPLETE') {
+          results.push(...data.results);
+          completedBatches++;
+          workerInfo.busy = false;
+          
+          const percentage = Math.floor((completedBatches / batches.length) * 100);
+          updateStatus(`Completed batch ${completedBatches}/${batches.length} (${percentage}%)`);
+          
+          // Clean up listener
+          workerInfo.worker.removeEventListener('message', messageHandler);
+          workerInfo.worker.removeEventListener('error', errorHandler);
+          
+          if (completedBatches === batches.length) {
+            const totalTime = ((Date.now() - startTime) / 1000).toFixed(2);
+            console.log(`All batches completed in ${totalTime}s`);
+            resolve(results);
+          }
+        } else if (type === 'ERROR') {
+          console.error('Worker error:', data);
+          workerInfo.worker.removeEventListener('message', messageHandler);
+          workerInfo.worker.removeEventListener('error', errorHandler);
+          reject(new Error(data.error));
+        }
+      };
+      
+      const errorHandler = (err) => {
+        console.error('Worker error event:', err);
+        workerInfo.worker.removeEventListener('message', messageHandler);
+        workerInfo.worker.removeEventListener('error', errorHandler);
+        reject(err);
+      };
+      
+      workerInfo.worker.addEventListener('message', messageHandler);
+      workerInfo.worker.addEventListener('error', errorHandler);
+      
+      workerInfo.worker.postMessage({
+        type: 'PROCESS_BATCH',
+        data: {
+          claims: batch,
+          eligibilityMap: eligMapObject,
+          preferMDY: lastReportWasCSV,
+          workerId: workerInfo.id
+        }
+      });
+    });
+  });
+}
+
+/* ===========================
    Event handlers & flow
    =========================== */
 async function handleFileUpload(event, type) {
@@ -1046,10 +1300,18 @@ async function handlePasteCsvClick() {
 
 async function handleProcessClick() {
   try {
+    if (isProcessing) {
+      console.warn('Already processing, please wait...');
+      return;
+    }
+    
     if (!eligData) { updateStatus('Processing stopped: Eligibility file missing'); return; }
     if (!xlsData || !xlsData.length) { updateStatus('Processing stopped: Report file missing'); return; }
 
-    updateStatus('Processing...');
+    isProcessing = true;
+    if (processBtn) processBtn.disabled = true;
+    
+    updateStatus('Preparing eligibility data...');
     usedEligibilities.clear();
 
     const eligMap = prepareEligibilityMap(eligData);
@@ -1062,7 +1324,23 @@ async function handleProcessClick() {
       else if ('Pri. Claim ID' in firstRow) reportType = 'Odoo';
     }
 
-    const results = validateReportClaims(xlsData, eligMap, reportType);
+    // Use worker-based processing for better performance with large datasets
+    const WORKER_THRESHOLD = 100; // Use workers if more than 100 claims
+    let results;
+    
+    if (xlsData.length > WORKER_THRESHOLD) {
+      updateStatus(`Processing ${xlsData.length} claims with ${WORKER_COUNT} workers...`);
+      try {
+        results = await processClaimsWithWorkers(xlsData, eligMap, reportType);
+      } catch (workerErr) {
+        console.error('Worker processing failed, falling back to single-threaded:', workerErr);
+        updateStatus('Worker failed, using single-threaded processing...');
+        results = validateReportClaims(xlsData, eligMap, reportType);
+      }
+    } else {
+      updateStatus(`Processing ${xlsData.length} claims...`);
+      results = validateReportClaims(xlsData, eligMap, reportType);
+    }
 
     let outputResults = results;
     if (filterCheckbox && filterCheckbox.checked) {
@@ -1078,6 +1356,10 @@ async function handleProcessClick() {
     updateStatus(`Processed ${outputResults.length} claims successfully`);
   } catch (err) {
     console.error('Processing stopped due to error:', err);
+    updateStatus('Error during processing: ' + (err.message || 'Unknown error'));
+  } finally {
+    isProcessing = false;
+    updateProcessButtonState();
   }
 }
 
@@ -1152,6 +1434,11 @@ function initializeEventListeners() {
 
   if (pasteBtn) pasteBtn.addEventListener('click', handlePasteCsvClick);
   if (filterStatus) onFilterToggle();
+  
+  // Clean up workers when page unloads
+  window.addEventListener('beforeunload', () => {
+    terminateWorkerPool();
+  });
 }
 
 document.addEventListener('DOMContentLoaded', () => {
