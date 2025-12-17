@@ -148,9 +148,9 @@ function findEligibilityForClaimWithReasons(eligList, claimDate, claimClinicians
       continue;
     }
     
-    // Check clinician match
+    // Check clinician match (use normalized comparison for consistency)
     const eligClinician = (elig.Clinician || '').trim();
-    if (eligClinician && claimClinicians.length && !claimClinicians.includes(eligClinician)) {
+    if (eligClinician && claimClinicians.length && !checkClinicianMatch(claimClinicians, eligClinician)) {
       currentReasons.push(`Clinician mismatch: eligibility has "${eligClinician}", claim has "${claimClinicians.join(', ')}"`);
       rejectionReasons.push(...currentReasons);
       continue;

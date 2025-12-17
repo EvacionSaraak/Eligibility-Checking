@@ -32,6 +32,8 @@ let lastEligMap = null;
 
 // Web Workers configuration for parallel processing
 const WORKER_COUNT = navigator.hardwareConcurrency || 4; // Use available CPU cores
+const WORKER_THRESHOLD = 100; // Use workers only if more than this many claims
+const MIN_CLAIMS_PER_WORKER = 10; // Minimum claims to justify worker overhead
 let workerPool = [];
 let isProcessing = false;
 
@@ -1161,9 +1163,9 @@ async function processClaimsWithWorkers(claims, eligMap, reportType) {
   }
   
   return new Promise((resolve, reject) => {
-    // Simple approach: divide claims evenly among available workers
-    // Each worker gets approximately claims.length / workerPool.length claims
-    const numWorkers = Math.min(workerPool.length, claims.length);
+    // Calculate optimal number of workers (ensure minimum claims per worker)
+    const maxUsefulWorkers = Math.floor(claims.length / MIN_CLAIMS_PER_WORKER);
+    const numWorkers = Math.min(workerPool.length, maxUsefulWorkers || 1, claims.length);
     const claimsPerWorker = Math.ceil(claims.length / numWorkers);
     
     console.log(`Processing ${claims.length} claims using ${numWorkers} workers (${claimsPerWorker} claims per worker)`);
@@ -1171,6 +1173,7 @@ async function processClaimsWithWorkers(claims, eligMap, reportType) {
     const results = [];
     let completedWorkers = 0;
     let processedCount = 0;
+    let hasErrored = false;
     const startTime = Date.now();
     
     // Convert Map to plain object for worker transfer
@@ -1189,6 +1192,7 @@ async function processClaimsWithWorkers(claims, eligMap, reportType) {
       const batch = claims.slice(startIdx, endIdx);
       
       const messageHandler = (e) => {
+        if (hasErrored) return; // Ignore messages after error
         const { type, data } = e.data;
         
         if (type === 'PROGRESS') {
@@ -1216,17 +1220,37 @@ async function processClaimsWithWorkers(claims, eligMap, reportType) {
             resolve(results);
           }
         } else if (type === 'ERROR') {
+          if (hasErrored) return; // Only handle first error
+          hasErrored = true;
           console.error('Worker error:', data);
-          workerInfo.worker.removeEventListener('message', messageHandler);
-          workerInfo.worker.removeEventListener('error', errorHandler);
+          
+          // Clean up all active workers
+          for (let j = 0; j < numWorkers; j++) {
+            const w = workerPool[j];
+            try {
+              w.worker.removeEventListener('message', messageHandler);
+              w.worker.removeEventListener('error', errorHandler);
+            } catch (e) { /* ignore */ }
+          }
+          
           reject(new Error(data.error));
         }
       };
       
       const errorHandler = (err) => {
+        if (hasErrored) return; // Only handle first error
+        hasErrored = true;
         console.error('Worker error event:', err);
-        workerInfo.worker.removeEventListener('message', messageHandler);
-        workerInfo.worker.removeEventListener('error', errorHandler);
+        
+        // Clean up all active workers
+        for (let j = 0; j < numWorkers; j++) {
+          const w = workerPool[j];
+          try {
+            w.worker.removeEventListener('message', messageHandler);
+            w.worker.removeEventListener('error', errorHandler);
+          } catch (e) { /* ignore */ }
+        }
+        
         reject(err);
       };
       
@@ -1305,7 +1329,7 @@ async function handlePasteCsvClick() {
 async function handleProcessClick() {
   try {
     if (isProcessing) {
-      console.warn('Already processing, please wait...');
+      updateStatus('Already processing, please wait...');
       return;
     }
     
@@ -1329,7 +1353,6 @@ async function handleProcessClick() {
     }
 
     // Use worker-based processing for better performance with large datasets
-    const WORKER_THRESHOLD = 100; // Use workers if more than 100 claims
     let results;
     
     if (xlsData.length > WORKER_THRESHOLD) {
