@@ -349,7 +349,7 @@ function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians =
     const eligDate = DateHandler.parse(elig["Answered On"]);
     if (!DateHandler.isSameDay(claimDate, eligDate)) continue;
     const eligClinician = (elig.Clinician || '').trim();
-    if (eligClinician && claimClinicians.length && !claimClinicians.includes(eligClinician)) continue;
+    if (eligClinician && claimClinicians.length && !checkClinicianMatch(claimClinicians, eligClinician)) continue;
     const serviceCategory = (elig['Service Category'] || '').trim();
     const consultationStatus = (elig['Consultation Status'] || '').trim();
     const department = (elig.Department || elig.Clinic || '').toLowerCase();
@@ -383,9 +383,9 @@ function findEligibilityForClaimWithReasons(eligMap, claimDate, memberID, claimC
       continue;
     }
     
-    // Check clinician match
+    // Check clinician match (use normalized comparison for consistency)
     const eligClinician = (elig.Clinician || '').trim();
-    if (eligClinician && claimClinicians.length && !claimClinicians.includes(eligClinician)) {
+    if (eligClinician && claimClinicians.length && !checkClinicianMatch(claimClinicians, eligClinician)) {
       currentReasons.push(`Clinician mismatch: eligibility has "${eligClinician}", claim has "${claimClinicians.join(', ')}"`);
       rejectionReasons.push(...currentReasons);
       continue;
@@ -966,9 +966,9 @@ function generateAndSendDebugLog(ctx, results, eligMap) {
             reasons.push(`Date mismatch: eligibility dated ${DateHandler.format(eligDate)}, claim dated ${DateHandler.format(claimDate)}`);
           }
           
-          // Check clinician match
+          // Check clinician match (use normalized comparison for consistency)
           const eligClinician = (elig.Clinician || '').trim();
-          if (eligClinician && claimClinicians.length && !claimClinicians.includes(eligClinician)) {
+          if (eligClinician && claimClinicians.length && !checkClinicianMatch(claimClinicians, eligClinician)) {
             reasons.push(`Clinician mismatch: eligibility has "${eligClinician}", claim has "${claimClinicians.join(', ')}"`);
           }
           
