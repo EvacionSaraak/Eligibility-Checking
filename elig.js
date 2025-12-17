@@ -609,21 +609,23 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
 
     const rawMemberID = String(row.memberID || '').trim();
     if (!rawMemberID) continue;
+    
+    // Check VVIP before normalization (normalization removes non-digits)
+    if (rawMemberID.includes('VVIP') || rawMemberID.startsWith('(VVIP)')) {
+      results.push({ 
+        claimID, memberID: rawMemberID, encounterStart: DateHandler.format(DateHandler.parse(row.claimDate, { preferMDY: lastReportWasCSV })), 
+        status: 'VVIP', finalStatus: 'valid', remarks: ['VVIP member, eligibility check bypassed'], 
+        fullEligibilityRecord: null, ineligibilityReasons: [] 
+      });
+      continue;
+    }
+    
     const memberID = normalizeMemberID(rawMemberID);
 
     let insurance = (row.insuranceCompany || '').trim();
     const claimDate = DateHandler.parse(row.claimDate, { preferMDY: lastReportWasCSV });
     if (!claimDate) continue;
     const formattedDate = DateHandler.format(claimDate);
-
-    if (memberID.startsWith('(VVIP)')) {
-      results.push({ 
-        claimID, memberID, encounterStart: formattedDate, status: 'VVIP', 
-        finalStatus: 'valid', remarks: ['VVIP member, eligibility check bypassed'], 
-        fullEligibilityRecord: null, ineligibilityReasons: [] 
-      });
-      continue;
-    }
 
     const { eligibility, reasons } = findEligibilityForClaimWithReasons(eligMap, claimDate, memberID, [row.clinician]);
     let finalStatus = 'invalid', remarks = [];
@@ -1159,18 +1161,15 @@ async function processClaimsWithWorkers(claims, eligMap, reportType) {
   }
   
   return new Promise((resolve, reject) => {
-    const batchSize = Math.ceil(claims.length / workerPool.length);
-    const batches = [];
+    // Simple approach: divide claims evenly among available workers
+    // Each worker gets approximately claims.length / workerPool.length claims
+    const numWorkers = Math.min(workerPool.length, claims.length);
+    const claimsPerWorker = Math.ceil(claims.length / numWorkers);
     
-    // Divide claims into batches
-    for (let i = 0; i < claims.length; i += batchSize) {
-      batches.push(claims.slice(i, i + batchSize));
-    }
-    
-    console.log(`Processing ${claims.length} claims in ${batches.length} batches using ${workerPool.length} workers`);
+    console.log(`Processing ${claims.length} claims using ${numWorkers} workers (${claimsPerWorker} claims per worker)`);
     
     const results = [];
-    let completedBatches = 0;
+    let completedWorkers = 0;
     let processedCount = 0;
     const startTime = Date.now();
     
@@ -1180,35 +1179,40 @@ async function processClaimsWithWorkers(claims, eligMap, reportType) {
       eligMapObject[key] = value;
     });
     
-    batches.forEach((batch, batchIndex) => {
-      if (batchIndex >= workerPool.length) return; // Skip if more batches than workers
-      
-      const workerInfo = workerPool[batchIndex];
+    for (let i = 0; i < numWorkers; i++) {
+      const workerInfo = workerPool[i];
       workerInfo.busy = true;
+      
+      // Calculate this worker's slice of claims
+      const startIdx = i * claimsPerWorker;
+      const endIdx = Math.min(startIdx + claimsPerWorker, claims.length);
+      const batch = claims.slice(startIdx, endIdx);
       
       const messageHandler = (e) => {
         const { type, data } = e.data;
         
         if (type === 'PROGRESS') {
-          processedCount = batches.slice(0, completedBatches).reduce((sum, b) => sum + b.length, 0) + data.processed;
+          processedCount += (data.processed - (workerInfo.lastProcessed || 0));
+          workerInfo.lastProcessed = data.processed;
           const percentage = Math.floor((processedCount / claims.length) * 100);
           const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
           updateStatus(`Processing: ${percentage}% (${processedCount}/${claims.length}) - ${elapsed}s elapsed`);
         } else if (type === 'BATCH_COMPLETE') {
           results.push(...data.results);
-          completedBatches++;
+          completedWorkers++;
           workerInfo.busy = false;
+          workerInfo.lastProcessed = 0;
           
-          const percentage = Math.floor((completedBatches / batches.length) * 100);
-          updateStatus(`Completed batch ${completedBatches}/${batches.length} (${percentage}%)`);
+          const percentage = Math.floor((completedWorkers / numWorkers) * 100);
+          updateStatus(`Completed worker ${completedWorkers}/${numWorkers} (${percentage}%)`);
           
           // Clean up listener
           workerInfo.worker.removeEventListener('message', messageHandler);
           workerInfo.worker.removeEventListener('error', errorHandler);
           
-          if (completedBatches === batches.length) {
+          if (completedWorkers === numWorkers) {
             const totalTime = ((Date.now() - startTime) / 1000).toFixed(2);
-            console.log(`All batches completed in ${totalTime}s`);
+            console.log(`All workers completed in ${totalTime}s`);
             resolve(results);
           }
         } else if (type === 'ERROR') {
@@ -1238,7 +1242,7 @@ async function processClaimsWithWorkers(claims, eligMap, reportType) {
           workerId: workerInfo.id
         }
       });
-    });
+    }
   });
 }
 

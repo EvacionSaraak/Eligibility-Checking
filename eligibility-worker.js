@@ -203,19 +203,13 @@ self.onmessage = function(e) {
 
         const rawMemberID = String(row.memberID || '').trim();
         if (!rawMemberID) continue;
-        const memberID = normalizeMemberID(rawMemberID);
-
-        const insurance = (row.insuranceCompany || '').trim();
-        const claimDate = DateHandler.parse(row.claimDate, { preferMDY });
-        if (!claimDate) continue;
-        const formattedDate = DateHandler.format(claimDate);
-
-        // Handle VVIP members
-        if (memberID.startsWith('(VVIP)')) {
+        
+        // Handle VVIP members (check before normalization)
+        if (rawMemberID.includes('VVIP') || rawMemberID.startsWith('(VVIP)')) {
           results.push({
             claimID,
-            memberID,
-            encounterStart: formattedDate,
+            memberID: rawMemberID,
+            encounterStart: DateHandler.format(DateHandler.parse(row.claimDate, { preferMDY })),
             status: 'VVIP',
             finalStatus: 'valid',
             remarks: ['VVIP member, eligibility check bypassed'],
@@ -224,6 +218,13 @@ self.onmessage = function(e) {
           });
           continue;
         }
+        
+        const memberID = normalizeMemberID(rawMemberID);
+
+        const insurance = (row.insuranceCompany || '').trim();
+        const claimDate = DateHandler.parse(row.claimDate, { preferMDY });
+        if (!claimDate) continue;
+        const formattedDate = DateHandler.format(claimDate);
 
         // Get eligibility list for this member
         const eligList = eligMap.get(memberID) || [];
