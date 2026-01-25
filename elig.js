@@ -21,6 +21,7 @@ const DATE_KEYS = ['Date', 'On'];
 const MONTHS = ["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"];
 
 // Application state
+let xmlData = null;        // parsed XML claims
 let xlsData = null;        // parsed & normalized report rows
 let eligData = null;       // eligibility sheet as array of arrays (raw) — keep raw rows for header detection
 let rawParsedReport = null; // raw parsed sheet result (header detection output)
@@ -31,7 +32,7 @@ let lastReportWasCSV = false;
 let lastEligMap = null;
 
 // DOM Elements (lookups performed in initializeEventListeners)
-let reportInput, eligInput, processBtn, exportInvalidBtn, statusEl, resultsContainer, filterCheckbox, filterStatus, pasteTextarea, pasteBtn, invalidOnlyCheckbox;
+let xmlInput, reportInput, eligInput, processBtn, exportInvalidBtn, statusEl, resultsContainer, filterCheckbox, filterStatus, pasteTextarea, pasteBtn, invalidOnlyCheckbox, xmlGroup, reportGroup, xmlRadio, xlsRadio;
 
 /* ===========================
    Small Utilities
@@ -250,6 +251,23 @@ function parseCsvText(text) {
       reject(err);
     }
   });
+}
+
+async function parseXmlFile(file) {
+  console.log(`Parsing XML file: ${file.name}`);
+  const text = await file.text();
+  // Preprocess XML to replace unescaped & with "and" for parseability
+  const xmlContent = text.replace(/&(?!(amp;|lt;|gt;|quot;|apos;|#\d+;|#x[0-9a-fA-F]+;))/g, "and");
+  const xmlDoc = new DOMParser().parseFromString(xmlContent, "application/xml");
+
+  const claims = Array.from(xmlDoc.querySelectorAll("Claim")).map(claim => ({
+    claimID: claim.querySelector("ID")?.textContent.trim() || '',
+    memberID: claim.querySelector("MemberID")?.textContent.trim() || '',
+    encounterStart: claim.querySelector("Encounter Start")?.textContent.trim(),
+    clinicians: Array.from(claim.querySelectorAll("Clinician")).map(c => c.textContent.trim())
+  }));
+
+  return { claims };
 }
 
 /* ===========================
@@ -539,6 +557,53 @@ function normalizeReportData(rawData) {
   });
 }
 
+function validateXmlClaims(xmlClaims, eligMap) {
+  console.log(`Validating ${xmlClaims.length} XML claims`);
+  return xmlClaims.map(claim => {
+    const claimDate = DateHandler.parse(claim.encounterStart);
+    const formattedDate = DateHandler.format(claimDate);
+    const memberID = claim.memberID;
+
+    // Check for leading zero in original memberID
+    const hasLeadingZero = memberID.match(/^0+\d+$/);
+
+    const eligibility = findEligibilityForClaim(eligMap, claimDate, memberID, claim.clinicians);
+
+    let status = 'invalid';
+    const remarks = [];
+
+    if (hasLeadingZero) {
+      remarks.push('Member ID has a leading zero; claim marked as invalid.');
+    }
+
+    if (!eligibility) {
+      remarks.push(`No matching eligibility found for ${memberID} on ${formattedDate}`);
+    } else if (eligibility.Status?.toLowerCase() !== 'eligible') {
+      remarks.push(`Eligibility status: ${eligibility.Status}`);
+    } else if (!checkClinicianMatch(claim.clinicians, eligibility.Clinician)) {
+      status = 'unknown';
+      remarks.push('Clinician mismatch');
+    } else if (!hasLeadingZero) {
+      // Only mark as valid if there is no leading zero
+      status = 'valid';
+    }
+    // If hasLeadingZero, status remains 'invalid'
+
+    return {
+      claimID: claim.claimID,
+      memberID: claim.memberID,
+      encounterStart: formattedDate,
+      clinician: eligibility?.['Clinician'] || '',
+      serviceCategory: eligibility?.['Service Category'] || '',
+      consultationStatus: eligibility?.['Consultation Status'] || '',
+      status: eligibility?.Status || '',
+      remarks,
+      finalStatus: status,
+      fullEligibilityRecord: eligibility
+    };
+  });
+}
+
 function validateReportClaims(reportDataArray, eligMap, reportType) {
   const results = [];
   for (let i = 0; i < reportDataArray.length; i++) {
@@ -560,13 +625,21 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
       continue;
     }
 
+    // Check for leading zero in original memberID
+    const hasLeadingZero = rawMemberID.match(/^0+\d+$/);
+
     const eligibility = findEligibilityForClaim(eligMap, claimDate, memberID, [row.clinician]);
     let finalStatus = 'invalid', remarks = [];
+    
+    if (hasLeadingZero) {
+      remarks.push('Member ID has a leading zero; claim marked as invalid.');
+    }
+    
     if (!eligibility) remarks.push(`No matching eligibility found for ${memberID} on ${formattedDate}`);
     else if (eligibility.Status?.toLowerCase() === 'eligible') {
       const categoryCheck = isServiceCategoryValid(eligibility['Service Category'], eligibility['Consultation Status'], (row.department || '').toLowerCase());
-      if (categoryCheck.valid) finalStatus = 'valid';
-      else remarks.push(categoryCheck.reason || 'Service category mismatch');
+      if (categoryCheck.valid && !hasLeadingZero) finalStatus = 'valid';
+      else if (!categoryCheck.valid) remarks.push(categoryCheck.reason || 'Service category mismatch');
     } else remarks.push(`Eligibility status: ${eligibility.Status}`);
 
     results.push({
@@ -609,14 +682,14 @@ function renderResults(results, eligMap) {
   const table = document.createElement('table');
   table.className = 'table table-sm table-striped table-hover shared-table';
 
+  const isXmlMode = xmlRadio && xmlRadio.checked;
   const thead = document.createElement('thead');
   thead.innerHTML = `
     <tr>
       <th>Claim ID</th>
       <th>Member ID</th>
       <th>Encounter Date</th>
-      <th>Package</th>
-      <th>Provider</th>
+      ${!isXmlMode ? '<th>Package</th><th>Provider</th>' : ''}
       <th>Clinician</th>
       <th>Service Category</th>
       <th>Status</th>
@@ -685,8 +758,7 @@ function renderResults(results, eligMap) {
       <td>${escapeHtml(result.claimID)}</td>
       <td>${escapeHtml(result.memberID)}</td>
       <td>${escapeHtml(result.encounterStart)}</td>
-      <td class="description-col">${escapeHtml(result.packageName)}</td>
-      <td class="description-col">${escapeHtml(result.provider)}</td>
+      ${!isXmlMode ? `<td class="description-col">${escapeHtml(result.packageName)}</td><td class="description-col">${escapeHtml(result.provider)}</td>` : ''}
       <td class="description-col">${escapeHtml(result.clinician)}</td>
       <td class="description-col">${escapeHtml(result.serviceCategory)}</td>
       <td class="description-col">${statusBadge}</td>
@@ -1002,7 +1074,13 @@ async function handleFileUpload(event, type) {
       eligData = allRows;
       updateStatus(`Loaded ${Array.isArray(eligData) ? eligData.length : 0} eligibility rows (raw)`);
       updateProcessButtonState();
-      if (eligData && (rawParsedReport || xlsData)) summarizeAndDisplayCounts();
+      if (eligData && (rawParsedReport || xlsData || xmlData)) summarizeAndDisplayCounts();
+      return;
+    }
+    if (type === 'xml') {
+      xmlData = await parseXmlFile(file);
+      updateStatus(`Loaded ${xmlData.claims.length} XML claims`);
+      updateProcessButtonState();
       return;
     }
     if (type === 'report') {
@@ -1047,7 +1125,16 @@ async function handlePasteCsvClick() {
 async function handleProcessClick() {
   try {
     if (!eligData) { updateStatus('Processing stopped: Eligibility file missing'); return; }
-    if (!xlsData || !xlsData.length) { updateStatus('Processing stopped: Report file missing'); return; }
+    
+    const isXmlMode = xmlRadio && xmlRadio.checked;
+    if (isXmlMode && (!xmlData || !xmlData.claims || !xmlData.claims.length)) {
+      updateStatus('Processing stopped: XML report file missing'); 
+      return;
+    }
+    if (!isXmlMode && (!xlsData || !xlsData.length)) {
+      updateStatus('Processing stopped: Report file missing'); 
+      return;
+    }
 
     updateStatus('Processing...');
     usedEligibilities.clear();
@@ -1055,14 +1142,18 @@ async function handleProcessClick() {
     const eligMap = prepareEligibilityMap(eligData);
     lastEligMap = eligMap;
 
-    let reportType = 'Clinicpro';
-    const firstRow = xlsData[0];
-    if (firstRow) {
-      if ('Pri. Claim No' in firstRow) reportType = 'Insta';
-      else if ('Pri. Claim ID' in firstRow) reportType = 'Odoo';
+    let results;
+    if (isXmlMode) {
+      results = validateXmlClaims(xmlData.claims, eligMap);
+    } else {
+      let reportType = 'Clinicpro';
+      const firstRow = xlsData[0];
+      if (firstRow) {
+        if ('Pri. Claim No' in firstRow) reportType = 'Insta';
+        else if ('Pri. Claim ID' in firstRow) reportType = 'Odoo';
+      }
+      results = validateReportClaims(xlsData, eligMap, reportType);
     }
-
-    const results = validateReportClaims(xlsData, eligMap, reportType);
 
     let outputResults = results;
     if (filterCheckbox && filterCheckbox.checked) {
@@ -1083,7 +1174,8 @@ async function handleProcessClick() {
 
 function updateProcessButtonState() {
   const hasEligibility = Array.isArray(eligData) && eligData.length > 0;
-  const hasReport = Array.isArray(xlsData) && xlsData.length > 0;
+  const isXmlMode = xmlRadio && xmlRadio.checked;
+  const hasReport = isXmlMode ? (xmlData && xmlData.claims && xmlData.claims.length > 0) : (Array.isArray(xlsData) && xlsData.length > 0);
   if (processBtn) processBtn.disabled = !(hasEligibility && hasReport);
   if (exportInvalidBtn) exportInvalidBtn.disabled = !(hasEligibility && hasReport);
 }
@@ -1113,8 +1205,38 @@ function onFilterToggle() {
 /* ===========================
    Initialization
    =========================== */
+function handleReportSourceChange() {
+  if (!xmlRadio) return;
+  const isXmlMode = xmlRadio.checked;
+
+  xmlGroup.style.display = isXmlMode ? 'block' : 'none';
+  reportGroup.style.display = isXmlMode ? 'none' : 'block';
+
+  if (isXmlMode) {
+    xlsData = null;
+    rawParsedReport = null;
+    if (reportInput) reportInput.value = '';
+  } else {
+    xmlData = null;
+    if (xmlInput) xmlInput.value = '';
+  }
+
+  updateStatus();
+  updateProcessButtonState();
+}
+
+function initializeRadioButtons() {
+  // Only initialize if the radio buttons exist
+  if (!xmlRadio || !xlsRadio) return;
+  
+  xmlRadio.addEventListener('change', handleReportSourceChange);
+  xlsRadio.addEventListener('change', handleReportSourceChange);
+  handleReportSourceChange();
+}
+
 function initializeEventListeners() {
   reportInput = document.getElementById('reportFileInput');
+  xmlInput = document.getElementById('xmlFileInput');
   eligInput = document.getElementById('eligibilityFileInput');
   processBtn = document.getElementById('processBtn');
   exportInvalidBtn = document.getElementById('exportInvalidBtn');
@@ -1125,9 +1247,14 @@ function initializeEventListeners() {
   pasteTextarea = document.getElementById('pasteCsvTextarea');
   pasteBtn = document.getElementById('pasteCsvBtn');
   invalidOnlyCheckbox = document.getElementById('filterInvalidOnly');
+  xmlGroup = document.getElementById('xmlReportInputGroup');
+  reportGroup = document.getElementById('reportInputGroup');
+  xmlRadio = document.querySelector('input[name="reportSource"][value="xml"]');
+  xlsRadio = document.querySelector('input[name="reportSource"][value="xls"]');
 
   if (eligInput) eligInput.addEventListener('change', (e) => handleFileUpload(e, 'eligibility'));
   if (reportInput) reportInput.addEventListener('change', (e) => handleFileUpload(e, 'report'));
+  if (xmlInput) xmlInput.addEventListener('change', (e) => handleFileUpload(e, 'xml'));
   if (processBtn) processBtn.addEventListener('click', handleProcessClick);
   if (exportInvalidBtn) exportInvalidBtn.addEventListener('click', () => exportInvalidEntries(window.lastValidationResults || []));
   if (filterCheckbox) filterCheckbox.addEventListener('change', onFilterToggle);
@@ -1152,6 +1279,9 @@ function initializeEventListeners() {
 
   if (pasteBtn) pasteBtn.addEventListener('click', handlePasteCsvClick);
   if (filterStatus) onFilterToggle();
+  
+  // Initialize radio buttons
+  initializeRadioButtons();
 }
 
 document.addEventListener('DOMContentLoaded', () => {

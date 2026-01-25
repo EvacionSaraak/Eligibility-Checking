@@ -25,22 +25,49 @@
         <div id="explanation" class="mb-3">
           <b>Welcome!</b> This is a simple tool for checking patient eligibility.
           <ul class="mb-0 mt-2">
-            <li><b>1.</b> Upload your patient report (Clinicpro, Odoo, or InstaHMS).</li>
-            <li><b>2.</b> Upload the Eligibility XLSX file.</li>
-            <li><b>3.</b> Click <b>Process</b> to check eligibility.</li>
-            <li><b>4.</b> Click <b>Export Invalid Rows</b> to download patients not eligible.</li>
+            <li><b>1.</b> Choose your report type (XLSX or XML).</li>
+            <li><b>2.</b> Upload your patient report.</li>
+            <li><b>3.</b> Upload the Eligibility XLSX file.</li>
+            <li><b>4.</b> Click <b>Process</b> to check eligibility.</li>
+            <li><b>5.</b> Click <b>Export Invalid Rows</b> to download patients not eligible.</li>
           </ul>
         </div>
 
         <form>
+          <!-- Report Type Selection -->
+          <div class="mb-3">
+            <label class="form-label">Report Type:</label>
+            <div>
+              <label class="form-check-label me-3">
+                <input type="radio" name="reportSource" value="xls" checked class="form-check-input">
+                Upload Report (Clinicpro, Odoo, or InstaHMS)
+              </label>
+              <label class="form-check-label">
+                <input type="radio" name="reportSource" value="xml" class="form-check-input">
+                Upload XML Report
+              </label>
+            </div>
+          </div>
+
           <div class="file-upload-area mb-3">
-            <div class="mb-3">
+            <!-- XML Report Input (hidden by default) -->
+            <div class="mb-3" id="xmlReportInputGroup" style="display:none;">
+              <label for="xmlFileInput" class="form-label">Upload XML Report:</label>
+              <div class="input-group">
+                <span class="input-group-text"><i class="bi bi-file-earmark-code"></i></span>
+                <input type="file" class="form-control" id="xmlFileInput" accept=".xml">
+              </div>
+            </div>
+            
+            <!-- XLSX Report Input (shown by default) -->
+            <div class="mb-3" id="reportInputGroup">
               <label for="reportFileInput" class="form-label">Upload Patient Report (Clinicpro, Odoo, or InstaHMS):</label>
               <div class="input-group">
                 <span class="input-group-text"><i class="bi bi-file-earmark-excel"></i></span>
                 <input type="file" class="form-control" id="reportFileInput" multiple accept=".xls,.xlsx,.csv">
               </div>
             </div>
+            
             <div class="mb-3">
               <label for="eligibilityFileInput" class="form-label">Upload Eligibility XLSX:</label>
               <div class="input-group">
