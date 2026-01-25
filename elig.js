@@ -52,6 +52,14 @@ function normalizeClinician(name) {
   return name.trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
+function hasLeadingZero(memberID) {
+  if (!memberID) return false;
+  const str = String(memberID).trim();
+  // Match IDs that start with zero(s) and have at least one non-zero digit
+  // This includes "0123", "00456" but excludes "000" (all zeros) and non-numeric strings
+  return /^0+\d+$/.test(str) && !/^0+$/.test(str);
+}
+
 /* ===========================
    Date handling (DateHandler)
    =========================== */
@@ -132,17 +140,24 @@ function summarizeAndDisplayCounts() {
   try {
     const eligCount = Array.isArray(eligData) ? eligData.length : 0;
 
-    // Ensure xlsData exists; if not but rawParsedReport exists try to normalize it now
-    if ((!Array.isArray(xlsData) || xlsData.length === 0) && rawParsedReport) {
-      try {
-        const normalized = normalizeReportData(rawParsedReport);
-        xlsData = normalized.filter(r => r && r.claimID && String(r.claimID).trim() !== '');
-      } catch (e) {
-        console.warn('summarizeAndDisplayCounts: failed to normalize report for counting', e);
+    // Determine claim count based on mode
+    let claimCount = 0;
+    const isXmlMode = xmlRadio && xmlRadio.checked;
+    
+    if (isXmlMode) {
+      claimCount = (xmlData && xmlData.claims) ? xmlData.claims.length : 0;
+    } else {
+      // Ensure xlsData exists; if not but rawParsedReport exists try to normalize it now
+      if ((!Array.isArray(xlsData) || xlsData.length === 0) && rawParsedReport) {
+        try {
+          const normalized = normalizeReportData(rawParsedReport);
+          xlsData = normalized.filter(r => r && r.claimID && String(r.claimID).trim() !== '');
+        } catch (e) {
+          console.warn('summarizeAndDisplayCounts: failed to normalize report for counting', e);
+        }
       }
+      claimCount = Array.isArray(xlsData) ? xlsData.length : 0;
     }
-
-    const claimCount = Array.isArray(xlsData) ? xlsData.length : 0;
 
     if (statusEl) {
       statusEl.textContent = `Loaded ${eligCount} eligibilities, ${claimCount} claims — Ready to process files`;
@@ -259,6 +274,12 @@ async function parseXmlFile(file) {
   // Preprocess XML to replace unescaped & with "and" for parseability
   const xmlContent = text.replace(/&(?!(amp;|lt;|gt;|quot;|apos;|#\d+;|#x[0-9a-fA-F]+;))/g, "and");
   const xmlDoc = new DOMParser().parseFromString(xmlContent, "application/xml");
+
+  // Check for parsing errors
+  const parserError = xmlDoc.querySelector("parsererror");
+  if (parserError) {
+    throw new Error("XML parsing failed: " + parserError.textContent);
+  }
 
   const claims = Array.from(xmlDoc.querySelectorAll("Claim")).map(claim => ({
     claimID: claim.querySelector("ID")?.textContent.trim() || '',
@@ -565,14 +586,14 @@ function validateXmlClaims(xmlClaims, eligMap) {
     const memberID = claim.memberID;
 
     // Check for leading zero in original memberID
-    const hasLeadingZero = memberID.match(/^0+\d+$/);
+    const memberIDHasLeadingZero = hasLeadingZero(memberID);
 
     const eligibility = findEligibilityForClaim(eligMap, claimDate, memberID, claim.clinicians);
 
     let status = 'invalid';
     const remarks = [];
 
-    if (hasLeadingZero) {
+    if (memberIDHasLeadingZero) {
       remarks.push('Member ID has a leading zero; claim marked as invalid.');
     }
 
@@ -583,11 +604,11 @@ function validateXmlClaims(xmlClaims, eligMap) {
     } else if (!checkClinicianMatch(claim.clinicians, eligibility.Clinician)) {
       status = 'unknown';
       remarks.push('Clinician mismatch');
-    } else if (!hasLeadingZero) {
+    } else if (!memberIDHasLeadingZero) {
       // Only mark as valid if there is no leading zero
       status = 'valid';
     }
-    // If hasLeadingZero, status remains 'invalid'
+    // If memberIDHasLeadingZero, status remains 'invalid'
 
     return {
       claimID: claim.claimID,
@@ -626,19 +647,19 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
     }
 
     // Check for leading zero in original memberID
-    const hasLeadingZero = rawMemberID.match(/^0+\d+$/);
+    const memberIDHasLeadingZero = hasLeadingZero(rawMemberID);
 
     const eligibility = findEligibilityForClaim(eligMap, claimDate, memberID, [row.clinician]);
     let finalStatus = 'invalid', remarks = [];
     
-    if (hasLeadingZero) {
+    if (memberIDHasLeadingZero) {
       remarks.push('Member ID has a leading zero; claim marked as invalid.');
     }
     
     if (!eligibility) remarks.push(`No matching eligibility found for ${memberID} on ${formattedDate}`);
     else if (eligibility.Status?.toLowerCase() === 'eligible') {
       const categoryCheck = isServiceCategoryValid(eligibility['Service Category'], eligibility['Consultation Status'], (row.department || '').toLowerCase());
-      if (categoryCheck.valid && !hasLeadingZero) finalStatus = 'valid';
+      if (categoryCheck.valid && !memberIDHasLeadingZero) finalStatus = 'valid';
       else if (!categoryCheck.valid) remarks.push(categoryCheck.reason || 'Service category mismatch');
     } else remarks.push(`Eligibility status: ${eligibility.Status}`);
 
@@ -1041,19 +1062,40 @@ function formatEligibilityDetails(record, memberID, claimDate) {
 function exportInvalidEntries(results) {
   const invalidEntries = (results || []).filter(r => r && r.finalStatus === 'invalid');
   if (!invalidEntries.length) { alert('No invalid entries to export.'); return; }
-  const exportData = invalidEntries.map(entry => ({
-    'Claim ID': entry.claimID,
-    'Member ID': entry.memberID,
-    'Encounter Date': entry.encounterStart,
-    'Package Name': entry.packageName || '',
-    'Provider': entry.provider || '',
-    'Clinician': entry.clinician || '',
-    'Service Category': entry.serviceCategory || '',
-    'Consultation Status': entry.consultationStatus || '',
-    'Eligibility Status': entry.status || '',
-    'Final Status': entry.finalStatus,
-    'Remarks': (entry.remarks || []).join('; ')
-  }));
+  
+  const isXmlMode = xmlRadio && xmlRadio.checked;
+  const exportData = invalidEntries.map(entry => {
+    const baseData = {
+      'Claim ID': entry.claimID,
+      'Member ID': entry.memberID,
+      'Encounter Date': entry.encounterStart,
+      'Clinician': entry.clinician || '',
+      'Service Category': entry.serviceCategory || '',
+      'Consultation Status': entry.consultationStatus || '',
+      'Eligibility Status': entry.status || '',
+      'Final Status': entry.finalStatus,
+      'Remarks': (entry.remarks || []).join('; ')
+    };
+    
+    // Only include Package Name and Provider for XLSX mode
+    if (!isXmlMode) {
+      return {
+        'Claim ID': baseData['Claim ID'],
+        'Member ID': baseData['Member ID'],
+        'Encounter Date': baseData['Encounter Date'],
+        'Package Name': entry.packageName || '',
+        'Provider': entry.provider || '',
+        'Clinician': baseData['Clinician'],
+        'Service Category': baseData['Service Category'],
+        'Consultation Status': baseData['Consultation Status'],
+        'Eligibility Status': baseData['Eligibility Status'],
+        'Final Status': baseData['Final Status'],
+        'Remarks': baseData['Remarks']
+      };
+    }
+    
+    return baseData;
+  });
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.json_to_sheet(exportData);
   XLSX.utils.book_append_sheet(wb, ws, 'Invalid Claims');
