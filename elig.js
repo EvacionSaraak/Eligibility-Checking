@@ -20,6 +20,14 @@ const SERVICE_PACKAGE_RULES = {
 const DATE_KEYS = ['Date', 'On'];
 const MONTHS = ["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"];
 
+// XML element names for parsing
+const XML_ELEMENTS = {
+  CLAIM_ID: 'ID',
+  MEMBER_ID: 'MemberID',
+  ENCOUNTER_START: 'Encounter Start',
+  CLINICIAN: 'Clinician'
+};
+
 // Application state
 let xmlData = null;        // parsed XML claims
 let xlsData = null;        // parsed & normalized report rows
@@ -55,9 +63,10 @@ function normalizeClinician(name) {
 function hasLeadingZero(memberID) {
   if (!memberID) return false;
   const str = String(memberID).trim();
-  // Match IDs that start with zero(s) and have at least one non-zero digit
-  // This includes "0123", "00456" but excludes "000" (all zeros) and non-numeric strings
-  return /^0+\d+$/.test(str) && !/^0+$/.test(str);
+  // Match IDs that start with zero(s) followed by at least one more digit
+  // This includes "0123", "00456" but excludes "000" (all zeros), single "0", and non-numeric strings
+  // Pattern breakdown: ^0+ (starts with one or more zeros) [1-9]\d* (followed by non-zero digit and any digits)
+  return /^0+[1-9]\d*$/.test(str);
 }
 
 /* ===========================
@@ -272,6 +281,7 @@ async function parseXmlFile(file) {
   console.log(`Parsing XML file: ${file.name}`);
   const text = await file.text();
   // Preprocess XML to replace unescaped & with "and" for parseability
+  // Negative lookahead pattern ensures we don't replace already-escaped entities like &amp; &lt; etc.
   const xmlContent = text.replace(/&(?!(amp;|lt;|gt;|quot;|apos;|#\d+;|#x[0-9a-fA-F]+;))/g, "and");
   const xmlDoc = new DOMParser().parseFromString(xmlContent, "application/xml");
 
@@ -282,10 +292,10 @@ async function parseXmlFile(file) {
   }
 
   const claims = Array.from(xmlDoc.querySelectorAll("Claim")).map(claim => ({
-    claimID: claim.querySelector("ID")?.textContent.trim() || '',
-    memberID: claim.querySelector("MemberID")?.textContent.trim() || '',
-    encounterStart: claim.querySelector("Encounter Start")?.textContent.trim(),
-    clinicians: Array.from(claim.querySelectorAll("Clinician")).map(c => c.textContent.trim())
+    claimID: claim.querySelector(XML_ELEMENTS.CLAIM_ID)?.textContent.trim() || '',
+    memberID: claim.querySelector(XML_ELEMENTS.MEMBER_ID)?.textContent.trim() || '',
+    encounterStart: claim.querySelector(XML_ELEMENTS.ENCOUNTER_START)?.textContent.trim(),
+    clinicians: Array.from(claim.querySelectorAll(XML_ELEMENTS.CLINICIAN)).map(c => c.textContent.trim())
   }));
 
   return { claims };
@@ -583,11 +593,13 @@ function validateXmlClaims(xmlClaims, eligMap) {
   return xmlClaims.map(claim => {
     const claimDate = DateHandler.parse(claim.encounterStart);
     const formattedDate = DateHandler.format(claimDate);
+    // Use original memberID from XML for display and leading zero check
     const memberID = claim.memberID;
 
-    // Check for leading zero in original memberID
+    // Check for leading zero in original memberID before normalization
     const memberIDHasLeadingZero = hasLeadingZero(memberID);
 
+    // findEligibilityForClaim will normalize the memberID internally for lookup
     const eligibility = findEligibilityForClaim(eligMap, claimDate, memberID, claim.clinicians);
 
     let status = 'invalid';
