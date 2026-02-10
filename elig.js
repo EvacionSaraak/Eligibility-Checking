@@ -366,10 +366,17 @@ function isServiceCategoryValid(serviceCategory, consultationStatus, rawPackage)
   const pkgRaw = rawPackage || '';
   const pkg = pkgRaw.toLowerCase();
   if (category === 'consultation' && consultationStatus?.toLowerCase() === 'elective') {
-    const disallowed = ['dental', 'physio', 'diet', 'occupational', 'speech'];
-    const disallowedFull = ['dental', 'physiotherapy', 'dietitian', 'occupational therapy', 'speech therapy'];
-    if (disallowed.some(term => pkg.includes(term))) {
-      return { valid: false, reason: `Elective consultations cannot include restricted services (${disallowedFull.join(', ')}). Package contains: "${pkgRaw}"` };
+    const restrictedServices = {
+      'dental': 'dental',
+      'physio': 'physiotherapy',
+      'diet': 'dietitian',
+      'occupational': 'occupational therapy',
+      'speech': 'speech therapy'
+    };
+    const foundService = Object.keys(restrictedServices).find(term => pkg.includes(term));
+    if (foundService) {
+      const serviceList = Object.values(restrictedServices).join(', ');
+      return { valid: false, reason: `Elective consultations cannot include restricted services (${serviceList}). Package contains: "${pkgRaw}"` };
     }
     return { valid: true };
   }
