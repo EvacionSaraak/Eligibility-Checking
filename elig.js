@@ -368,7 +368,7 @@ function isServiceCategoryValid(serviceCategory, consultationStatus, rawPackage)
   if (category === 'consultation' && consultationStatus?.toLowerCase() === 'elective') {
     const disallowed = ['dental', 'physio', 'diet', 'occupational', 'speech'];
     if (disallowed.some(term => pkg.includes(term))) {
-      return { valid: false, reason: `Consultation (Elective) cannot include restricted service types. Found: "${pkgRaw}"` };
+      return { valid: false, reason: `Elective consultations cannot include restricted services (dental, physiotherapy, dietician, occupational therapy, speech therapy). Package contains: "${pkgRaw}"` };
     }
     return { valid: true };
   }
@@ -676,7 +676,7 @@ function renderResults(results, eligMap) {
     if (result.fullEligibilityRecord && result.fullEligibilityRecord['Eligibility Request Number']) {
       // If a full eligibility record is attached to this result, show a primary "View details" button that opens the modal with the single record
       detailsCellHtml = `<button class="btn btn-sm btn-outline-primary eligibility-details" data-index="${index}" data-claimdate="${escapeHtml(result.encounterStart)}">View details</button>`;
-    } else if (eligMap && typeof eligMap.get === 'function' && (eligMap.get(result.memberID) || []).length) {
+    } else if (eligMap && typeof eligMap.get === 'function' && (eligMap.get(normalizeMemberID(result.memberID)) || []).length) {
       // Otherwise, if there are eligibilities in the map for this member, offer a secondary button to view all eligibilities for the member
       detailsCellHtml = `<button class="btn btn-sm btn-outline-secondary show-all-eligibilities" data-member="${escapeHtml(result.memberID)}" data-claimdate="${escapeHtml(result.encounterStart)}">View eligibilities</button>`;
     }
@@ -783,7 +783,7 @@ function initEligibilityModal(results, eligMap) {
       const member = this.dataset.member;
       const claimDateStr = this.dataset.claimdate || '';
       const claimDate = claimDateStr ? DateHandler.parse(claimDateStr) : null;
-      const list = (typeof eligMap.get === 'function') ? (eligMap.get(member) || []) : [];
+      const list = (typeof eligMap.get === 'function') ? (eligMap.get(normalizeMemberID(member)) || []) : [];
       const modalTable = document.getElementById("modalTable");
       window.__elig_current_debug = { mode: 'list', member, claimDate: claimDateStr || '', listSnapshot: list.slice(0,200) };
       const debugBtn = document.getElementById('modalDebugBtn'); if (debugBtn) debugBtn.style.display = '';
