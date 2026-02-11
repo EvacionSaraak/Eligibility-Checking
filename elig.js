@@ -969,18 +969,16 @@ function formatEligibilityDetails(record, memberID, claimDate) {
 function exportInvalidEntries(results) {
   const invalidEntries = (results || []).filter(r => r && r.finalStatus === 'invalid');
   if (!invalidEntries.length) { alert('No invalid entries to export.'); return; }
-  const exportData = invalidEntries.map(entry => ({
-    'Claim ID': entry.claimID,
-    'Member ID': entry.memberID,
-    'Encounter Date': entry.encounterStart,
-    'Package Name': entry.packageName || '',
-    'Provider': entry.provider || '',
-    'Clinician': entry.clinician || '',
-    'Service Category': entry.serviceCategory || '',
-    'Consultation Status': entry.consultationStatus || '',
-    'Eligibility Status': entry.status || '',
-    'Final Status': entry.finalStatus,
-    'Remarks': (entry.remarks || []).join('; ')
+  const exportData = invalidEntries.map((entry, index) => ({
+    'FILE NO.': index + 1,
+    'CLAIM ID': entry.claimID || '',
+    'VISIT ID': entry.claimID || '',
+    'PHY LICENSE': entry.clinician || '',
+    'DATE': entry.encounterStart || '',
+    'MEMBER ID': entry.memberID || '',
+    'ELIGIBILITY UNDER DOCTOR': entry.fullEligibilityRecord?.Clinician || '',
+    'ERROR': (entry.remarks || []).join('; '),
+    'Reception': ''
   }));
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.json_to_sheet(exportData);
