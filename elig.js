@@ -496,8 +496,8 @@ function normalizeReportData(rawData) {
         claimDate: r['Encounter Date'] || '',
         clinician: r['Clinician License'] || '',
         department: r['Department'] || '',
-        packageName: r['Pri. Payer Name'] || '',
-        insuranceCompany: r['Pri. Payer Name'] || '',
+        packageName: r['Pri. Plan Name'] || '',
+        insuranceCompany: r['Pri. Plan Name'] || '',
         claimStatus: r['Codification Status'] || ''
       };
     } else if (isOdoo) {
@@ -507,7 +507,7 @@ function normalizeReportData(rawData) {
         claimDate: r['Adm/Reg. Date'] || '',
         clinician: r['Admitting License'] || '',
         department: r['Admitting Department'] || '',
-        insuranceCompany: r['Pri. Plan Type'] || '',
+        insuranceCompany: r['Pri. Sponsor'] || '',
         claimStatus: r['Codification Status'] || ''
       };
     } else {
@@ -1130,7 +1130,10 @@ function initializeEventListeners() {
   if (reportInput) reportInput.addEventListener('change', (e) => handleFileUpload(e, 'report'));
   if (processBtn) processBtn.addEventListener('click', handleProcessClick);
   if (exportInvalidBtn) exportInvalidBtn.addEventListener('click', () => exportInvalidEntries(window.lastValidationResults || []));
-  if (filterCheckbox) filterCheckbox.addEventListener('change', onFilterToggle);
+  if (filterCheckbox) {
+    filterCheckbox.checked = true;
+    filterCheckbox.addEventListener('change', onFilterToggle);
+  }
 
   if (invalidOnlyCheckbox) {
     invalidOnlyCheckbox.checked = true;
