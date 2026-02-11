@@ -448,7 +448,9 @@ function normalizeReportData(rawData) {
           department: row['Department'] || '',
           packageName: row['Pri. Payer Name'] || '',
           insuranceCompany: row['Pri. Payer Name'] || '',
-          claimStatus: row['Codification Status'] || ''
+          claimStatus: row['Codification Status'] || '',
+          fileNo: row['Patient Code'] || '',
+          admittingDoctor: ''
         };
       } else if (isOdoo) {
         return {
@@ -458,7 +460,9 @@ function normalizeReportData(rawData) {
           clinician: row['Admitting License'] || '',
           department: row['Admitting Department'] || '',
           insuranceCompany: row['Pri. Plan Type'] || '',
-          claimStatus: row['Codification Status'] || ''
+          claimStatus: row['Codification Status'] || '',
+          fileNo: row['MR No'] || '',
+          admittingDoctor: row['Admitting Doctor'] || ''
         };
       } else {
         return {
@@ -469,7 +473,9 @@ function normalizeReportData(rawData) {
           packageName: row['Insurance Company'] || '',
           insuranceCompany: row['Insurance Company'] || '',
           department: row['Clinic'] || '',
-          claimStatus: row['VisitStatus'] || ''
+          claimStatus: row['VisitStatus'] || '',
+          fileNo: '',
+          admittingDoctor: ''
         };
       }
     });
@@ -498,7 +504,9 @@ function normalizeReportData(rawData) {
         department: r['Department'] || '',
         packageName: r['Pri. Plan Name'] || '',
         insuranceCompany: r['Pri. Plan Name'] || '',
-        claimStatus: r['Codification Status'] || ''
+        claimStatus: r['Codification Status'] || '',
+        fileNo: r['Patient Code'] || '',
+        admittingDoctor: ''
       };
     } else if (isOdoo) {
       return {
@@ -508,7 +516,9 @@ function normalizeReportData(rawData) {
         clinician: r['Admitting License'] || '',
         department: r['Admitting Department'] || '',
         insuranceCompany: r['Pri. Sponsor'] || '',
-        claimStatus: r['Codification Status'] || ''
+        claimStatus: r['Codification Status'] || '',
+        fileNo: r['MR No'] || '',
+        admittingDoctor: r['Admitting Doctor'] || ''
       };
     } else {
       const out = {
@@ -519,7 +529,9 @@ function normalizeReportData(rawData) {
         department: r['Department'] || r['Clinic'] || r['Admitting Department'] || getField(r, ['Department','Clinic','Admitting Department']) || '',
         packageName: r['Pri. Payer Name'] || r['Insurance Company'] || r['Pri. Sponsor'] || getField(r, ['Pri. Payer Name','Insurance Company','Pri. Plan Type','Package','Pri. Sponsor']) || '',
         insuranceCompany: r['Pri. Payer Name'] || r['Insurance Company'] || getField(r, ['Payer Name','Insurance Company','Pri. Payer Name']) || '',
-        claimStatus: r['Codification Status'] || r['VisitStatus'] || r['Status'] || getField(r, ['Codification Status','VisitStatus','Status','Claim Status']) || ''
+        claimStatus: r['Codification Status'] || r['VisitStatus'] || r['Status'] || getField(r, ['Codification Status','VisitStatus','Status','Claim Status']) || '',
+        fileNo: r['MR No'] || r['Patient Code'] || getField(r, ['MR No','Patient Code','File No','FileNo']) || '',
+        admittingDoctor: r['Admitting Doctor'] || getField(r, ['Admitting Doctor','Doctor','Physician']) || ''
       };
 
       if (!out.memberID) {
@@ -556,7 +568,14 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
     const formattedDate = DateHandler.format(claimDate);
 
     if (memberID.startsWith('(VVIP)')) {
-      results.push({ claimID, memberID, encounterStart: formattedDate, status: 'VVIP', finalStatus: 'valid', remarks: ['VVIP member, eligibility check bypassed'], fullEligibilityRecord: null });
+      results.push({ 
+        claimID, memberID, encounterStart: formattedDate, 
+        status: 'VVIP', finalStatus: 'valid', 
+        remarks: ['VVIP member, eligibility check bypassed'], 
+        fullEligibilityRecord: null,
+        fileNo: row.fileNo || '',
+        admittingDoctor: row.admittingDoctor || ''
+      });
       continue;
     }
 
@@ -578,7 +597,9 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
       consultationStatus: eligibility?.['Consultation Status'] || '',
       status: eligibility?.Status || '',
       claimStatus: row.claimStatus || '',
-      remarks, finalStatus, fullEligibilityRecord: eligibility
+      remarks, finalStatus, fullEligibilityRecord: eligibility,
+      fileNo: row.fileNo || '',
+      admittingDoctor: row.admittingDoctor || ''
     });
   }
   return results;
@@ -970,13 +991,13 @@ function exportInvalidEntries(results) {
   const invalidEntries = (results || []).filter(r => r && r.finalStatus === 'invalid');
   if (!invalidEntries.length) { alert('No invalid entries to export.'); return; }
   const exportData = invalidEntries.map((entry, index) => ({
-    'FILE NO.': index + 1,
+    'FILE NO.': entry.fileNo || (index + 1),
     'CLAIM ID': entry.claimID || '',
     'VISIT ID': entry.claimID || '',
     'PHY LICENSE': entry.clinician || '',
     'DATE': entry.encounterStart || '',
     'MEMBER ID': entry.memberID || '',
-    'ELIGIBILITY UNDER DOCTOR': entry.fullEligibilityRecord?.Clinician || '',
+    'ELIGIBILITY UNDER DOCTOR': entry.admittingDoctor || '',
     'ERROR': (entry.remarks || []).join('; '),
     'Reception': ''
   }));
