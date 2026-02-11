@@ -450,7 +450,7 @@ function normalizeReportData(rawData) {
           insuranceCompany: row['Pri. Payer Name'] || '',
           claimStatus: row['Codification Status'] || '',
           fileNo: row['Patient Code'] || '',
-          admittingDoctor: ''
+          admittingDoctor: ''  // Insta reports don't have a separate Admitting Doctor column
         };
       } else if (isOdoo) {
         return {
@@ -474,8 +474,8 @@ function normalizeReportData(rawData) {
           insuranceCompany: row['Insurance Company'] || '',
           department: row['Clinic'] || '',
           claimStatus: row['VisitStatus'] || '',
-          fileNo: '',
-          admittingDoctor: ''
+          fileNo: row['MR No'] || row['Patient Code'] || row['File No'] || row['FileNo'] || '',
+          admittingDoctor: row['Admitting Doctor'] || row['Doctor'] || row['Physician'] || ''
         };
       }
     });
@@ -506,7 +506,7 @@ function normalizeReportData(rawData) {
         insuranceCompany: r['Pri. Plan Name'] || '',
         claimStatus: r['Codification Status'] || '',
         fileNo: r['Patient Code'] || '',
-        admittingDoctor: ''
+        admittingDoctor: ''  // Insta reports don't have a separate Admitting Doctor column
       };
     } else if (isOdoo) {
       return {
