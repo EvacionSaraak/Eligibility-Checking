@@ -20,19 +20,6 @@ const SERVICE_PACKAGE_RULES = {
 const DATE_KEYS = ['Date', 'On'];
 const MONTHS = ["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"];
 
-// Package Name Normalization Mapping
-// Maps variations/aliases to canonical package names
-const PACKAGE_NAME_MAPPING = {
-  // Thiqa variations
-  'Thiqa C1': 'Thiqa 1',
-  'Thiqa C2': 'Thiqa 2',
-  'Thiqa C3': 'Thiqa 3',
-  // Add more mappings as needed
-};
-
-// HAAD receiver constant for cash file detection
-const HAAD_RECEIVER = 'HAAD';
-
 // Application state
 let xlsData = null;        // parsed & normalized report rows
 let eligData = null;       // eligibility sheet as array of arrays (raw) — keep raw rows for header detection
@@ -62,17 +49,6 @@ function normalizeMemberID(id) {
 function normalizeClinician(name) {
   if (!name) return '';
   return name.trim().toLowerCase().replace(/\s+/g, ' ');
-}
-
-/**
- * Normalize package name by converting known variations to canonical form
- * @param {string} packageName - The package name to normalize
- * @returns {string} - Normalized package name
- */
-function normalizePackageName(packageName) {
-  if (!packageName) return packageName;
-  const trimmed = packageName.trim();
-  return PACKAGE_NAME_MAPPING[trimmed] || trimmed;
 }
 
 /* ===========================
@@ -604,17 +580,6 @@ function normalizeReportData(rawData) {
 function validateReportClaims(reportDataArray, eligMap, reportType) {
   const results = [];
   
-  // Check if this is a HAAD (cash file) - look at the first row's insurance/payer
-  let isHAADFile = false;
-  if (reportDataArray.length > 0) {
-    const firstRow = reportDataArray[0];
-    const insurance = (firstRow.insuranceCompany || '').trim().toUpperCase();
-    if (insurance === HAAD_RECEIVER) {
-      isHAADFile = true;
-      console.log('ReceiverID/Payer is HAAD - treating all claims as valid (cash file, no eligibility required)');
-    }
-  }
-  
   for (let i = 0; i < reportDataArray.length; i++) {
     const row = reportDataArray[i];
     const claimID = String(row.claimID || '').trim();
@@ -628,26 +593,6 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
     const claimDate = DateHandler.parse(row.claimDate, { preferMDY: lastReportWasCSV });
     if (!claimDate) continue;
     const formattedDate = DateHandler.format(claimDate);
-
-    // HAAD handling - mark all as valid without eligibility check
-    if (isHAADFile) {
-      results.push({
-        claimID, memberID, encounterStart: formattedDate,
-        packageName: row.packageName || '',
-        provider: insurance,
-        clinician: row.clinician || '',
-        serviceCategory: '',
-        consultationStatus: '',
-        status: '',
-        claimStatus: row.claimStatus || '',
-        remarks: ['Cash claim (HAAD receiver) - all rows are valid, no eligibility check required'],
-        finalStatus: 'valid',
-        fullEligibilityRecord: null,
-        fileNo: row.fileNo || '',
-        admittingDoctor: row.admittingDoctor || ''
-      });
-      continue;
-    }
 
     if (memberID.startsWith('(VVIP)')) {
       results.push({ 
@@ -677,12 +622,10 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
       if (categoryCheck.valid) {
         // Validate package name match if both claim and eligibility have package names
         if (row.packageName && eligibility['Package Name']) {
-          const normalizedClaimPackage = normalizePackageName(row.packageName);
-          const normalizedEligPackage = normalizePackageName(eligibility['Package Name']);
-          
-          if (normalizedClaimPackage !== normalizedEligPackage) {
+          // Direct string comparison without normalization
+          if (row.packageName.trim() !== eligibility['Package Name'].trim()) {
             finalStatus = 'invalid';
-            remarks.push(`Package name mismatch: claim has "${row.packageName}" (normalized: "${normalizedClaimPackage}"), eligibility has "${eligibility['Package Name']}" (normalized: "${normalizedEligPackage}")`);
+            remarks.push(`Package name mismatch: claim has "${row.packageName}", eligibility has "${eligibility['Package Name']}"`);
           } else {
             finalStatus = 'valid';
           }
