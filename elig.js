@@ -30,6 +30,9 @@ const PACKAGE_NAME_MAPPING = {
   // Add more mappings as needed
 };
 
+// HAAD receiver constant for cash file detection
+const HAAD_RECEIVER = 'HAAD';
+
 // Application state
 let xlsData = null;        // parsed & normalized report rows
 let eligData = null;       // eligibility sheet as array of arrays (raw) — keep raw rows for header detection
@@ -606,7 +609,7 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
   if (reportDataArray.length > 0) {
     const firstRow = reportDataArray[0];
     const insurance = (firstRow.insuranceCompany || '').trim().toUpperCase();
-    if (insurance === 'HAAD') {
+    if (insurance === HAAD_RECEIVER) {
       isHAADFile = true;
       console.log('ReceiverID/Payer is HAAD - treating all claims as valid (cash file, no eligibility required)');
     }
