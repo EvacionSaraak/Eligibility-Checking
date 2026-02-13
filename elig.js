@@ -20,6 +20,16 @@ const SERVICE_PACKAGE_RULES = {
 const DATE_KEYS = ['Date', 'On'];
 const MONTHS = ["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"];
 
+// Package Name Normalization Mapping
+// Maps variations/aliases to canonical package names
+const PACKAGE_NAME_MAPPING = {
+  // Thiqa variations
+  'Thiqa C1': 'Thiqa 1',
+  'Thiqa C2': 'Thiqa 2',
+  'Thiqa C3': 'Thiqa 3',
+  // Add more mappings as needed
+};
+
 // Application state
 let xlsData = null;        // parsed & normalized report rows
 let eligData = null;       // eligibility sheet as array of arrays (raw) — keep raw rows for header detection
@@ -49,6 +59,17 @@ function normalizeMemberID(id) {
 function normalizeClinician(name) {
   if (!name) return '';
   return name.trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+/**
+ * Normalize package name by converting known variations to canonical form
+ * @param {string} packageName - The package name to normalize
+ * @returns {string} - Normalized package name
+ */
+function normalizePackageName(packageName) {
+  if (!packageName) return packageName;
+  const trimmed = packageName.trim();
+  return PACKAGE_NAME_MAPPING[trimmed] || trimmed;
 }
 
 /* ===========================
@@ -338,19 +359,45 @@ function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians =
   const normalizedID = normalizeMemberID(memberID || '');
   const eligList = eligMap.get(normalizedID) || [];
   if (!eligList.length) return null;
+  
+  console.log(`[Diagnostics] Searching eligibilities for member "${memberID}" (normalized: "${normalizedID}")`);
+  console.log(`[Diagnostics] Claim date: ${claimDate} (${DateHandler.format(claimDate)}), Claim clinicians: ${JSON.stringify(claimClinicians)}`);
+  
   for (const elig of eligList) {
+    console.log(`[Diagnostics] Checking eligibility ${elig["Eligibility Request Number"] || "(unknown)"}:`);
+    
     const eligDate = DateHandler.parse(elig["Answered On"]);
-    if (!DateHandler.isSameDay(claimDate, eligDate)) continue;
+    if (!DateHandler.isSameDay(claimDate, eligDate)) {
+      console.log(`  ❌ Date mismatch: claim ${DateHandler.format(claimDate)} vs elig ${DateHandler.format(eligDate)}`);
+      continue;
+    }
+    
     const eligClinician = (elig.Clinician || '').trim();
-    if (eligClinician && claimClinicians.length && !claimClinicians.includes(eligClinician)) continue;
+    if (eligClinician && claimClinicians.length && !claimClinicians.includes(eligClinician)) {
+      console.log(`  ❌ Clinician mismatch: claim clinicians ${JSON.stringify(claimClinicians)} vs elig clinician "${eligClinician}"`);
+      continue;
+    }
+    
     const serviceCategory = (elig['Service Category'] || '').trim();
     const consultationStatus = (elig['Consultation Status'] || '').trim();
     const department = (elig.Department || elig.Clinic || '').toLowerCase();
     const categoryCheck = isServiceCategoryValid(serviceCategory, consultationStatus, department);
-    if (!categoryCheck.valid) continue;
-    if ((elig.Status || '').toLowerCase() !== 'eligible') continue;
+    
+    if (!categoryCheck.valid) {
+      console.log(`  ❌ Service category validation failed: claim dept "${department}" not valid for category "${serviceCategory}" / consult "${consultationStatus}"`);
+      continue;
+    }
+    
+    if ((elig.Status || '').toLowerCase() !== 'eligible') {
+      console.log(`  ❌ Status mismatch: expected Eligible, got "${elig.Status}"`);
+      continue;
+    }
+    
+    console.log(`  ✅ Eligibility match found: ${elig["Eligibility Request Number"]}`);
     return elig;
   }
+  
+  console.log(`[Diagnostics] No matching eligibility passed all checks for member "${memberID}"`);
   return null;
 }
 
@@ -553,6 +600,18 @@ function normalizeReportData(rawData) {
 
 function validateReportClaims(reportDataArray, eligMap, reportType) {
   const results = [];
+  
+  // Check if this is a HAAD (cash file) - look at the first row's insurance/payer
+  let isHAADFile = false;
+  if (reportDataArray.length > 0) {
+    const firstRow = reportDataArray[0];
+    const insurance = (firstRow.insuranceCompany || '').trim().toUpperCase();
+    if (insurance === 'HAAD') {
+      isHAADFile = true;
+      console.log('ReceiverID/Payer is HAAD - treating all claims as valid (cash file, no eligibility required)');
+    }
+  }
+  
   for (let i = 0; i < reportDataArray.length; i++) {
     const row = reportDataArray[i];
     const claimID = String(row.claimID || '').trim();
@@ -567,6 +626,26 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
     if (!claimDate) continue;
     const formattedDate = DateHandler.format(claimDate);
 
+    // HAAD handling - mark all as valid without eligibility check
+    if (isHAADFile) {
+      results.push({
+        claimID, memberID, encounterStart: formattedDate,
+        packageName: row.packageName || '',
+        provider: insurance,
+        clinician: row.clinician || '',
+        serviceCategory: '',
+        consultationStatus: '',
+        status: '',
+        claimStatus: row.claimStatus || '',
+        remarks: ['Cash claim (HAAD receiver) - all rows are valid, no eligibility check required'],
+        finalStatus: 'valid',
+        fullEligibilityRecord: null,
+        fileNo: row.fileNo || '',
+        admittingDoctor: row.admittingDoctor || ''
+      });
+      continue;
+    }
+
     if (memberID.startsWith('(VVIP)')) {
       results.push({ 
         claimID, memberID, encounterStart: formattedDate, 
@@ -579,14 +658,41 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
       continue;
     }
 
+    // Check for leading zero in original memberID
+    const hasLeadingZero = rawMemberID.match(/^0+\d+$/);
+    
     const eligibility = findEligibilityForClaim(eligMap, claimDate, memberID, [row.clinician]);
     let finalStatus = 'invalid', remarks = [];
-    if (!eligibility) remarks.push(`No matching eligibility found for ${memberID} on ${formattedDate}`);
-    else if (eligibility.Status?.toLowerCase() === 'eligible') {
+    
+    if (hasLeadingZero) {
+      finalStatus = 'invalid';
+      remarks.push('Member ID has a leading zero; claim marked as invalid.');
+    } else if (!eligibility) {
+      remarks.push(`No matching eligibility found for ${memberID} on ${formattedDate}`);
+    } else if (eligibility.Status?.toLowerCase() === 'eligible') {
       const categoryCheck = isServiceCategoryValid(eligibility['Service Category'], eligibility['Consultation Status'], (row.department || '').toLowerCase());
-      if (categoryCheck.valid) finalStatus = 'valid';
-      else remarks.push(categoryCheck.reason || 'Service category mismatch');
-    } else remarks.push(`Eligibility status: ${eligibility.Status}`);
+      if (categoryCheck.valid) {
+        // Validate package name match if both claim and eligibility have package names
+        if (row.packageName && eligibility['Package Name']) {
+          const normalizedClaimPackage = normalizePackageName(row.packageName);
+          const normalizedEligPackage = normalizePackageName(eligibility['Package Name']);
+          
+          if (normalizedClaimPackage !== normalizedEligPackage) {
+            finalStatus = 'invalid';
+            remarks.push(`Package name mismatch: claim has "${row.packageName}" (normalized: "${normalizedClaimPackage}"), eligibility has "${eligibility['Package Name']}" (normalized: "${normalizedEligPackage}")`);
+          } else {
+            finalStatus = 'valid';
+          }
+        } else {
+          // No package name to validate, so it's valid based on other checks
+          finalStatus = 'valid';
+        }
+      } else {
+        remarks.push(categoryCheck.reason || 'Service category mismatch');
+      }
+    } else {
+      remarks.push(`Eligibility status: ${eligibility.Status}`);
+    }
 
     results.push({
       claimID, memberID, encounterStart: formattedDate,
