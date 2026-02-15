@@ -81,14 +81,15 @@ function packageNamesMatch(claimPackage, eligPackage) {
 const DateHandler = {
   parse: function(input, options = {}) {
     const preferMDY = !!options.preferMDY;
+    const debugLog = !!options.debugLog;
     if (!input) return null;
     if (input instanceof Date) return isNaN(input) ? null : input;
     if (typeof input === 'number') return this._parseExcelDate(input);
 
     const cleanStr = input.toString().trim().replace(/[,.]/g, '');
-    const parsed = this._parseStringDate(cleanStr, preferMDY) || new Date(cleanStr);
+    const parsed = this._parseStringDate(cleanStr, preferMDY, debugLog) || new Date(cleanStr);
     if (isNaN(parsed)) {
-      console.warn('Unrecognized date:', input);
+      // Removed console warning - only log via debugLog flag
       return null;
     }
     return parsed;
@@ -127,12 +128,13 @@ const DateHandler = {
     return year;
   },
 
-  _parseStringDate: function(dateStr, preferMDY = false) {
+  _parseStringDate: function(dateStr, preferMDY = false, debugLog = false) {
     if (!dateStr) return null;
     
     // Insta CSV sometimes includes timestamps like "13-02-2026 05:10:14"
     // Strip time portion if present (keep only date before first space)
     if (dateStr.includes(' ')) {
+      if (debugLog) console.log(`    [Parse] Stripping timestamp: "${dateStr}" → "${dateStr.split(' ')[0]}"`);
       dateStr = dateStr.split(' ')[0];
     }
 
@@ -141,13 +143,20 @@ const DateHandler = {
     if (dmyMdyMatch) {
       const part1 = parseInt(dmyMdyMatch[1], 10);
       const part2 = parseInt(dmyMdyMatch[2], 10);
-      const year = this._normalizeTwoDigitYear(parseInt(dmyMdyMatch[3], 10));
+      const rawYear = parseInt(dmyMdyMatch[3], 10);
+      const year = this._normalizeTwoDigitYear(rawYear);
+      
+      if (debugLog) {
+        console.log(`    [Parse] Numeric date matched: part1=${part1}, part2=${part2}, rawYear=${rawYear}, normalizedYear=${year}`);
+      }
       
       if (part1 > 12 && part2 <= 12) {
         // Unambiguous DMY (day > 12, so first part must be day)
+        if (debugLog) console.log(`    [Parse] Unambiguous DMY: day=${part1}, month=${part2}`);
         return new Date(Date.UTC(year, part2 - 1, part1)); // dmy
       } else if (part2 > 12 && part1 <= 12) {
         // Unambiguous MDY (second part > 12, so it must be day)
+        if (debugLog) console.log(`    [Parse] Unambiguous MDY: month=${part1}, day=${part2}`);
         return new Date(Date.UTC(year, part1 - 1, part2)); // mdy
       } else {
         // Ambiguous case: both parts are <= 12, could be either day or month
@@ -156,6 +165,7 @@ const DateHandler = {
         // - Traditional MM/DD/YYYY (preferMDY=true): part1=month, part2=day
         // - Insta CSV swap (preferMDY=false): "2/12/2026" means month=2, day=12 (NOT day=2, month=12)
         // Result: Both cases use the same calculation
+        if (debugLog) console.log(`    [Parse] Ambiguous case (both ≤12): using month=${part1}, day=${part2} (Insta swap fix)`);
         return new Date(Date.UTC(year, part1 - 1, part2));
       }
     }
@@ -166,7 +176,12 @@ const DateHandler = {
       let day = parseInt(textMatch[1], 10);
       const monthName = textMatch[2].toLowerCase().substr(0, 3);
       let monthIndex = MONTHS.indexOf(monthName);
-      const year = this._normalizeTwoDigitYear(parseInt(textMatch[3], 10));
+      const rawYear = parseInt(textMatch[3], 10);
+      const year = this._normalizeTwoDigitYear(rawYear);
+      
+      if (debugLog) {
+        console.log(`    [Parse] Text date matched: day=${day}, monthName=${monthName} (index=${monthIndex}), rawYear=${rawYear}, normalizedYear=${year}`);
+      }
       
       // SPECIAL FIX for Insta CSV bug: They swap day and month in text dates
       // Example: "2-Dec-26" should be "12-Feb-26" (day 12, February 2026)
@@ -178,17 +193,25 @@ const DateHandler = {
         const originalMonthIndex = monthIndex;
         day = originalMonthIndex + 1; // Dec(11) → day 12, Feb(1) → day 2, etc.
         monthIndex = originalDay - 1; // day 2 → Feb(1), day 12 → Dec(11), etc.
+        if (debugLog) {
+          console.log(`    [Parse] Applying Insta swap: originalDay=${originalDay} (becomes month=${MONTHS[monthIndex]}), originalMonth=${MONTHS[originalMonthIndex]} (becomes day=${day})`);
+        }
       }
       
       if (monthIndex >= 0 && monthIndex < 12 && day >= 1 && day <= 31) {
+        if (debugLog) console.log(`    [Parse] Final text date: day=${day}, month=${MONTHS[monthIndex]} (index=${monthIndex}), year=${year}`);
         return new Date(Date.UTC(year, monthIndex, day));
       }
     }
 
     // Try matching ISO format: YYYY-MM-DD or YYYY/MM/DD
     const isoMatch = dateStr.match(/^(\d{4})[\/\-](\d{2})[\/\-](\d{2})$/);
-    if (isoMatch) return new Date(Date.UTC(parseInt(isoMatch[1], 10), parseInt(isoMatch[2], 10) - 1, parseInt(isoMatch[3], 10)));
+    if (isoMatch) {
+      if (debugLog) console.log(`    [Parse] ISO format matched: ${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`);
+      return new Date(Date.UTC(parseInt(isoMatch[1], 10), parseInt(isoMatch[2], 10) - 1, parseInt(isoMatch[3], 10)));
+    }
     
+    if (debugLog) console.log(`    [Parse] No date pattern matched!`);
     return null;
   }
 };
@@ -206,7 +229,7 @@ function summarizeAndDisplayCounts() {
         const normalized = normalizeReportData(rawParsedReport);
         xlsData = normalized.filter(r => r && r.claimID && String(r.claimID).trim() !== '');
       } catch (e) {
-        console.warn('summarizeAndDisplayCounts: failed to normalize report for counting', e);
+        // Removed console warning - fails silently
       }
     }
 
@@ -216,7 +239,7 @@ function summarizeAndDisplayCounts() {
       statusEl.textContent = `Loaded ${eligCount} eligibilities, ${claimCount} claims — Ready to process files`;
     }
   } catch (err) {
-    console.error('summarizeAndDisplayCounts error', err);
+    // Removed console error - fails silently
   }
 }
 
@@ -690,6 +713,7 @@ function normalizeReportData(rawData) {
 function validateReportClaims(reportDataArray, eligMap, reportType) {
   const results = [];
   const seenClaimIDs = new Set(); // Track claim IDs to avoid duplicates
+  let processedCount = 0; // Track how many claims we've processed for detailed logging
   
   for (let i = 0; i < reportDataArray.length; i++) {
     const row = reportDataArray[i];
@@ -698,11 +722,7 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
     
     // Skip duplicate claim IDs - keep only first occurrence
     if (seenClaimIDs.has(claimID)) {
-      // Only log duplicates for Daman/Thiqa
-      const insurance = (row.insuranceCompany || '').trim();
-      if (isDamanOrThiqa(insurance)) {
-        console.log(`Skipping duplicate claim ID: ${claimID}`);
-      }
+      // Removed console log for duplicates
       continue;
     }
     seenClaimIDs.add(claimID);
@@ -712,11 +732,34 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
     const memberID = normalizeMemberID(rawMemberID);
 
     let insurance = (row.insuranceCompany || '').trim();
+    
+    // DETAILED LOGGING FOR FIRST 3 CLAIMS ONLY
+    const shouldLogDateConversion = (processedCount < 3);
+    if (shouldLogDateConversion) {
+      console.group(`🔍 DATE CONVERSION #${processedCount + 1} - Claim: ${claimID}, Member: ${memberID}`);
+      console.log(`  Raw date string from report: "${row.claimDate}"`);
+      console.log(`  Insurance: ${insurance}`);
+    }
+    
     // For Insta CSV reports, dates are in DD/MM/YYYY format, not MM/DD/YYYY
     // So we should NOT use preferMDY even for CSV files
-    const claimDate = DateHandler.parse(row.claimDate, { preferMDY: false });
+    const claimDate = DateHandler.parse(row.claimDate, { preferMDY: false, debugLog: shouldLogDateConversion });
+    
+    if (shouldLogDateConversion) {
+      if (claimDate) {
+        const formattedDate = DateHandler.format(claimDate);
+        console.log(`  ✅ Parsed Date object: ${claimDate.toISOString()}`);
+        console.log(`  ✅ Formatted output: "${formattedDate}"`);
+        console.log(`  UTC Components: Year=${claimDate.getUTCFullYear()}, Month=${claimDate.getUTCMonth()+1}, Day=${claimDate.getUTCDate()}`);
+      } else {
+        console.log(`  ❌ FAILED TO PARSE DATE!`);
+      }
+      console.groupEnd();
+    }
+    
     if (!claimDate) continue;
     const formattedDate = DateHandler.format(claimDate);
+    processedCount++; // Increment after successful date parse
 
     if (memberID.startsWith('(VVIP)')) {
       results.push({ 
@@ -751,10 +794,7 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
           if (!packageNamesMatch(row.packageName, eligibility['Package Name'])) {
             finalStatus = 'invalid';
             remarks.push(`Package name mismatch: claim has "${row.packageName}", eligibility has "${eligibility['Package Name']}"`);
-            // Only log package name mismatches for Daman/Thiqa
-            if (isDamanOrThiqa(insurance)) {
-              console.log(`[Validation] Package name mismatch for ${claimID}: claim="${row.packageName}" vs elig="${eligibility['Package Name']}"`);
-            }
+            // Removed console log for package mismatches
           } else {
             finalStatus = 'valid';
           }
