@@ -376,15 +376,16 @@ function isDamanOrThiqa(provider) {
  * @param {string} memberID - Member ID
  * @param {Array} claimClinicians - Array of clinician names/IDs
  * @param {string} provider - Provider/insurance name (used to filter diagnostic logging to Daman/Thiqa only)
+ * @param {boolean} forceLog - Force diagnostic logging regardless of provider
  * @returns {Object|null} - Matching eligibility record or null
  */
-function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians = [], provider = '') {
+function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians = [], provider = '', forceLog = false) {
   const normalizedID = normalizeMemberID(memberID || '');
   const eligList = eligMap.get(normalizedID) || [];
   if (!eligList.length) return null;
   
-  // Only log diagnostics for Daman/Thiqa claims
-  const shouldLog = isDamanOrThiqa(provider);
+  // Only log diagnostics for Daman/Thiqa claims unless forced
+  const shouldLog = forceLog || isDamanOrThiqa(provider);
   
   if (shouldLog) {
     console.log(`[Diagnostics] Searching eligibilities for member "${memberID}" (normalized: "${normalizedID}")`);
@@ -829,9 +830,20 @@ function renderResults(results, eligMap) {
     if (result.fullEligibilityRecord && result.fullEligibilityRecord['Eligibility Request Number']) {
       // If a full eligibility record is attached to this result, show a primary "View details" button that opens the modal with the single record
       detailsCellHtml = `<button class="btn btn-sm btn-outline-primary eligibility-details" data-index="${index}" data-claimdate="${escapeHtml(result.encounterStart)}">View details</button>`;
+      detailsCellHtml += ` <button class="btn btn-sm btn-outline-info show-diagnostics" data-index="${index}" title="Show diagnostic logging for this claim">
+        <i class="bi bi-terminal"></i> Diagnostics
+      </button>`;
     } else if (eligMap && typeof eligMap.get === 'function' && (eligMap.get(result.memberID) || []).length) {
       // Otherwise, if there are eligibilities in the map for this member, offer a secondary button to view all eligibilities for the member
       detailsCellHtml = `<button class="btn btn-sm btn-outline-secondary show-all-eligibilities" data-member="${escapeHtml(result.memberID)}" data-claimdate="${escapeHtml(result.encounterStart)}">View eligibilities</button>`;
+      detailsCellHtml += ` <button class="btn btn-sm btn-outline-info show-diagnostics" data-index="${index}" title="Show diagnostic logging for this claim">
+        <i class="bi bi-terminal"></i> Diagnostics
+      </button>`;
+    } else {
+      // Even if no eligibility found, add diagnostics button to help debug why
+      detailsCellHtml = `<button class="btn btn-sm btn-outline-info show-diagnostics" data-index="${index}" title="Show diagnostic logging for this claim">
+        <i class="bi bi-terminal"></i> Diagnostics
+      </button>`;
     }
 
     row.innerHTML = `
@@ -985,6 +997,42 @@ function initEligibilityModal(results, eligMap) {
       html += `</tbody></table></div>`;
       modalTable.innerHTML = html;
       showModal();
+    });
+  });
+
+  // Add handler for diagnostics buttons
+  document.querySelectorAll(".show-diagnostics").forEach(btn => {
+    btn.onclick = null;
+    btn.addEventListener('click', function () {
+      const index = parseInt(this.dataset.index, 10);
+      const result = results[index];
+      if (!result) return;
+      
+      console.group(`🔍 [Manual Diagnostics] Claim: ${result.claimID}, Member: ${result.memberID}`);
+      console.log('Claim Details:', {
+        claimID: result.claimID,
+        memberID: result.memberID,
+        encounterDate: result.encounterStart,
+        provider: result.provider,
+        packageName: result.packageName,
+        clinician: result.clinician,
+        department: result.serviceCategory,
+        finalStatus: result.finalStatus,
+        remarks: result.remarks
+      });
+      
+      // Re-run eligibility matching with forced logging
+      const claimDate = DateHandler.parse(result.encounterStart);
+      if (claimDate && eligMap) {
+        console.log('Re-running eligibility matching with forced diagnostics...');
+        const clinicians = result.clinician ? [result.clinician] : [];
+        findEligibilityForClaim(eligMap, claimDate, result.memberID, clinicians, result.provider, true);
+      } else {
+        console.warn('Cannot re-run matching: missing claim date or eligibility map');
+      }
+      
+      console.groupEnd();
+      alert('Diagnostic logging has been written to the console. Press F12 to view the console.');
     });
   });
 
