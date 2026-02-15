@@ -93,9 +93,10 @@ const DateHandler = {
     if (typeof input === 'number') return this._parseExcelDate(input);
 
     // Check if string input is an Excel serial number BEFORE cleaning
-    // Excel serials are pure numeric strings (with optional decimal point)
+    // This must happen first to preserve decimal precision (e.g., "46358.00013888889")
+    // Otherwise, the period would be stripped, breaking Excel serial date conversion
     const inputStr = input.toString().trim();
-    if (/^[\d.]+$/.test(inputStr)) {
+    if (/^\d+\.?\d*$/.test(inputStr)) {
       const numericValue = parseFloat(inputStr);
       if (!isNaN(numericValue)) {
         return this._parseExcelDate(numericValue);
