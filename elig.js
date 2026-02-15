@@ -124,21 +124,51 @@ const DateHandler = {
     if (dmyMdyMatch) {
       const part1 = parseInt(dmyMdyMatch[1], 10);
       const part2 = parseInt(dmyMdyMatch[2], 10);
-      const year = parseInt(dmyMdyMatch[3], 10);
+      let year = parseInt(dmyMdyMatch[3], 10);
+      
+      // Handle 2-digit years: assume 2000s
+      if (year < 100) {
+        year += 2000;
+      }
+      
       if (part1 > 12 && part2 <= 12) {
         return new Date(Date.UTC(year, part2 - 1, part1)); // dmy
       } else if (part2 > 12 && part1 <= 12) {
         return new Date(Date.UTC(year, part1 - 1, part2)); // mdy
       } else {
+        // Ambiguous case: both could be day or month
+        // For CSV files, DON'T prefer MDY - Insta uses DD/MM/YYYY
         if (preferMDY) return new Date(Date.UTC(year, part1 - 1, part2));
-        return new Date(Date.UTC(year, part2 - 1, part1));
+        return new Date(Date.UTC(year, part2 - 1, part1)); // Default to DMY
       }
     }
 
     const textMatch = dateStr.match(/^(\d{1,2})[\/\- ]([a-z]{3,})[\/\- ](\d{2,4})$/i);
     if (textMatch) {
-      const monthIndex = MONTHS.indexOf(textMatch[2].toLowerCase().substr(0, 3));
-      if (monthIndex >= 0) return new Date(Date.UTC(parseInt(textMatch[3], 10), monthIndex, parseInt(textMatch[1], 10)));
+      let day = parseInt(textMatch[1], 10);
+      const monthName = textMatch[2].toLowerCase().substr(0, 3);
+      let monthIndex = MONTHS.indexOf(monthName);
+      let year = parseInt(textMatch[3], 10);
+      
+      // Handle 2-digit years: assume 2000s
+      if (year < 100) {
+        year += 2000;
+      }
+      
+      // SPECIAL FIX for Insta CSV bug: They swap day and month in text dates
+      // "2-Dec-26" should be "12-Feb-26" (day 12, February 2026)
+      // Pattern: the day number actually represents the month, and the month name's position represents the day
+      // So: day value → month (1=Jan, 2=Feb, etc.), month index → day value (0=1, 11=12, etc.)
+      if (monthIndex >= 0 && day <= 12) {
+        const originalDay = day;
+        const originalMonthIndex = monthIndex;
+        day = originalMonthIndex + 1; // Dec(11) → day 12, Feb(1) → day 2, etc.
+        monthIndex = originalDay - 1; // day 2 → Feb(1), day 12 → Dec(11), etc.
+      }
+      
+      if (monthIndex >= 0 && monthIndex < 12 && day >= 1 && day <= 31) {
+        return new Date(Date.UTC(year, monthIndex, day));
+      }
     }
 
     const isoMatch = dateStr.match(/^(\d{4})[\/\-](\d{2})[\/\-](\d{2})$/);
@@ -666,7 +696,9 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
     const memberID = normalizeMemberID(rawMemberID);
 
     let insurance = (row.insuranceCompany || '').trim();
-    const claimDate = DateHandler.parse(row.claimDate, { preferMDY: lastReportWasCSV });
+    // For Insta CSV reports, dates are in DD/MM/YYYY format, not MM/DD/YYYY
+    // So we should NOT use preferMDY even for CSV files
+    const claimDate = DateHandler.parse(row.claimDate, { preferMDY: false });
     if (!claimDate) continue;
     const formattedDate = DateHandler.format(claimDate);
 
