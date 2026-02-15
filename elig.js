@@ -743,6 +743,16 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
       console.log(`🔍 DATE CONVERSION #${claimIndex} - Claim: ${claimID}, Member: ${rawMemberID}`);
       console.log(`  Raw date string from report: "${row.claimDate}"`);
       console.log(`  Insurance: ${insurance}`);
+      
+      // Detect if input is Excel serial number
+      const rawDate = row.claimDate;
+      const isExcelSerial = typeof rawDate === 'number' || (typeof rawDate === 'string' && /^[\d.]+$/.test(rawDate.trim()));
+      if (isExcelSerial) {
+        console.log(`  ⚠️  INPUT IS EXCEL SERIAL NUMBER - Cannot apply day/month swap logic!`);
+        console.log(`  ⚠️  The date is "baked into" the serial number in the source file.`);
+        console.log(`  ⚠️  If this date is wrong, the source Excel file needs to be corrected.`);
+      }
+      
       if (claimDate) {
         console.log(`  ✅ Parsed Date object: ${claimDate.toISOString()}`);
         const formatted = DateHandler.format(claimDate);
