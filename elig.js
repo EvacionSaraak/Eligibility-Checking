@@ -9,6 +9,12 @@
  *******************************/
 
 /* ===========================
+   Version & Initialization
+   =========================== */
+const VERSION = '2026.02.15.14';
+console.log(`✅ Eligibility Checker v${VERSION} loaded successfully`);
+
+/* ===========================
    Constants & Application State
    =========================== */
 const SERVICE_PACKAGE_RULES = {
@@ -19,6 +25,7 @@ const SERVICE_PACKAGE_RULES = {
 };
 const DATE_KEYS = ['Date', 'On'];
 const MONTHS = ["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"];
+const MONTH_NAMES = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
 // Application state
 let xlsData = null;        // parsed & normalized report rows
@@ -51,20 +58,44 @@ function normalizeClinician(name) {
   return name.trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
+/**
+ * Check if package names match with special handling for Thiqa/TC packages
+ * @param {string} claimPackage - Package name from the claim
+ * @param {string} eligPackage - Package name from the eligibility
+ * @returns {boolean} - True if packages match
+ */
+function packageNamesMatch(claimPackage, eligPackage) {
+  if (!claimPackage || !eligPackage) return false;
+  
+  const claimLower = claimPackage.trim().toLowerCase();
+  const eligLower = eligPackage.trim().toLowerCase();
+  
+  // Direct match
+  if (claimLower === eligLower) return true;
+  
+  // Special Thiqa/TC matching: if claim has "thiqa" and eligibility has "tc", consider it a match
+  if (claimLower.includes('thiqa') && eligLower.includes('tc')) {
+    return true;
+  }
+  
+  return false;
+}
+
 /* ===========================
    Date handling (DateHandler)
    =========================== */
 const DateHandler = {
   parse: function(input, options = {}) {
     const preferMDY = !!options.preferMDY;
+    const debugLog = !!options.debugLog;
     if (!input) return null;
     if (input instanceof Date) return isNaN(input) ? null : input;
     if (typeof input === 'number') return this._parseExcelDate(input);
 
     const cleanStr = input.toString().trim().replace(/[,.]/g, '');
-    const parsed = this._parseStringDate(cleanStr, preferMDY) || new Date(cleanStr);
+    const parsed = this._parseStringDate(cleanStr, preferMDY, debugLog) || new Date(cleanStr);
     if (isNaN(parsed)) {
-      console.warn('Unrecognized date:', input);
+      // Removed console warning - only log via debugLog flag
       return null;
     }
     return parsed;
@@ -72,10 +103,11 @@ const DateHandler = {
 
   format: function(date) {
     if (!(date instanceof Date) || isNaN(date)) return '';
-    const d = date.getUTCDate().toString().padStart(2, '0');
-    const m = (date.getUTCMonth() + 1).toString().padStart(2, '0');
-    const y = date.getUTCFullYear();
-    return `${d}/${m}/${y}`;
+    const day = date.getUTCDate(); // No padding, just the number
+    const monthIndex = date.getUTCMonth();
+    const monthName = MONTH_NAMES[monthIndex];
+    const year = date.getUTCFullYear();
+    return `${day} ${monthName} ${year}`;
   },
 
   isSameDay: function(date1, date2) {
@@ -89,37 +121,103 @@ const DateHandler = {
     const utcDays = Math.floor(serial) - 25569;
     const ms = utcDays * 86400 * 1000;
     const date = new Date(ms);
-    // Return UTC midnight
+    // Get UTC components and return as-is (no swap logic)
     return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
   },
 
-  _parseStringDate: function(dateStr, preferMDY = false) {
-    if (!dateStr) return null;
-    if (dateStr.includes(' ')) dateStr = dateStr.split(' ')[0];
+  _swapDayMonth: function(date) {
+    // Helper function to swap day and month in a date
+    // Used ONLY for Insta report claim dates which have backwards dates
+    if (!date || isNaN(date.getTime())) return date;
+    
+    const day = date.getUTCDate();
+    const month = date.getUTCMonth(); // 0-based
+    
+    // Only swap if both day and month are ambiguous (≤12)
+    if (day <= 12 && month < 12) {
+      return new Date(Date.UTC(
+        date.getUTCFullYear(),
+        day - 1,      // Use day as month (0-based)
+        month + 1     // Use month+1 as day (1-based)
+      ));
+    }
+    return date;
+  },
 
+  _normalizeTwoDigitYear: function(year) {
+    // Handle 2-digit years: assume 2000s for years 0-99
+    // This assumes medical records are from recent years (2000-2099)
+    if (year < 100) {
+      return year + 2000;
+    }
+    return year;
+  },
+
+  _parseStringDate: function(dateStr, preferMDY = false, debugLog = false) {
+    if (!dateStr) return null;
+    
+    // Insta CSV sometimes includes timestamps like "13-02-2026 05:10:14"
+    // Strip time portion if present (keep only date before first space)
+    if (dateStr.includes(' ')) {
+      if (debugLog) console.log(`    [Parse] Stripping timestamp: "${dateStr}" → "${dateStr.split(' ')[0]}"`);
+      dateStr = dateStr.split(' ')[0];
+    }
+
+    // Try matching numeric date formats: DD/MM/YYYY, DD-MM-YYYY, etc.
     const dmyMdyMatch = dateStr.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
     if (dmyMdyMatch) {
       const part1 = parseInt(dmyMdyMatch[1], 10);
       const part2 = parseInt(dmyMdyMatch[2], 10);
-      const year = parseInt(dmyMdyMatch[3], 10);
+      const rawYear = parseInt(dmyMdyMatch[3], 10);
+      const year = this._normalizeTwoDigitYear(rawYear);
+      
+      if (debugLog) {
+        console.log(`    [Parse] Numeric date matched: part1=${part1}, part2=${part2}, rawYear=${rawYear}, normalizedYear=${year}`);
+      }
+      
       if (part1 > 12 && part2 <= 12) {
+        // Unambiguous DMY (day > 12, so first part must be day)
+        if (debugLog) console.log(`    [Parse] Unambiguous DMY: day=${part1}, month=${part2}`);
         return new Date(Date.UTC(year, part2 - 1, part1)); // dmy
       } else if (part2 > 12 && part1 <= 12) {
+        // Unambiguous MDY (second part > 12, so it must be day)
+        if (debugLog) console.log(`    [Parse] Unambiguous MDY: month=${part1}, day=${part2}`);
         return new Date(Date.UTC(year, part1 - 1, part2)); // mdy
       } else {
-        if (preferMDY) return new Date(Date.UTC(year, part1 - 1, part2));
-        return new Date(Date.UTC(year, part2 - 1, part1));
+        // Ambiguous case: both parts are <= 12, could be either day or month
+        // Default to DMY (day/month/year) format which is standard
+        if (debugLog) console.log(`    [Parse] Ambiguous case (both ≤12): using DMY format - day=${part1}, month=${part2}`);
+        return new Date(Date.UTC(year, part2 - 1, part1)); // DMY format
       }
     }
 
+    // Try matching text-based dates: "2-Dec-26", "12-Feb-2026", etc.
     const textMatch = dateStr.match(/^(\d{1,2})[\/\- ]([a-z]{3,})[\/\- ](\d{2,4})$/i);
     if (textMatch) {
-      const monthIndex = MONTHS.indexOf(textMatch[2].toLowerCase().substr(0, 3));
-      if (monthIndex >= 0) return new Date(Date.UTC(parseInt(textMatch[3], 10), monthIndex, parseInt(textMatch[1], 10)));
+      const day = parseInt(textMatch[1], 10);
+      const monthName = textMatch[2].toLowerCase().substr(0, 3);
+      const monthIndex = MONTHS.indexOf(monthName);
+      const rawYear = parseInt(textMatch[3], 10);
+      const year = this._normalizeTwoDigitYear(rawYear);
+      
+      if (debugLog) {
+        console.log(`    [Parse] Text date matched: day=${day}, monthName=${monthName} (index=${monthIndex}), rawYear=${rawYear}, normalizedYear=${year}`);
+      }
+      
+      if (monthIndex >= 0 && monthIndex < 12 && day >= 1 && day <= 31) {
+        if (debugLog) console.log(`    [Parse] Final text date: day=${day}, month=${MONTHS[monthIndex]} (index=${monthIndex}), year=${year}`);
+        return new Date(Date.UTC(year, monthIndex, day));
+      }
     }
 
+    // Try matching ISO format: YYYY-MM-DD or YYYY/MM/DD
     const isoMatch = dateStr.match(/^(\d{4})[\/\-](\d{2})[\/\-](\d{2})$/);
-    if (isoMatch) return new Date(Date.UTC(parseInt(isoMatch[1], 10), parseInt(isoMatch[2], 10) - 1, parseInt(isoMatch[3], 10)));
+    if (isoMatch) {
+      if (debugLog) console.log(`    [Parse] ISO format matched: ${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`);
+      return new Date(Date.UTC(parseInt(isoMatch[1], 10), parseInt(isoMatch[2], 10) - 1, parseInt(isoMatch[3], 10)));
+    }
+    
+    if (debugLog) console.log(`    [Parse] No date pattern matched!`);
     return null;
   }
 };
@@ -137,7 +235,7 @@ function summarizeAndDisplayCounts() {
         const normalized = normalizeReportData(rawParsedReport);
         xlsData = normalized.filter(r => r && r.claimID && String(r.claimID).trim() !== '');
       } catch (e) {
-        console.warn('summarizeAndDisplayCounts: failed to normalize report for counting', e);
+        // Removed console warning - fails silently
       }
     }
 
@@ -147,7 +245,7 @@ function summarizeAndDisplayCounts() {
       statusEl.textContent = `Loaded ${eligCount} eligibilities, ${claimCount} claims — Ready to process files`;
     }
   } catch (err) {
-    console.error('summarizeAndDisplayCounts error', err);
+    // Removed console error - fails silently
   }
 }
 
@@ -334,22 +432,91 @@ function prepareEligibilityMap(rawSheetArray) {
 /* ===========================
    Matching & Validation Utilities
    =========================== */
-function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians = []) {
+
+/**
+ * Check if provider is Daman or Thiqa
+ * @param {string} provider - Provider/insurance name
+ * @returns {boolean} - True if Daman or Thiqa
+ */
+function isDamanOrThiqa(provider) {
+  if (!provider) return false;
+  const providerLower = provider.toString().toLowerCase();
+  return providerLower.includes('daman') || providerLower.includes('thiqa');
+}
+
+/**
+ * Find matching eligibility record for a claim
+ * @param {Map} eligMap - Map of member IDs to eligibility records
+ * @param {Date} claimDate - Claim date
+ * @param {string} memberID - Member ID
+ * @param {Array} claimClinicians - Array of clinician names/IDs
+ * @param {string} provider - Provider/insurance name (used to filter diagnostic logging to Daman/Thiqa only)
+ * @param {boolean} forceLog - Force diagnostic logging regardless of provider
+ * @param {boolean} logEligDetails - Log eligibility date details for first 3 claims
+ * @returns {Object|null} - Matching eligibility record or null
+ */
+function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians = [], provider = '', forceLog = false) {
   const normalizedID = normalizeMemberID(memberID || '');
   const eligList = eligMap.get(normalizedID) || [];
   if (!eligList.length) return null;
+  
+  // Only log diagnostics when explicitly requested via diagnostics button
+  const shouldLog = forceLog || false;
+  
+  if (shouldLog) {
+    console.log(`[Diagnostics] Searching eligibilities for member "${memberID}" (normalized: "${normalizedID}")`);
+    console.log(`[Diagnostics] Claim date: ${claimDate} (${DateHandler.format(claimDate)}), Claim clinicians: ${JSON.stringify(claimClinicians)}`);
+  }
+  
   for (const elig of eligList) {
-    const eligDate = DateHandler.parse(elig["Answered On"]);
-    if (!DateHandler.isSameDay(claimDate, eligDate)) continue;
+    if (shouldLog) {
+      console.log(`[Diagnostics] Checking eligibility ${elig["Eligibility Request Number"] || "(unknown)"}:`);
+    }
+    
+    const eligDate = DateHandler.parse(elig["Answered On"], { preferMDY: false });
+    
+    if (!DateHandler.isSameDay(claimDate, eligDate)) {
+      if (shouldLog) {
+        console.log(`  ❌ Date mismatch: claim ${DateHandler.format(claimDate)} vs elig ${DateHandler.format(eligDate)}`);
+      }
+      continue;
+    }
+    
     const eligClinician = (elig.Clinician || '').trim();
-    if (eligClinician && claimClinicians.length && !claimClinicians.includes(eligClinician)) continue;
+    if (eligClinician && claimClinicians.length && !claimClinicians.includes(eligClinician)) {
+      if (shouldLog) {
+        console.log(`  ❌ Clinician mismatch: claim clinicians ${JSON.stringify(claimClinicians)} vs elig clinician "${eligClinician}"`);
+      }
+      continue;
+    }
+    
     const serviceCategory = (elig['Service Category'] || '').trim();
     const consultationStatus = (elig['Consultation Status'] || '').trim();
     const department = (elig.Department || elig.Clinic || '').toLowerCase();
     const categoryCheck = isServiceCategoryValid(serviceCategory, consultationStatus, department);
-    if (!categoryCheck.valid) continue;
-    if ((elig.Status || '').toLowerCase() !== 'eligible') continue;
+    
+    if (!categoryCheck.valid) {
+      if (shouldLog) {
+        console.log(`  ❌ Service category validation failed: claim dept "${department}" not valid for category "${serviceCategory}" / consult "${consultationStatus}"`);
+      }
+      continue;
+    }
+    
+    if ((elig.Status || '').toLowerCase() !== 'eligible') {
+      if (shouldLog) {
+        console.log(`  ❌ Status mismatch: expected Eligible, got "${elig.Status}"`);
+      }
+      continue;
+    }
+    
+    if (shouldLog) {
+      console.log(`  ✅ Eligibility match found: ${elig["Eligibility Request Number"]}`);
+    }
     return elig;
+  }
+  
+  if (shouldLog) {
+    console.log(`[Diagnostics] No matching eligibility passed all checks for member "${memberID}"`);
   }
   return null;
 }
@@ -456,7 +623,9 @@ function normalizeReportData(rawData) {
           department: row['Department'] || '',
           packageName: row['Pri. Payer Name'] || '',
           insuranceCompany: row['Pri. Payer Name'] || '',
-          claimStatus: row['Codification Status'] || ''
+          claimStatus: row['Codification Status'] || '',
+          fileNo: row['Patient Code'] || '',
+          admittingDoctor: ''  // Insta reports don't have a separate Admitting Doctor column
         };
       } else if (isOdoo) {
         return {
@@ -466,7 +635,9 @@ function normalizeReportData(rawData) {
           clinician: row['Admitting License'] || '',
           department: row['Admitting Department'] || '',
           insuranceCompany: row['Pri. Plan Type'] || '',
-          claimStatus: row['Codification Status'] || ''
+          claimStatus: row['Codification Status'] || '',
+          fileNo: row['MR No'] || '',
+          admittingDoctor: row['Admitting Doctor'] || ''
         };
       } else {
         return {
@@ -477,7 +648,9 @@ function normalizeReportData(rawData) {
           packageName: row['Insurance Company'] || '',
           insuranceCompany: row['Insurance Company'] || '',
           department: row['Clinic'] || '',
-          claimStatus: row['VisitStatus'] || ''
+          claimStatus: row['VisitStatus'] || '',
+          fileNo: row['MR No'] || row['Patient Code'] || row['File No'] || row['FileNo'] || '',
+          admittingDoctor: row['Admitting Doctor'] || row['Doctor'] || row['Physician'] || ''
         };
       }
     });
@@ -504,9 +677,11 @@ function normalizeReportData(rawData) {
         claimDate: r['Encounter Date'] || '',
         clinician: r['Clinician License'] || '',
         department: r['Department'] || '',
-        packageName: r['Pri. Payer Name'] || '',
-        insuranceCompany: r['Pri. Payer Name'] || '',
-        claimStatus: r['Codification Status'] || ''
+        packageName: r['Pri. Plan Name'] || '',
+        insuranceCompany: r['Pri. Plan Name'] || '',
+        claimStatus: r['Codification Status'] || '',
+        fileNo: r['Patient Code'] || '',
+        admittingDoctor: ''  // Insta reports don't have a separate Admitting Doctor column
       };
     } else if (isOdoo) {
       return {
@@ -515,8 +690,10 @@ function normalizeReportData(rawData) {
         claimDate: r['Adm/Reg. Date'] || '',
         clinician: r['Admitting License'] || '',
         department: r['Admitting Department'] || '',
-        insuranceCompany: r['Pri. Plan Type'] || '',
-        claimStatus: r['Codification Status'] || ''
+        insuranceCompany: r['Pri. Sponsor'] || '',
+        claimStatus: r['Codification Status'] || '',
+        fileNo: r['MR No'] || '',
+        admittingDoctor: r['Admitting Doctor'] || ''
       };
     } else {
       const out = {
@@ -527,7 +704,9 @@ function normalizeReportData(rawData) {
         department: r['Department'] || r['Clinic'] || r['Admitting Department'] || getField(r, ['Department','Clinic','Admitting Department']) || '',
         packageName: r['Pri. Payer Name'] || r['Insurance Company'] || r['Pri. Sponsor'] || getField(r, ['Pri. Payer Name','Insurance Company','Pri. Plan Type','Package','Pri. Sponsor']) || '',
         insuranceCompany: r['Pri. Payer Name'] || r['Insurance Company'] || getField(r, ['Payer Name','Insurance Company','Pri. Payer Name']) || '',
-        claimStatus: r['Codification Status'] || r['VisitStatus'] || r['Status'] || getField(r, ['Codification Status','VisitStatus','Status','Claim Status']) || ''
+        claimStatus: r['Codification Status'] || r['VisitStatus'] || r['Status'] || getField(r, ['Codification Status','VisitStatus','Status','Claim Status']) || '',
+        fileNo: r['MR No'] || r['Patient Code'] || getField(r, ['MR No','Patient Code','File No','FileNo']) || '',
+        admittingDoctor: r['Admitting Doctor'] || getField(r, ['Admitting Doctor','Doctor','Physician']) || ''
       };
 
       if (!out.memberID) {
@@ -549,33 +728,123 @@ function normalizeReportData(rawData) {
 
 function validateReportClaims(reportDataArray, eligMap, reportType) {
   const results = [];
+  const seenClaimIDs = new Set(); // Track claim IDs to avoid duplicates
+  let claimIndex = 0; // Track claim index for detailed logging (first 3 non-duplicate claims)
+  
   for (let i = 0; i < reportDataArray.length; i++) {
     const row = reportDataArray[i];
     const claimID = String(row.claimID || '').trim();
     if (!claimID) continue;
+    
+    // Skip duplicate claim IDs - keep only first occurrence
+    if (seenClaimIDs.has(claimID)) {
+      // Removed console log for duplicates
+      continue;
+    }
+    seenClaimIDs.add(claimID);
+    claimIndex++; // Increment for every non-duplicate claim
 
     const rawMemberID = String(row.memberID || '').trim();
     if (!rawMemberID) continue;
     const memberID = normalizeMemberID(rawMemberID);
 
     let insurance = (row.insuranceCompany || '').trim();
-    const claimDate = DateHandler.parse(row.claimDate, { preferMDY: lastReportWasCSV });
+    
+    // For Insta CSV reports, dates are in DD/MM/YYYY format, not MM/DD/YYYY
+    // So we should NOT use preferMDY even for CSV files
+    let claimDate = DateHandler.parse(row.claimDate, { preferMDY: false });
+    
+    // Apply swap ONLY for Insta reports (claim dates are backwards in Insta CSV)
+    // Eligibility dates are NOT swapped (they are already correct)
+    let wasSwapped = false;
+    if (reportType === 'Insta' && claimDate) {
+      const originalDate = new Date(claimDate);
+      const swappedDate = DateHandler._swapDayMonth(claimDate);
+      if (swappedDate.getTime() !== originalDate.getTime()) {
+        claimDate = swappedDate;
+        wasSwapped = true;
+      }
+    }
+    
+    // Log detailed date conversion for first 3 non-duplicate claims
+    if (claimIndex <= 3) {
+      console.log(`🔍 DATE CONVERSION #${claimIndex} - Claim: ${claimID}, Member: ${rawMemberID}`);
+      console.log(`  Raw date string from report: "${row.claimDate}"`);
+      console.log(`  Insurance: ${insurance}`);
+      
+      // Show what format the date is in
+      const rawDate = row.claimDate;
+      const isExcelSerial = typeof rawDate === 'number' || (typeof rawDate === 'string' && /^[\d.]+$/.test(rawDate.trim()));
+      if (isExcelSerial) {
+        console.log(`  ℹ️  Excel serial number detected`);
+      }
+      
+      if (wasSwapped) {
+        // Show the swap that was applied for Insta reports
+        const originalDate = DateHandler.parse(row.claimDate, { preferMDY: false });
+        console.log(`  ⚠️  Insta report detected - swapping claim date day/month`);
+        console.log(`  ⚠️  Original: ${DateHandler.format(originalDate)} → Swapped: ${DateHandler.format(claimDate)}`);
+      }
+      
+      if (claimDate) {
+        console.log(`  ✅ Parsed Date object: ${claimDate.toISOString()}`);
+        const formatted = DateHandler.format(claimDate);
+        console.log(`  ✅ Formatted output: "${formatted}"`);
+        console.log(`  UTC Components: Year=${claimDate.getUTCFullYear()}, Month=${claimDate.getUTCMonth() + 1}, Day=${claimDate.getUTCDate()}`);
+      } else {
+        console.log(`  ❌ FAILED TO PARSE DATE!`);
+      }
+    }
+    
     if (!claimDate) continue;
     const formattedDate = DateHandler.format(claimDate);
 
     if (memberID.startsWith('(VVIP)')) {
-      results.push({ claimID, memberID, encounterStart: formattedDate, status: 'VVIP', finalStatus: 'valid', remarks: ['VVIP member, eligibility check bypassed'], fullEligibilityRecord: null });
+      results.push({ 
+        claimID, memberID, encounterStart: formattedDate, 
+        status: 'VVIP', finalStatus: 'valid', 
+        remarks: ['VVIP member, eligibility check bypassed'], 
+        fullEligibilityRecord: null,
+        fileNo: row.fileNo || '',
+        admittingDoctor: row.admittingDoctor || ''
+      });
       continue;
     }
 
-    const eligibility = findEligibilityForClaim(eligMap, claimDate, memberID, [row.clinician]);
+    // Check for leading zero in original memberID
+    const hasLeadingZero = rawMemberID.match(/^0+\d+$/);
+    
+    const eligibility = findEligibilityForClaim(eligMap, claimDate, memberID, [row.clinician], insurance);
     let finalStatus = 'invalid', remarks = [];
-    if (!eligibility) remarks.push(`No matching eligibility found for ${memberID} on ${formattedDate}`);
-    else if (eligibility.Status?.toLowerCase() === 'eligible') {
+    
+    if (hasLeadingZero) {
+      finalStatus = 'invalid';
+      remarks.push('Member ID has a leading zero; claim marked as invalid.');
+    } else if (!eligibility) {
+      remarks.push(`No matching eligibility found for ${memberID} on ${formattedDate}`);
+    } else if (eligibility.Status?.toLowerCase() === 'eligible') {
       const categoryCheck = isServiceCategoryValid(eligibility['Service Category'], eligibility['Consultation Status'], (row.department || '').toLowerCase());
-      if (categoryCheck.valid) finalStatus = 'valid';
-      else remarks.push(categoryCheck.reason || 'Service category mismatch');
-    } else remarks.push(`Eligibility status: ${eligibility.Status}`);
+      if (categoryCheck.valid) {
+        // Validate package name match if both claim and eligibility have package names
+        if (row.packageName && eligibility['Package Name']) {
+          // Use special matching logic that handles Thiqa/TC packages
+          if (!packageNamesMatch(row.packageName, eligibility['Package Name'])) {
+            finalStatus = 'invalid';
+            remarks.push(`Package name mismatch: claim has "${row.packageName}", eligibility has "${eligibility['Package Name']}"`);
+            // Removed console log for package mismatches
+          } else {
+            finalStatus = 'valid';
+          }
+        } else {
+          // No package name to validate, so it's valid based on other checks
+          finalStatus = 'valid';
+        }
+      } else {
+        remarks.push(categoryCheck.reason || 'Service category mismatch');
+      }
+    } else {
+      remarks.push(`Eligibility status: ${eligibility.Status}`);
+    }
 
     results.push({
       claimID, memberID, encounterStart: formattedDate,
@@ -586,7 +855,9 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
       consultationStatus: eligibility?.['Consultation Status'] || '',
       status: eligibility?.Status || '',
       claimStatus: row.claimStatus || '',
-      remarks, finalStatus, fullEligibilityRecord: eligibility
+      remarks, finalStatus, fullEligibilityRecord: eligibility,
+      fileNo: row.fileNo || '',
+      admittingDoctor: row.admittingDoctor || ''
     });
   }
   return results;
@@ -687,6 +958,14 @@ function renderResults(results, eligMap) {
     } else if (eligMap && typeof eligMap.get === 'function' && (eligMap.get(normalizeMemberID(result.memberID)) || []).length) {
       // Otherwise, if there are eligibilities in the map for this member, offer a secondary button to view all eligibilities for the member
       detailsCellHtml = `<button class="btn btn-sm btn-outline-secondary show-all-eligibilities" data-member="${escapeHtml(result.memberID)}" data-claimdate="${escapeHtml(result.encounterStart)}">View eligibilities</button>`;
+      detailsCellHtml += ` <button class="btn btn-sm btn-outline-info show-diagnostics" data-index="${index}" title="Show diagnostic logging for this claim">
+        <i class="bi bi-terminal"></i> Diagnostics
+      </button>`;
+    } else {
+      // Even if no eligibility found, add diagnostics button to help debug why
+      detailsCellHtml = `<button class="btn btn-sm btn-outline-info show-diagnostics" data-index="${index}" title="Show diagnostic logging for this claim">
+        <i class="bi bi-terminal"></i> Diagnostics
+      </button>`;
     }
 
     row.innerHTML = `
@@ -821,6 +1100,7 @@ function initEligibilityModal(results, eligMap) {
       list.forEach((rec, idx) => {
         const answeredOnRaw = rec['Answered On'] || rec['Ordered On'] || '';
         const eligDate = DateHandler.parse(answeredOnRaw);
+        const formattedEligDate = eligDate ? DateHandler.format(eligDate) : answeredOnRaw;
         let trClass = '';
         if (claimDate && eligDate) {
           if (DateHandler.isSameDay(claimDate, eligDate)) trClass = 'table-warning';
@@ -829,7 +1109,7 @@ function initEligibilityModal(results, eligMap) {
         html += `<tr class="${trClass}">
           <td>${idx + 1}</td>
           <td>${escapeHtml(rec['Eligibility Request Number'] || '')}</td>
-          <td>${escapeHtml(answeredOnRaw || '')}</td>
+          <td>${escapeHtml(formattedEligDate || '')}</td>
           <td>${escapeHtml(rec['Status'] || '')}</td>
           <td>${escapeHtml(rec['Clinician'] || '')}</td>
           <td>${escapeHtml(rec['Service Category'] || '')}</td>
@@ -840,6 +1120,42 @@ function initEligibilityModal(results, eligMap) {
       html += `</tbody></table></div>`;
       modalTable.innerHTML = html;
       showModal();
+    });
+  });
+
+  // Add handler for diagnostics buttons
+  document.querySelectorAll(".show-diagnostics").forEach(btn => {
+    btn.onclick = null;
+    btn.addEventListener('click', function () {
+      const index = parseInt(this.dataset.index, 10);
+      const result = results[index];
+      if (!result) return;
+      
+      console.group(`🔍 [Manual Diagnostics] Claim: ${result.claimID}, Member: ${result.memberID}`);
+      console.log('Claim Details:', {
+        claimID: result.claimID,
+        memberID: result.memberID,
+        encounterDate: result.encounterStart,
+        provider: result.provider,
+        packageName: result.packageName,
+        clinician: result.clinician,
+        department: result.serviceCategory,
+        finalStatus: result.finalStatus,
+        remarks: result.remarks
+      });
+      
+      // Re-run eligibility matching with forced logging
+      const claimDate = DateHandler.parse(result.encounterStart);
+      if (claimDate && eligMap) {
+        console.log('Re-running eligibility matching with forced diagnostics...');
+        const clinicians = result.clinician ? [result.clinician] : [];
+        findEligibilityForClaim(eligMap, claimDate, result.memberID, clinicians, result.provider, true);
+      } else {
+        console.warn('Cannot re-run matching: missing claim date or eligibility map');
+      }
+      
+      console.groupEnd();
+      alert('Diagnostic logging has been written to the console. Press F12 to view the console.');
     });
   });
 
@@ -977,18 +1293,16 @@ function formatEligibilityDetails(record, memberID, claimDate) {
 function exportInvalidEntries(results) {
   const invalidEntries = (results || []).filter(r => r && r.finalStatus === 'invalid');
   if (!invalidEntries.length) { alert('No invalid entries to export.'); return; }
-  const exportData = invalidEntries.map(entry => ({
-    'Claim ID': entry.claimID,
-    'Member ID': entry.memberID,
-    'Encounter Date': entry.encounterStart,
-    'Package Name': entry.packageName || '',
-    'Provider': entry.provider || '',
-    'Clinician': entry.clinician || '',
-    'Service Category': entry.serviceCategory || '',
-    'Consultation Status': entry.consultationStatus || '',
-    'Eligibility Status': entry.status || '',
-    'Final Status': entry.finalStatus,
-    'Remarks': (entry.remarks || []).join('; ')
+  const exportData = invalidEntries.map((entry, index) => ({
+    'FILE NO.': entry.fileNo || (index + 1),
+    'CLAIM ID': entry.claimID || '',
+    'VISIT ID': entry.claimID || '',
+    'PHY LICENSE': entry.clinician || '',
+    'DATE': entry.encounterStart || '',
+    'MEMBER ID': entry.memberID || '',
+    'ELIGIBILITY UNDER DOCTOR': entry.admittingDoctor || '',
+    'ERROR': (entry.remarks || []).join('; '),
+    'Reception': ''
   }));
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.json_to_sheet(exportData);
@@ -1063,7 +1377,7 @@ async function handleProcessClick() {
     const eligMap = prepareEligibilityMap(eligData);
     lastEligMap = eligMap;
 
-    let reportType = 'Clinicpro';
+    let reportType = 'Generic';
     const firstRow = xlsData[0];
     if (firstRow) {
       if ('Pri. Claim No' in firstRow) reportType = 'Insta';
@@ -1138,7 +1452,10 @@ function initializeEventListeners() {
   if (reportInput) reportInput.addEventListener('change', (e) => handleFileUpload(e, 'report'));
   if (processBtn) processBtn.addEventListener('click', handleProcessClick);
   if (exportInvalidBtn) exportInvalidBtn.addEventListener('click', () => exportInvalidEntries(window.lastValidationResults || []));
-  if (filterCheckbox) filterCheckbox.addEventListener('change', onFilterToggle);
+  if (filterCheckbox) {
+    filterCheckbox.checked = true;
+    filterCheckbox.addEventListener('change', onFilterToggle);
+  }
 
   if (invalidOnlyCheckbox) {
     invalidOnlyCheckbox.checked = true;
