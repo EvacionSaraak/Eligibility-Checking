@@ -11,7 +11,7 @@
 /* ===========================
    Version & Initialization
    =========================== */
-const VERSION = '2026.02.15.15';
+const VERSION = '2026.02.15.16';
 console.log(`✅ Eligibility Checker v${VERSION} loaded successfully`);
 
 /* ===========================
@@ -1406,6 +1406,25 @@ async function handleProcessClick() {
     
     // Log the detected report type immediately
     console.log(`🔍 Report Type Detected: ${reportType}`);
+    
+    // Validate that we detected a valid report type
+    if (reportType === 'Generic') {
+      const columnList = firstRow ? Object.keys(firstRow).join(', ') : 'No columns found';
+      const errorMsg = `❌ Unable to detect report type. Expected either:\n` +
+                       `  • Insta report (must have column "Pri. Claim No")\n` +
+                       `  • Odoo report (must have column "Pri. Claim ID")\n\n` +
+                       `Found columns: ${columnList}`;
+      console.error(errorMsg);
+      updateStatus('Error: Unknown report type - see console for details');
+      alert(`Cannot process report file.\n\n` +
+            `This file does not appear to be a valid Insta or Odoo report.\n\n` +
+            `Expected columns:\n` +
+            `  • Insta reports must have: "Pri. Claim No"\n` +
+            `  • Odoo reports must have: "Pri. Claim ID"\n\n` +
+            `Please check your file and try again.\n\n` +
+            `See browser console for full column list.`);
+      return; // Stop processing
+    }
 
     // Update results header title based on report type
     const resultsTitle = document.getElementById('resultsTitle');
