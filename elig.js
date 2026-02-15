@@ -9,6 +9,12 @@
  *******************************/
 
 /* ===========================
+   Version & Initialization
+   =========================== */
+const VERSION = '2026.02.15.7';
+console.log(`✅ Eligibility Checker v${VERSION} loaded successfully`);
+
+/* ===========================
    Constants & Application State
    =========================== */
 const SERVICE_PACKAGE_RULES = {
