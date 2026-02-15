@@ -116,6 +116,15 @@ const DateHandler = {
     return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
   },
 
+  _normalizeTwoDigitYear: function(year) {
+    // Handle 2-digit years: assume 2000s for years 0-99
+    // This assumes medical records are from recent years (2000-2099)
+    if (year < 100) {
+      return year + 2000;
+    }
+    return year;
+  },
+
   _parseStringDate: function(dateStr, preferMDY = false) {
     if (!dateStr) return null;
     
@@ -130,12 +139,7 @@ const DateHandler = {
     if (dmyMdyMatch) {
       const part1 = parseInt(dmyMdyMatch[1], 10);
       const part2 = parseInt(dmyMdyMatch[2], 10);
-      let year = parseInt(dmyMdyMatch[3], 10);
-      
-      // Handle 2-digit years: assume 2000s
-      if (year < 100) {
-        year += 2000;
-      }
+      const year = this._normalizeTwoDigitYear(parseInt(dmyMdyMatch[3], 10));
       
       if (part1 > 12 && part2 <= 12) {
         // Unambiguous DMY (day > 12, so first part must be day)
@@ -157,12 +161,7 @@ const DateHandler = {
       let day = parseInt(textMatch[1], 10);
       const monthName = textMatch[2].toLowerCase().substr(0, 3);
       let monthIndex = MONTHS.indexOf(monthName);
-      let year = parseInt(textMatch[3], 10);
-      
-      // Handle 2-digit years: assume 2000s
-      if (year < 100) {
-        year += 2000;
-      }
+      const year = this._normalizeTwoDigitYear(parseInt(textMatch[3], 10));
       
       // SPECIAL FIX for Insta CSV bug: They swap day and month in text dates
       // Example: "2-Dec-26" should be "12-Feb-26" (day 12, February 2026)
