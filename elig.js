@@ -11,7 +11,7 @@
 /* ===========================
    Version & Initialization
    =========================== */
-const VERSION = '2026.02.15.13';
+const VERSION = '2026.02.15.14';
 console.log(`✅ Eligibility Checker v${VERSION} loaded successfully`);
 
 /* ===========================
@@ -123,6 +123,25 @@ const DateHandler = {
     const date = new Date(ms);
     // Get UTC components and return as-is (no swap logic)
     return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  },
+
+  _swapDayMonth: function(date) {
+    // Helper function to swap day and month in a date
+    // Used ONLY for Insta report claim dates which have backwards dates
+    if (!date || isNaN(date.getTime())) return date;
+    
+    const day = date.getUTCDate();
+    const month = date.getUTCMonth(); // 0-based
+    
+    // Only swap if both day and month are ambiguous (≤12)
+    if (day <= 12 && month < 12) {
+      return new Date(Date.UTC(
+        date.getUTCFullYear(),
+        day - 1,      // Use day as month (0-based)
+        month + 1     // Use month+1 as day (1-based)
+      ));
+    }
+    return date;
   },
 
   _normalizeTwoDigitYear: function(year) {
@@ -725,7 +744,19 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
     
     // For Insta CSV reports, dates are in DD/MM/YYYY format, not MM/DD/YYYY
     // So we should NOT use preferMDY even for CSV files
-    const claimDate = DateHandler.parse(row.claimDate, { preferMDY: false });
+    let claimDate = DateHandler.parse(row.claimDate, { preferMDY: false });
+    
+    // Apply swap ONLY for Insta reports (claim dates are backwards in Insta CSV)
+    // Eligibility dates are NOT swapped (they are already correct)
+    let wasSwapped = false;
+    if (reportType === 'Insta' && claimDate) {
+      const originalDate = new Date(claimDate);
+      const swappedDate = DateHandler._swapDayMonth(claimDate);
+      if (swappedDate.getTime() !== originalDate.getTime()) {
+        claimDate = swappedDate;
+        wasSwapped = true;
+      }
+    }
     
     // Log detailed date conversion for first 3 non-duplicate claims
     if (claimIndex <= 3) {
@@ -738,6 +769,13 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
       const isExcelSerial = typeof rawDate === 'number' || (typeof rawDate === 'string' && /^[\d.]+$/.test(rawDate.trim()));
       if (isExcelSerial) {
         console.log(`  ℹ️  Excel serial number detected`);
+      }
+      
+      if (wasSwapped) {
+        // Show the swap that was applied for Insta reports
+        const originalDate = DateHandler.parse(row.claimDate, { preferMDY: false });
+        console.log(`  ⚠️  Insta report detected - swapping claim date day/month`);
+        console.log(`  ⚠️  Original: ${DateHandler.format(originalDate)} → Swapped: ${DateHandler.format(claimDate)}`);
       }
       
       if (claimDate) {
