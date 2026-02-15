@@ -742,6 +742,9 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
   const seenClaimIDs = new Set(); // Track claim IDs to avoid duplicates
   let claimIndex = 0; // Track claim index for detailed logging (first 3 non-duplicate claims)
   
+  // Log report type at the start of validation
+  console.log(`📊 validateReportClaims called with reportType: "${reportType}"`);
+  
   for (let i = 0; i < reportDataArray.length; i++) {
     const row = reportDataArray[i];
     const claimID = String(row.claimID || '').trim();
@@ -768,6 +771,9 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
     // Apply swap ONLY for Insta reports (claim dates are backwards in Insta CSV)
     // Eligibility dates are NOT swapped (they are already correct)
     let wasSwapped = false;
+    if (claimIndex <= 3) {
+      console.log(`  📌 Checking swap: reportType="${reportType}", hasClaimDate=${!!claimDate}`);
+    }
     if (reportType === 'Insta' && claimDate) {
       const originalDate = new Date(claimDate);
       const swappedDate = DateHandler._swapDayMonth(claimDate);
@@ -1391,9 +1397,15 @@ async function handleProcessClick() {
     let reportType = 'Generic';
     const firstRow = xlsData[0];
     if (firstRow) {
+      // Log the column headers to debug report type detection
+      console.log('📋 Report columns detected:', Object.keys(firstRow).join(', '));
+      
       if ('Pri. Claim No' in firstRow) reportType = 'Insta';
       else if ('Pri. Claim ID' in firstRow) reportType = 'Odoo';
     }
+    
+    // Log the detected report type immediately
+    console.log(`🔍 Report Type Detected: ${reportType}`);
 
     // Update results header title based on report type
     const resultsTitle = document.getElementById('resultsTitle');
