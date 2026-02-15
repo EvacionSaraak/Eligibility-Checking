@@ -11,7 +11,7 @@
 /* ===========================
    Version & Initialization
    =========================== */
-const VERSION = '2026.02.15.7';
+const VERSION = '2026.02.15.8';
 console.log(`✅ Eligibility Checker v${VERSION} loaded successfully`);
 
 /* ===========================
@@ -490,7 +490,7 @@ function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians =
       console.log(`[Diagnostics] Checking eligibility ${elig["Eligibility Request Number"] || "(unknown)"}:`);
     }
     
-    const eligDate = DateHandler.parse(elig["Answered On"]);
+    const eligDate = DateHandler.parse(elig["Answered On"], { preferMDY: false });
     if (!DateHandler.isSameDay(claimDate, eligDate)) {
       if (shouldLog) {
         console.log(`  ❌ Date mismatch: claim ${DateHandler.format(claimDate)} vs elig ${DateHandler.format(eligDate)}`);
@@ -825,7 +825,6 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
       remarks.push('Member ID has a leading zero; claim marked as invalid.');
     } else if (!eligibility) {
       remarks.push(`No matching eligibility found for ${memberID} on ${formattedDate}`);
-      remarks.push('Check browser console for detailed diagnostics (press F12)');
     } else if (eligibility.Status?.toLowerCase() === 'eligible') {
       const categoryCheck = isServiceCategoryValid(eligibility['Service Category'], eligibility['Consultation Status'], (row.department || '').toLowerCase());
       if (categoryCheck.valid) {
