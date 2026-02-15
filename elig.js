@@ -152,16 +152,11 @@ const DateHandler = {
       } else {
         // Ambiguous case: both parts are <= 12, could be either day or month
         // SPECIAL FIX for Insta CSV: They swap day/month in BOTH text and numeric dates
-        // For Insta: "2/12/2026" means month=2 (Feb), day=12, not day=2, month=12 (Dec)
-        // So when preferMDY=false (Insta CSV), swap the interpretation: part1=month, part2=day
-        if (preferMDY) {
-          // Traditional MM/DD/YYYY: part1=month, part2=day
-          return new Date(Date.UTC(year, part1 - 1, part2));
-        } else {
-          // Insta CSV swap fix: part1=month, part2=day (NOT the traditional DD/MM/YYYY!)
-          // This matches the swap pattern seen in text dates like "2-Dec-26" → "12 Feb 2026"
-          return new Date(Date.UTC(year, part1 - 1, part2));
-        }
+        // Both traditional MM/DD/YYYY and Insta CSV formats use: part1=month, part2=day
+        // - Traditional MM/DD/YYYY (preferMDY=true): part1=month, part2=day
+        // - Insta CSV swap (preferMDY=false): "2/12/2026" means month=2, day=12 (NOT day=2, month=12)
+        // Result: Both cases use the same calculation
+        return new Date(Date.UTC(year, part1 - 1, part2));
       }
     }
 
