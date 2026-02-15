@@ -92,7 +92,17 @@ const DateHandler = {
     if (input instanceof Date) return isNaN(input) ? null : input;
     if (typeof input === 'number') return this._parseExcelDate(input);
 
-    const cleanStr = input.toString().trim().replace(/[,.]/g, '');
+    // Check if string input is an Excel serial number BEFORE cleaning
+    // Excel serials are pure numeric strings (with optional decimal point)
+    const inputStr = input.toString().trim();
+    if (/^[\d.]+$/.test(inputStr)) {
+      const numericValue = parseFloat(inputStr);
+      if (!isNaN(numericValue)) {
+        return this._parseExcelDate(numericValue);
+      }
+    }
+
+    const cleanStr = inputStr.replace(/[,.]/g, '');
     const parsed = this._parseStringDate(cleanStr, preferMDY, debugLog) || new Date(cleanStr);
     if (isNaN(parsed)) {
       // Removed console warning - only log via debugLog flag
