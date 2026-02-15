@@ -118,8 +118,14 @@ const DateHandler = {
 
   _parseStringDate: function(dateStr, preferMDY = false) {
     if (!dateStr) return null;
-    if (dateStr.includes(' ')) dateStr = dateStr.split(' ')[0];
+    
+    // Insta CSV sometimes includes timestamps like "13-02-2026 05:10:14"
+    // Strip time portion if present (keep only date before first space)
+    if (dateStr.includes(' ')) {
+      dateStr = dateStr.split(' ')[0];
+    }
 
+    // Try matching numeric date formats: DD/MM/YYYY, DD-MM-YYYY, etc.
     const dmyMdyMatch = dateStr.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
     if (dmyMdyMatch) {
       const part1 = parseInt(dmyMdyMatch[1], 10);
@@ -132,17 +138,20 @@ const DateHandler = {
       }
       
       if (part1 > 12 && part2 <= 12) {
+        // Unambiguous DMY (day > 12, so first part must be day)
         return new Date(Date.UTC(year, part2 - 1, part1)); // dmy
       } else if (part2 > 12 && part1 <= 12) {
+        // Unambiguous MDY (second part > 12, so it must be day)
         return new Date(Date.UTC(year, part1 - 1, part2)); // mdy
       } else {
-        // Ambiguous case: both could be day or month
-        // For CSV files, DON'T prefer MDY - Insta uses DD/MM/YYYY
+        // Ambiguous case: both parts are <= 12, could be either day or month
+        // Insta CSV uses DD/MM/YYYY format, so default to DMY unless explicitly preferring MDY
         if (preferMDY) return new Date(Date.UTC(year, part1 - 1, part2));
-        return new Date(Date.UTC(year, part2 - 1, part1)); // Default to DMY
+        return new Date(Date.UTC(year, part2 - 1, part1)); // Default to DMY for Insta
       }
     }
 
+    // Try matching text-based dates: "2-Dec-26", "12-Feb-2026", etc.
     const textMatch = dateStr.match(/^(\d{1,2})[\/\- ]([a-z]{3,})[\/\- ](\d{2,4})$/i);
     if (textMatch) {
       let day = parseInt(textMatch[1], 10);
@@ -156,9 +165,10 @@ const DateHandler = {
       }
       
       // SPECIAL FIX for Insta CSV bug: They swap day and month in text dates
-      // "2-Dec-26" should be "12-Feb-26" (day 12, February 2026)
+      // Example: "2-Dec-26" should be "12-Feb-26" (day 12, February 2026)
       // Pattern: the day number actually represents the month, and the month name's position represents the day
       // So: day value → month (1=Jan, 2=Feb, etc.), month index → day value (0=1, 11=12, etc.)
+      // NOTE: This only applies when day <= 12 (to avoid incorrectly swapping valid dates like "25-Dec-26")
       if (monthIndex >= 0 && day <= 12) {
         const originalDay = day;
         const originalMonthIndex = monthIndex;
@@ -171,8 +181,10 @@ const DateHandler = {
       }
     }
 
+    // Try matching ISO format: YYYY-MM-DD or YYYY/MM/DD
     const isoMatch = dateStr.match(/^(\d{4})[\/\-](\d{2})[\/\-](\d{2})$/);
     if (isoMatch) return new Date(Date.UTC(parseInt(isoMatch[1], 10), parseInt(isoMatch[2], 10) - 1, parseInt(isoMatch[3], 10)));
+    
     return null;
   }
 };
