@@ -648,6 +648,7 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
       remarks.push('Member ID has a leading zero; claim marked as invalid.');
     } else if (!eligibility) {
       remarks.push(`No matching eligibility found for ${memberID} on ${formattedDate}`);
+      remarks.push('Check browser console for detailed diagnostics (press F12)');
     } else if (eligibility.Status?.toLowerCase() === 'eligible') {
       const categoryCheck = isServiceCategoryValid(eligibility['Service Category'], eligibility['Consultation Status'], (row.department || '').toLowerCase());
       if (categoryCheck.valid) {
@@ -657,6 +658,7 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
           if (!packageNamesMatch(row.packageName, eligibility['Package Name'])) {
             finalStatus = 'invalid';
             remarks.push(`Package name mismatch: claim has "${row.packageName}", eligibility has "${eligibility['Package Name']}"`);
+            console.log(`[Validation] Package name mismatch for ${claimID}: claim="${row.packageName}" vs elig="${eligibility['Package Name']}"`);
           } else {
             finalStatus = 'valid';
           }
