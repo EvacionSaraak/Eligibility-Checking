@@ -19,6 +19,7 @@ const SERVICE_PACKAGE_RULES = {
 };
 const DATE_KEYS = ['Date', 'On'];
 const MONTHS = ["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"];
+const MONTH_NAMES = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
 // Application state
 let xlsData = null;        // parsed & normalized report rows
@@ -95,10 +96,11 @@ const DateHandler = {
 
   format: function(date) {
     if (!(date instanceof Date) || isNaN(date)) return '';
-    const d = date.getUTCDate().toString().padStart(2, '0');
-    const m = (date.getUTCMonth() + 1).toString().padStart(2, '0');
-    const y = date.getUTCFullYear();
-    return `${d}/${m}/${y}`;
+    const day = date.getUTCDate(); // No padding, just the number
+    const monthIndex = date.getUTCMonth();
+    const monthName = MONTH_NAMES[monthIndex];
+    const year = date.getUTCFullYear();
+    return `${day} ${monthName} ${year}`;
   },
 
   isSameDay: function(date1, date2) {
