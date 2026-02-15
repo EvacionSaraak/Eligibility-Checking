@@ -115,8 +115,26 @@ const DateHandler = {
     const utcDays = Math.floor(serial) - 25569;
     const ms = utcDays * 86400 * 1000;
     const date = new Date(ms);
-    // Return UTC midnight
-    return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+    // Get UTC components
+    const parsedDate = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+    
+    // Apply Insta CSV swap logic to Excel serial numbers
+    // Extract day and month from parsed date
+    const day = parsedDate.getUTCDate();
+    const month = parsedDate.getUTCMonth(); // 0-based (0=Jan, 11=Dec)
+    
+    // If both day and month are ≤12 (ambiguous), apply swap
+    // This handles the Insta CSV bug where day and month are swapped in Excel exports
+    if (day <= 12 && month < 12) {
+      // Swap: use day as month (0-based), use month+1 as day
+      return new Date(Date.UTC(
+        parsedDate.getUTCFullYear(),
+        day - 1,      // Use day as month (convert to 0-based)
+        month + 1     // Use month as day (convert from 0-based to 1-based)
+      ));
+    }
+    
+    return parsedDate;
   },
 
   _normalizeTwoDigitYear: function(year) {
@@ -747,10 +765,22 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
       // Detect if input is Excel serial number
       const rawDate = row.claimDate;
       const isExcelSerial = typeof rawDate === 'number' || (typeof rawDate === 'string' && /^[\d.]+$/.test(rawDate.trim()));
-      if (isExcelSerial) {
-        console.log(`  ⚠️  INPUT IS EXCEL SERIAL NUMBER - Cannot apply day/month swap logic!`);
-        console.log(`  ⚠️  The date is "baked into" the serial number in the source file.`);
-        console.log(`  ⚠️  If this date is wrong, the source Excel file needs to be corrected.`);
+      if (isExcelSerial && claimDate) {
+        // Show what the serial parsed to before swap
+        const serial = typeof rawDate === 'number' ? rawDate : parseFloat(rawDate);
+        const utcDays = Math.floor(serial) - 25569;
+        const ms = utcDays * 86400 * 1000;
+        const tempDate = new Date(ms);
+        const beforeSwap = new Date(Date.UTC(tempDate.getUTCFullYear(), tempDate.getUTCMonth(), tempDate.getUTCDate()));
+        const origDay = beforeSwap.getUTCDate();
+        const origMonth = beforeSwap.getUTCMonth();
+        
+        console.log(`  ⚠️  Excel serial number detected - applying Insta swap logic`);
+        if (origDay <= 12 && origMonth < 12) {
+          console.log(`  ⚠️  Original: day=${origDay}, month=${MONTH_NAMES[origMonth]}(${origMonth + 1}) → Swapped: day=${origMonth + 1}, month=${MONTH_NAMES[origDay - 1]}(${origDay})`);
+        } else {
+          console.log(`  ⚠️  No swap applied (day=${origDay} or month=${origMonth + 1} > 12, unambiguous)`);
+        }
       }
       
       if (claimDate) {
