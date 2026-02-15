@@ -602,11 +602,19 @@ function normalizeReportData(rawData) {
 
 function validateReportClaims(reportDataArray, eligMap, reportType) {
   const results = [];
+  const seenClaimIDs = new Set(); // Track claim IDs to avoid duplicates
   
   for (let i = 0; i < reportDataArray.length; i++) {
     const row = reportDataArray[i];
     const claimID = String(row.claimID || '').trim();
     if (!claimID) continue;
+    
+    // Skip duplicate claim IDs - keep only first occurrence
+    if (seenClaimIDs.has(claimID)) {
+      console.log(`Skipping duplicate claim ID: ${claimID}`);
+      continue;
+    }
+    seenClaimIDs.add(claimID);
 
     const rawMemberID = String(row.memberID || '').trim();
     if (!rawMemberID) continue;
