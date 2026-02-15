@@ -1026,6 +1026,7 @@ function initEligibilityModal(results, eligMap) {
       list.forEach((rec, idx) => {
         const answeredOnRaw = rec['Answered On'] || rec['Ordered On'] || '';
         const eligDate = DateHandler.parse(answeredOnRaw);
+        const formattedEligDate = eligDate ? DateHandler.format(eligDate) : answeredOnRaw;
         let trClass = '';
         if (claimDate && eligDate) {
           if (DateHandler.isSameDay(claimDate, eligDate)) trClass = 'table-warning';
@@ -1034,7 +1035,7 @@ function initEligibilityModal(results, eligMap) {
         html += `<tr class="${trClass}">
           <td>${idx + 1}</td>
           <td>${escapeHtml(rec['Eligibility Request Number'] || '')}</td>
-          <td>${escapeHtml(answeredOnRaw || '')}</td>
+          <td>${escapeHtml(formattedEligDate || '')}</td>
           <td>${escapeHtml(rec['Status'] || '')}</td>
           <td>${escapeHtml(rec['Clinician'] || '')}</td>
           <td>${escapeHtml(rec['Service Category'] || '')}</td>
