@@ -1394,6 +1394,18 @@ async function handleProcessClick() {
       else if ('Pri. Claim ID' in firstRow) reportType = 'Odoo';
     }
 
+    // Update results header title based on report type
+    const resultsTitle = document.getElementById('resultsTitle');
+    if (resultsTitle) {
+      if (reportType === 'Insta') {
+        resultsTitle.textContent = 'Insta Report Results';
+      } else if (reportType === 'Odoo') {
+        resultsTitle.textContent = 'Odoo Report Results';
+      } else {
+        resultsTitle.textContent = 'Results';
+      }
+    }
+
     const results = validateReportClaims(xlsData, eligMap, reportType);
 
     let outputResults = results;
