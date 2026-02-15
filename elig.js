@@ -11,7 +11,7 @@
 /* ===========================
    Version & Initialization
    =========================== */
-const VERSION = '2026.02.15.12';
+const VERSION = '2026.02.15.13';
 console.log(`✅ Eligibility Checker v${VERSION} loaded successfully`);
 
 /* ===========================
@@ -121,26 +121,8 @@ const DateHandler = {
     const utcDays = Math.floor(serial) - 25569;
     const ms = utcDays * 86400 * 1000;
     const date = new Date(ms);
-    // Get UTC components
-    const parsedDate = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
-    
-    // Apply Insta CSV swap logic to Excel serial numbers
-    // Extract day and month from parsed date
-    const day = parsedDate.getUTCDate();
-    const month = parsedDate.getUTCMonth(); // 0-based (0=Jan, 11=Dec)
-    
-    // If both day and month are ≤12 (ambiguous), apply swap
-    // This handles the Insta CSV bug where day and month are swapped in Excel exports
-    if (day <= 12 && month < 12) {
-      // Swap: use day as month (0-based), use month+1 as day
-      return new Date(Date.UTC(
-        parsedDate.getUTCFullYear(),
-        day - 1,      // Use day as month (convert to 0-based)
-        month + 1     // Use month as day (convert from 0-based to 1-based)
-      ));
-    }
-    
-    return parsedDate;
+    // Get UTC components and return as-is (no swap logic)
+    return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
   },
 
   _normalizeTwoDigitYear: function(year) {
@@ -184,42 +166,23 @@ const DateHandler = {
         return new Date(Date.UTC(year, part1 - 1, part2)); // mdy
       } else {
         // Ambiguous case: both parts are <= 12, could be either day or month
-        // SPECIAL FIX for Insta CSV: They swap day/month in BOTH text and numeric dates
-        // Both traditional MM/DD/YYYY and Insta CSV formats use: part1=month, part2=day
-        // - Traditional MM/DD/YYYY (preferMDY=true): part1=month, part2=day
-        // - Insta CSV swap (preferMDY=false): "2/12/2026" means month=2, day=12 (NOT day=2, month=12)
-        // Result: Both cases use the same calculation
-        if (debugLog) console.log(`    [Parse] Ambiguous case (both ≤12): using month=${part1}, day=${part2} (Insta swap fix)`);
-        return new Date(Date.UTC(year, part1 - 1, part2));
+        // Default to DMY (day/month/year) format which is standard
+        if (debugLog) console.log(`    [Parse] Ambiguous case (both ≤12): using DMY format - day=${part1}, month=${part2}`);
+        return new Date(Date.UTC(year, part2 - 1, part1)); // DMY format
       }
     }
 
     // Try matching text-based dates: "2-Dec-26", "12-Feb-2026", etc.
     const textMatch = dateStr.match(/^(\d{1,2})[\/\- ]([a-z]{3,})[\/\- ](\d{2,4})$/i);
     if (textMatch) {
-      let day = parseInt(textMatch[1], 10);
+      const day = parseInt(textMatch[1], 10);
       const monthName = textMatch[2].toLowerCase().substr(0, 3);
-      let monthIndex = MONTHS.indexOf(monthName);
+      const monthIndex = MONTHS.indexOf(monthName);
       const rawYear = parseInt(textMatch[3], 10);
       const year = this._normalizeTwoDigitYear(rawYear);
       
       if (debugLog) {
         console.log(`    [Parse] Text date matched: day=${day}, monthName=${monthName} (index=${monthIndex}), rawYear=${rawYear}, normalizedYear=${year}`);
-      }
-      
-      // SPECIAL FIX for Insta CSV bug: They swap day and month in text dates
-      // Example: "2-Dec-26" should be "12-Feb-26" (day 12, February 2026)
-      // Pattern: the day number actually represents the month, and the month name's position represents the day
-      // So: day value → month (1=Jan, 2=Feb, etc.), month index → day value (0=1, 11=12, etc.)
-      // NOTE: This only applies when day <= 12 (to avoid incorrectly swapping valid dates like "25-Dec-26")
-      if (monthIndex >= 0 && day <= 12) {
-        const originalDay = day;
-        const originalMonthIndex = monthIndex;
-        day = originalMonthIndex + 1; // Dec(11) → day 12, Feb(1) → day 2, etc.
-        monthIndex = originalDay - 1; // day 2 → Feb(1), day 12 → Dec(11), etc.
-        if (debugLog) {
-          console.log(`    [Parse] Applying Insta swap: originalDay=${originalDay} (becomes month=${MONTHS[monthIndex]}), originalMonth=${MONTHS[originalMonthIndex]} (becomes day=${day})`);
-        }
       }
       
       if (monthIndex >= 0 && monthIndex < 12 && day >= 1 && day <= 31) {
@@ -770,25 +733,11 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
       console.log(`  Raw date string from report: "${row.claimDate}"`);
       console.log(`  Insurance: ${insurance}`);
       
-      // Detect if input is Excel serial number
+      // Show what format the date is in
       const rawDate = row.claimDate;
       const isExcelSerial = typeof rawDate === 'number' || (typeof rawDate === 'string' && /^[\d.]+$/.test(rawDate.trim()));
-      if (isExcelSerial && claimDate) {
-        // Show what the serial parsed to before swap
-        const serial = typeof rawDate === 'number' ? rawDate : parseFloat(rawDate);
-        const utcDays = Math.floor(serial) - 25569;
-        const ms = utcDays * 86400 * 1000;
-        const tempDate = new Date(ms);
-        const beforeSwap = new Date(Date.UTC(tempDate.getUTCFullYear(), tempDate.getUTCMonth(), tempDate.getUTCDate()));
-        const origDay = beforeSwap.getUTCDate();
-        const origMonth = beforeSwap.getUTCMonth();
-        
-        console.log(`  ⚠️  Excel serial number detected - applying Insta swap logic`);
-        if (origDay <= 12 && origMonth < 12) {
-          console.log(`  ⚠️  Original: day=${origDay}, month=${MONTH_NAMES[origMonth]}(${origMonth + 1}) → Swapped: day=${origMonth + 1}, month=${MONTH_NAMES[origDay - 1]}(${origDay})`);
-        } else {
-          console.log(`  ⚠️  No swap applied (day=${origDay} or month=${origMonth + 1} > 12, unambiguous)`);
-        }
+      if (isExcelSerial) {
+        console.log(`  ℹ️  Excel serial number detected`);
       }
       
       if (claimDate) {
