@@ -11,7 +11,7 @@
 /* ===========================
    Version & Initialization
    =========================== */
-const VERSION = '2026.02.15.14';
+const VERSION = '2026.02.15.15';
 console.log(`✅ Eligibility Checker v${VERSION} loaded successfully`);
 
 /* ===========================
