@@ -11,7 +11,7 @@
 /* ===========================
    Version & Initialization
    =========================== */
-const VERSION = '2026.02.15.8';
+const VERSION = '2026.02.15.9';
 console.log(`✅ Eligibility Checker v${VERSION} loaded successfully`);
 
 /* ===========================
@@ -491,6 +491,18 @@ function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians =
     }
     
     const eligDate = DateHandler.parse(elig["Answered On"], { preferMDY: false });
+    
+    // Log eligibility date details for diagnostics
+    if (shouldLog) {
+      const rawEligDate = elig["Answered On"] || elig["Ordered On"];
+      const eligDateStr = eligDate ? DateHandler.format(eligDate) : 'null';
+      const claimDateStr = DateHandler.format(claimDate);
+      console.log(`  [Elig Date] Raw: "${rawEligDate}"`);
+      console.log(`  [Elig Date] Parsed: ${eligDate ? eligDate.toISOString() : 'null'}`);
+      console.log(`  [Elig Date] Formatted: "${eligDateStr}"`);
+      console.log(`  [Claim vs Elig] "${claimDateStr}" vs "${eligDateStr}" → ${claimDateStr === eligDateStr ? '✅ MATCH' : '❌ MISMATCH'}`);
+    }
+    
     if (!DateHandler.isSameDay(claimDate, eligDate)) {
       if (shouldLog) {
         console.log(`  ❌ Date mismatch: claim ${DateHandler.format(claimDate)} vs elig ${DateHandler.format(eligDate)}`);
