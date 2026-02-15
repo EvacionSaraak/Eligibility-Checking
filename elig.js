@@ -369,6 +369,15 @@ function isDamanOrThiqa(provider) {
   return providerLower.includes('daman') || providerLower.includes('thiqa');
 }
 
+/**
+ * Find matching eligibility record for a claim
+ * @param {Map} eligMap - Map of member IDs to eligibility records
+ * @param {Date} claimDate - Claim date
+ * @param {string} memberID - Member ID
+ * @param {Array} claimClinicians - Array of clinician names/IDs
+ * @param {string} provider - Provider/insurance name (used to filter diagnostic logging to Daman/Thiqa only)
+ * @returns {Object|null} - Matching eligibility record or null
+ */
 function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians = [], provider = '') {
   const normalizedID = normalizeMemberID(memberID || '');
   const eligList = eligMap.get(normalizedID) || [];
