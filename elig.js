@@ -51,6 +51,29 @@ function normalizeClinician(name) {
   return name.trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
+/**
+ * Check if package names match with special handling for Thiqa/TC packages
+ * @param {string} claimPackage - Package name from the claim
+ * @param {string} eligPackage - Package name from the eligibility
+ * @returns {boolean} - True if packages match
+ */
+function packageNamesMatch(claimPackage, eligPackage) {
+  if (!claimPackage || !eligPackage) return false;
+  
+  const claimLower = claimPackage.trim().toLowerCase();
+  const eligLower = eligPackage.trim().toLowerCase();
+  
+  // Direct match
+  if (claimLower === eligLower) return true;
+  
+  // Special Thiqa/TC matching: if claim has "thiqa" and eligibility has "tc", consider it a match
+  if (claimLower.includes('thiqa') && eligLower.includes('tc')) {
+    return true;
+  }
+  
+  return false;
+}
+
 /* ===========================
    Date handling (DateHandler)
    =========================== */
@@ -622,8 +645,8 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
       if (categoryCheck.valid) {
         // Validate package name match if both claim and eligibility have package names
         if (row.packageName && eligibility['Package Name']) {
-          // Direct string comparison without normalization
-          if (row.packageName.trim() !== eligibility['Package Name'].trim()) {
+          // Use special matching logic that handles Thiqa/TC packages
+          if (!packageNamesMatch(row.packageName, eligibility['Package Name'])) {
             finalStatus = 'invalid';
             remarks.push(`Package name mismatch: claim has "${row.packageName}", eligibility has "${eligibility['Package Name']}"`);
           } else {
