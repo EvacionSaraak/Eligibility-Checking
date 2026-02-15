@@ -713,7 +713,7 @@ function normalizeReportData(rawData) {
 function validateReportClaims(reportDataArray, eligMap, reportType) {
   const results = [];
   const seenClaimIDs = new Set(); // Track claim IDs to avoid duplicates
-  let processedCount = 0; // Track how many claims we've processed for detailed logging
+  let claimIndex = 0; // Track claim index for detailed logging (first 3 non-duplicate claims)
   
   for (let i = 0; i < reportDataArray.length; i++) {
     const row = reportDataArray[i];
@@ -726,6 +726,7 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
       continue;
     }
     seenClaimIDs.add(claimID);
+    claimIndex++; // Increment for every non-duplicate claim
 
     const rawMemberID = String(row.memberID || '').trim();
     if (!rawMemberID) continue;
@@ -734,9 +735,9 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
     let insurance = (row.insuranceCompany || '').trim();
     
     // DETAILED LOGGING FOR FIRST 3 CLAIMS ONLY
-    const shouldLogDateConversion = (processedCount < 3);
+    const shouldLogDateConversion = (claimIndex <= 3);
     if (shouldLogDateConversion) {
-      console.group(`🔍 DATE CONVERSION #${processedCount + 1} - Claim: ${claimID}, Member: ${memberID}`);
+      console.group(`🔍 DATE CONVERSION #${claimIndex} - Claim: ${claimID}, Member: ${memberID}`);
       console.log(`  Raw date string from report: "${row.claimDate}"`);
       console.log(`  Insurance: ${insurance}`);
     }
@@ -759,7 +760,6 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
     
     if (!claimDate) continue;
     const formattedDate = DateHandler.format(claimDate);
-    processedCount++; // Increment after successful date parse
 
     if (memberID.startsWith('(VVIP)')) {
       results.push({ 
