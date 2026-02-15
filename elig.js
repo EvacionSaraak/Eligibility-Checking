@@ -1254,7 +1254,7 @@ async function handleProcessClick() {
     const eligMap = prepareEligibilityMap(eligData);
     lastEligMap = eligMap;
 
-    let reportType = 'Clinicpro';
+    let reportType = 'Generic';
     const firstRow = xlsData[0];
     if (firstRow) {
       if ('Pri. Claim No' in firstRow) reportType = 'Insta';
