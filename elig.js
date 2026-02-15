@@ -734,29 +734,9 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
 
     let insurance = (row.insuranceCompany || '').trim();
     
-    // DETAILED LOGGING FOR FIRST 3 CLAIMS ONLY
-    const shouldLogDateConversion = (claimIndex <= 3);
-    if (shouldLogDateConversion) {
-      console.group(`🔍 DATE CONVERSION #${claimIndex} - Claim: ${claimID}, Member: ${memberID}`);
-      console.log(`  Raw date string from report: "${row.claimDate}"`);
-      console.log(`  Insurance: ${insurance}`);
-    }
-    
     // For Insta CSV reports, dates are in DD/MM/YYYY format, not MM/DD/YYYY
     // So we should NOT use preferMDY even for CSV files
-    const claimDate = DateHandler.parse(row.claimDate, { preferMDY: false, debugLog: shouldLogDateConversion });
-    
-    if (shouldLogDateConversion) {
-      if (claimDate) {
-        const formattedDate = DateHandler.format(claimDate);
-        console.log(`  ✅ Parsed Date object: ${claimDate.toISOString()}`);
-        console.log(`  ✅ Formatted output: "${formattedDate}"`);
-        console.log(`  UTC Components: Year=${claimDate.getUTCFullYear()}, Month=${claimDate.getUTCMonth()+1}, Day=${claimDate.getUTCDate()}`);
-      } else {
-        console.log(`  ❌ FAILED TO PARSE DATE!`);
-      }
-      console.groupEnd();
-    }
+    const claimDate = DateHandler.parse(row.claimDate, { preferMDY: false });
     
     if (!claimDate) continue;
     const formattedDate = DateHandler.format(claimDate);
