@@ -11,7 +11,7 @@
 /* ===========================
    Version & Initialization
    =========================== */
-const VERSION = '2026.02.15.9';
+const VERSION = '2026.02.15.10';
 console.log(`✅ Eligibility Checker v${VERSION} loaded successfully`);
 
 /* ===========================
@@ -470,9 +470,10 @@ function isDamanOrThiqa(provider) {
  * @param {Array} claimClinicians - Array of clinician names/IDs
  * @param {string} provider - Provider/insurance name (used to filter diagnostic logging to Daman/Thiqa only)
  * @param {boolean} forceLog - Force diagnostic logging regardless of provider
+ * @param {boolean} logEligDetails - Log eligibility date details for first 3 claims
  * @returns {Object|null} - Matching eligibility record or null
  */
-function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians = [], provider = '', forceLog = false) {
+function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians = [], provider = '', forceLog = false, logEligDetails = false) {
   const normalizedID = normalizeMemberID(memberID || '');
   const eligList = eligMap.get(normalizedID) || [];
   if (!eligList.length) return null;
@@ -492,8 +493,8 @@ function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians =
     
     const eligDate = DateHandler.parse(elig["Answered On"], { preferMDY: false });
     
-    // Log eligibility date details for diagnostics
-    if (shouldLog) {
+    // Log eligibility date details for diagnostics (or for first 3 claims)
+    if (logEligDetails || shouldLog) {
       const rawEligDate = elig["Answered On"] || elig["Ordered On"];
       const eligDateStr = eligDate ? DateHandler.format(eligDate) : 'null';
       const claimDateStr = DateHandler.format(claimDate);
@@ -829,7 +830,7 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
     // Check for leading zero in original memberID
     const hasLeadingZero = rawMemberID.match(/^0+\d+$/);
     
-    const eligibility = findEligibilityForClaim(eligMap, claimDate, memberID, [row.clinician], insurance);
+    const eligibility = findEligibilityForClaim(eligMap, claimDate, memberID, [row.clinician], insurance, false, shouldLogDateConversion);
     let finalStatus = 'invalid', remarks = [];
     
     if (hasLeadingZero) {
