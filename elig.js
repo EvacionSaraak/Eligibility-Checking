@@ -11,7 +11,7 @@
 /* ===========================
    Version & Initialization
    =========================== */
-const VERSION = '2026.02.15.10';
+const VERSION = '2026.02.15.11';
 console.log(`✅ Eligibility Checker v${VERSION} loaded successfully`);
 
 /* ===========================
@@ -486,6 +486,9 @@ function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians =
     console.log(`[Diagnostics] Claim date: ${claimDate} (${DateHandler.format(claimDate)}), Claim clinicians: ${JSON.stringify(claimClinicians)}`);
   }
   
+  // Track if we've logged eligibility details for this claim (to avoid spam)
+  let hasLoggedEligDetails = false;
+  
   for (const elig of eligList) {
     if (shouldLog) {
       console.log(`[Diagnostics] Checking eligibility ${elig["Eligibility Request Number"] || "(unknown)"}:`);
@@ -493,8 +496,8 @@ function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians =
     
     const eligDate = DateHandler.parse(elig["Answered On"], { preferMDY: false });
     
-    // Log eligibility date details for diagnostics (or for first 3 claims)
-    if (logEligDetails || shouldLog) {
+    // Log eligibility date details ONLY ONCE per claim (first eligibility record)
+    if ((logEligDetails || shouldLog) && !hasLoggedEligDetails) {
       const rawEligDate = elig["Answered On"] || elig["Ordered On"];
       const eligDateStr = eligDate ? DateHandler.format(eligDate) : 'null';
       const claimDateStr = DateHandler.format(claimDate);
@@ -502,6 +505,7 @@ function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians =
       console.log(`  [Elig Date] Parsed: ${eligDate ? eligDate.toISOString() : 'null'}`);
       console.log(`  [Elig Date] Formatted: "${eligDateStr}"`);
       console.log(`  [Claim vs Elig] "${claimDateStr}" vs "${eligDateStr}" → ${claimDateStr === eligDateStr ? '✅ MATCH' : '❌ MISMATCH'}`);
+      hasLoggedEligDetails = true; // Only log once
     }
     
     if (!DateHandler.isSameDay(claimDate, eligDate)) {
