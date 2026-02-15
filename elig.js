@@ -11,7 +11,7 @@
 /* ===========================
    Version & Initialization
    =========================== */
-const VERSION = '2026.02.15.11';
+const VERSION = '2026.02.15.12';
 console.log(`✅ Eligibility Checker v${VERSION} loaded successfully`);
 
 /* ===========================
@@ -473,7 +473,7 @@ function isDamanOrThiqa(provider) {
  * @param {boolean} logEligDetails - Log eligibility date details for first 3 claims
  * @returns {Object|null} - Matching eligibility record or null
  */
-function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians = [], provider = '', forceLog = false, logEligDetails = false) {
+function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians = [], provider = '', forceLog = false) {
   const normalizedID = normalizeMemberID(memberID || '');
   const eligList = eligMap.get(normalizedID) || [];
   if (!eligList.length) return null;
@@ -486,27 +486,12 @@ function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians =
     console.log(`[Diagnostics] Claim date: ${claimDate} (${DateHandler.format(claimDate)}), Claim clinicians: ${JSON.stringify(claimClinicians)}`);
   }
   
-  // Track if we've logged eligibility details for this claim (to avoid spam)
-  let hasLoggedEligDetails = false;
-  
   for (const elig of eligList) {
     if (shouldLog) {
       console.log(`[Diagnostics] Checking eligibility ${elig["Eligibility Request Number"] || "(unknown)"}:`);
     }
     
     const eligDate = DateHandler.parse(elig["Answered On"], { preferMDY: false });
-    
-    // Log eligibility date details ONLY ONCE per claim (first eligibility record)
-    if ((logEligDetails || shouldLog) && !hasLoggedEligDetails) {
-      const rawEligDate = elig["Answered On"] || elig["Ordered On"];
-      const eligDateStr = eligDate ? DateHandler.format(eligDate) : 'null';
-      const claimDateStr = DateHandler.format(claimDate);
-      console.log(`  [Elig Date] Raw: "${rawEligDate}"`);
-      console.log(`  [Elig Date] Parsed: ${eligDate ? eligDate.toISOString() : 'null'}`);
-      console.log(`  [Elig Date] Formatted: "${eligDateStr}"`);
-      console.log(`  [Claim vs Elig] "${claimDateStr}" vs "${eligDateStr}" → ${claimDateStr === eligDateStr ? '✅ MATCH' : '❌ MISMATCH'}`);
-      hasLoggedEligDetails = true; // Only log once
-    }
     
     if (!DateHandler.isSameDay(claimDate, eligDate)) {
       if (shouldLog) {
@@ -834,7 +819,7 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
     // Check for leading zero in original memberID
     const hasLeadingZero = rawMemberID.match(/^0+\d+$/);
     
-    const eligibility = findEligibilityForClaim(eligMap, claimDate, memberID, [row.clinician], insurance, false, shouldLogDateConversion);
+    const eligibility = findEligibilityForClaim(eligMap, claimDate, memberID, [row.clinician], insurance);
     let finalStatus = 'invalid', remarks = [];
     
     if (hasLeadingZero) {
