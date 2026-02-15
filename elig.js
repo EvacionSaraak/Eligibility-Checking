@@ -357,26 +357,49 @@ function prepareEligibilityMap(rawSheetArray) {
 /* ===========================
    Matching & Validation Utilities
    =========================== */
-function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians = []) {
+
+/**
+ * Check if provider is Daman or Thiqa
+ * @param {string} provider - Provider/insurance name
+ * @returns {boolean} - True if Daman or Thiqa
+ */
+function isDamanOrThiqa(provider) {
+  if (!provider) return false;
+  const providerLower = provider.toString().toLowerCase();
+  return providerLower.includes('daman') || providerLower.includes('thiqa');
+}
+
+function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians = [], provider = '') {
   const normalizedID = normalizeMemberID(memberID || '');
   const eligList = eligMap.get(normalizedID) || [];
   if (!eligList.length) return null;
   
-  console.log(`[Diagnostics] Searching eligibilities for member "${memberID}" (normalized: "${normalizedID}")`);
-  console.log(`[Diagnostics] Claim date: ${claimDate} (${DateHandler.format(claimDate)}), Claim clinicians: ${JSON.stringify(claimClinicians)}`);
+  // Only log diagnostics for Daman/Thiqa claims
+  const shouldLog = isDamanOrThiqa(provider);
+  
+  if (shouldLog) {
+    console.log(`[Diagnostics] Searching eligibilities for member "${memberID}" (normalized: "${normalizedID}")`);
+    console.log(`[Diagnostics] Claim date: ${claimDate} (${DateHandler.format(claimDate)}), Claim clinicians: ${JSON.stringify(claimClinicians)}`);
+  }
   
   for (const elig of eligList) {
-    console.log(`[Diagnostics] Checking eligibility ${elig["Eligibility Request Number"] || "(unknown)"}:`);
+    if (shouldLog) {
+      console.log(`[Diagnostics] Checking eligibility ${elig["Eligibility Request Number"] || "(unknown)"}:`);
+    }
     
     const eligDate = DateHandler.parse(elig["Answered On"]);
     if (!DateHandler.isSameDay(claimDate, eligDate)) {
-      console.log(`  ❌ Date mismatch: claim ${DateHandler.format(claimDate)} vs elig ${DateHandler.format(eligDate)}`);
+      if (shouldLog) {
+        console.log(`  ❌ Date mismatch: claim ${DateHandler.format(claimDate)} vs elig ${DateHandler.format(eligDate)}`);
+      }
       continue;
     }
     
     const eligClinician = (elig.Clinician || '').trim();
     if (eligClinician && claimClinicians.length && !claimClinicians.includes(eligClinician)) {
-      console.log(`  ❌ Clinician mismatch: claim clinicians ${JSON.stringify(claimClinicians)} vs elig clinician "${eligClinician}"`);
+      if (shouldLog) {
+        console.log(`  ❌ Clinician mismatch: claim clinicians ${JSON.stringify(claimClinicians)} vs elig clinician "${eligClinician}"`);
+      }
       continue;
     }
     
@@ -386,20 +409,28 @@ function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians =
     const categoryCheck = isServiceCategoryValid(serviceCategory, consultationStatus, department);
     
     if (!categoryCheck.valid) {
-      console.log(`  ❌ Service category validation failed: claim dept "${department}" not valid for category "${serviceCategory}" / consult "${consultationStatus}"`);
+      if (shouldLog) {
+        console.log(`  ❌ Service category validation failed: claim dept "${department}" not valid for category "${serviceCategory}" / consult "${consultationStatus}"`);
+      }
       continue;
     }
     
     if ((elig.Status || '').toLowerCase() !== 'eligible') {
-      console.log(`  ❌ Status mismatch: expected Eligible, got "${elig.Status}"`);
+      if (shouldLog) {
+        console.log(`  ❌ Status mismatch: expected Eligible, got "${elig.Status}"`);
+      }
       continue;
     }
     
-    console.log(`  ✅ Eligibility match found: ${elig["Eligibility Request Number"]}`);
+    if (shouldLog) {
+      console.log(`  ✅ Eligibility match found: ${elig["Eligibility Request Number"]}`);
+    }
     return elig;
   }
   
-  console.log(`[Diagnostics] No matching eligibility passed all checks for member "${memberID}"`);
+  if (shouldLog) {
+    console.log(`[Diagnostics] No matching eligibility passed all checks for member "${memberID}"`);
+  }
   return null;
 }
 
@@ -611,7 +642,11 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
     
     // Skip duplicate claim IDs - keep only first occurrence
     if (seenClaimIDs.has(claimID)) {
-      console.log(`Skipping duplicate claim ID: ${claimID}`);
+      // Only log duplicates for Daman/Thiqa
+      const insurance = (row.insuranceCompany || '').trim();
+      if (isDamanOrThiqa(insurance)) {
+        console.log(`Skipping duplicate claim ID: ${claimID}`);
+      }
       continue;
     }
     seenClaimIDs.add(claimID);
@@ -640,7 +675,7 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
     // Check for leading zero in original memberID
     const hasLeadingZero = rawMemberID.match(/^0+\d+$/);
     
-    const eligibility = findEligibilityForClaim(eligMap, claimDate, memberID, [row.clinician]);
+    const eligibility = findEligibilityForClaim(eligMap, claimDate, memberID, [row.clinician], insurance);
     let finalStatus = 'invalid', remarks = [];
     
     if (hasLeadingZero) {
@@ -658,7 +693,10 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
           if (!packageNamesMatch(row.packageName, eligibility['Package Name'])) {
             finalStatus = 'invalid';
             remarks.push(`Package name mismatch: claim has "${row.packageName}", eligibility has "${eligibility['Package Name']}"`);
-            console.log(`[Validation] Package name mismatch for ${claimID}: claim="${row.packageName}" vs elig="${eligibility['Package Name']}"`);
+            // Only log package name mismatches for Daman/Thiqa
+            if (isDamanOrThiqa(insurance)) {
+              console.log(`[Validation] Package name mismatch for ${claimID}: claim="${row.packageName}" vs elig="${eligibility['Package Name']}"`);
+            }
           } else {
             finalStatus = 'valid';
           }
