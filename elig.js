@@ -453,8 +453,8 @@ function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians =
   const eligList = eligMap.get(normalizedID) || [];
   if (!eligList.length) return null;
   
-  // Only log diagnostics for Daman/Thiqa claims unless forced
-  const shouldLog = forceLog || isDamanOrThiqa(provider);
+  // Only log diagnostics when explicitly requested via diagnostics button
+  const shouldLog = forceLog || false;
   
   if (shouldLog) {
     console.log(`[Diagnostics] Searching eligibilities for member "${memberID}" (normalized: "${normalizedID}")`);
@@ -737,6 +737,21 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
     // For Insta CSV reports, dates are in DD/MM/YYYY format, not MM/DD/YYYY
     // So we should NOT use preferMDY even for CSV files
     const claimDate = DateHandler.parse(row.claimDate, { preferMDY: false });
+    
+    // Log detailed date conversion for first 3 non-duplicate claims
+    if (claimIndex <= 3) {
+      console.log(`🔍 DATE CONVERSION #${claimIndex} - Claim: ${claimID}, Member: ${rawMemberID}`);
+      console.log(`  Raw date string from report: "${row.claimDate}"`);
+      console.log(`  Insurance: ${insurance}`);
+      if (claimDate) {
+        console.log(`  ✅ Parsed Date object: ${claimDate.toISOString()}`);
+        const formatted = DateHandler.format(claimDate);
+        console.log(`  ✅ Formatted output: "${formatted}"`);
+        console.log(`  UTC Components: Year=${claimDate.getUTCFullYear()}, Month=${claimDate.getUTCMonth() + 1}, Day=${claimDate.getUTCDate()}`);
+      } else {
+        console.log(`  ❌ FAILED TO PARSE DATE!`);
+      }
+    }
     
     if (!claimDate) continue;
     const formattedDate = DateHandler.format(claimDate);
