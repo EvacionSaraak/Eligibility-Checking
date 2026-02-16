@@ -11,7 +11,7 @@
 /* ===========================
    Version & Initialization
    =========================== */
-const VERSION = '2026.02.15.22';
+const VERSION = '2026.02.15.23';
 console.log(`✅ Eligibility Checker v${VERSION} loaded successfully`);
 
 /* ===========================
@@ -492,35 +492,28 @@ function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians =
   
   if (!eligList.length) {
     if (shouldLog) {
-      console.log(`\n🔍 CLAIM #${claimIndex} - No eligibilities found in map for member ${memberID}`);
-      console.log(`  Raw member ID: "${memberID}"`);
-      console.log(`  Normalized ID: "${normalizedID}"`);
-      console.log(`  Total members in eligibility map: ${eligMap.size}`);
-      
-      // Show a sample of member IDs in the map to help diagnose
-      if (eligMap.size > 0) {
-        const sampleIDs = Array.from(eligMap.keys()).slice(0, 10);
-        console.log(`  Sample member IDs in map (first 10): ${sampleIDs.join(', ')}`);
+      if (eligMap.size === 0) {
+        console.log(`❌ CLAIM #${claimIndex}: Member ${memberID} - Eligibility map is EMPTY (no eligibilities loaded)`);
+      } else {
+        const sampleIDs = Array.from(eligMap.keys()).slice(0, 5);
+        const normalizedNote = (normalizedID !== memberID) ? ` (normalized from "${memberID}")` : '';
+        console.log(`❌ CLAIM #${claimIndex}: Member ${normalizedID}${normalizedNote} NOT FOUND in map (${eligMap.size} members loaded). Sample IDs: ${sampleIDs.join(', ')}`);
         
-        // Check if there are any similar IDs (fuzzy match)
+        // Check for similar IDs
         const similarIDs = Array.from(eligMap.keys()).filter(id => {
           return id.includes(normalizedID) || normalizedID.includes(id);
-        });
+        }).slice(0, 3);
         if (similarIDs.length > 0) {
-          console.log(`  ⚠️  Similar member IDs found in map: ${similarIDs.join(', ')}`);
+          console.log(`   ⚠️  Similar IDs in map: ${similarIDs.join(', ')}`);
         }
-      } else {
-        console.log(`  ❌ Eligibility map is EMPTY - no eligibilities loaded!`);
       }
     }
     return null;
   }
   
   if (shouldLog) {
-    console.log(`\n🔍 CLAIM #${claimIndex} - Found ${eligList.length} eligibility records for member ${memberID} (normalized: ${normalizedID})`);
-    console.log(`  Claim date: ${DateHandler.format(claimDate)} (UTC: ${claimDate.toISOString()})`);
-    console.log(`  Claim clinicians: ${claimClinicians.length > 0 ? claimClinicians.join(', ') : 'none'}`);
-    console.log(`  Now checking each eligibility record...`);
+    const clinInfo = claimClinicians.length > 0 ? `, Clinicians: ${claimClinicians.join(', ')}` : '';
+    console.log(`⚠️ CLAIM #${claimIndex}: Found ${eligList.length} eligibilities for member ${memberID}, Date: ${DateHandler.format(claimDate)}${clinInfo}`);
   }
   
   let eligIndex = 0;
@@ -530,26 +523,19 @@ function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians =
     
     if (shouldLog) {
       const eligNum = elig["Eligibility Request Number"] || "(unknown)";
-      console.log(`\n  Eligibility ${eligIndex}/${eligList.length} - Request #${eligNum}:`);
-      console.log(`    Answered On (raw): "${elig["Answered On"]}"`);
-      
-      // Show all key fields for this eligibility
-      console.log(`    Status: "${elig.Status || '(empty)'}"`);
-      console.log(`    Clinician: "${elig.Clinician || '(empty)'}"`);
-      console.log(`    Service Category: "${elig['Service Category'] || '(empty)'}"`);
-      console.log(`    Consultation Status: "${elig['Consultation Status'] || '(empty)'}"`);
-      console.log(`    Department/Clinic: "${elig.Department || elig.Clinic || '(empty)'}"`);
+      const eligDateStr = elig["Answered On"] || '(empty)';
+      const status = elig.Status || '(empty)';
+      const clinician = elig.Clinician || '(none)';
       
       if (eligDate) {
-        console.log(`    Parsed date: ${DateHandler.format(eligDate)} (UTC: ${eligDate.toISOString()})`);
-        console.log(`    Comparison: Claim ${claimDate.getUTCFullYear()}-${claimDate.getUTCMonth()+1}-${claimDate.getUTCDate()} vs Elig ${eligDate.getUTCFullYear()}-${eligDate.getUTCMonth()+1}-${eligDate.getUTCDate()}`);
+        const eligFormattedDate = DateHandler.format(eligDate);
         const matches = DateHandler.isSameDay(claimDate, eligDate);
-        console.log(`    Date Match: ${matches ? '✅ YES' : '❌ NO - REJECTED (dates don\'t match)'}`);
+        console.log(`   Elig ${eligIndex}/${eligList.length} #${eligNum}: Date=${eligFormattedDate}, Status="${status}", Clinician="${clinician}" → ${matches ? '✅ Date match' : '❌ Date mismatch'}`);
         if (!matches) {
-          continue; // Skip to next iteration but continue logging
+          continue;
         }
       } else {
-        console.log(`    ❌ Failed to parse eligibility date - REJECTED (can't parse date)`);
+        console.log(`   Elig ${eligIndex}/${eligList.length} #${eligNum}: ❌ Failed to parse date from "${eligDateStr}"`);
         continue;
       }
     } else {
@@ -562,13 +548,9 @@ function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians =
     const eligClinician = (elig.Clinician || '').trim();
     if (eligClinician && claimClinicians.length && !claimClinicians.includes(eligClinician)) {
       if (shouldLog) {
-        console.log(`    ❌ REJECTED - Clinician mismatch: eligibility has "${eligClinician}" but claim needs one of: ${claimClinicians.join(', ')}`);
+        console.log(`      ❌ Clinician mismatch: has "${eligClinician}" but need: ${claimClinicians.join(', ')}`);
       }
       continue;
-    } else if (shouldLog && eligClinician && claimClinicians.length) {
-      console.log(`    ✅ Clinician match: "${eligClinician}"`);
-    } else if (shouldLog) {
-      console.log(`    ℹ️  Clinician check skipped (eligibility has no clinician or claim has no clinician requirement)`);
     }
     
     const serviceCategory = (elig['Service Category'] || '').trim();
@@ -578,29 +560,25 @@ function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians =
     
     if (!categoryCheck.valid) {
       if (shouldLog) {
-        console.log(`    ❌ REJECTED - Service category validation failed: ${categoryCheck.reason || 'unknown reason'}`);
+        console.log(`      ❌ Service category invalid: ${categoryCheck.reason}`);
       }
       continue;
-    } else if (shouldLog) {
-      console.log(`    ✅ Service category valid`);
     }
     
     if ((elig.Status || '').toLowerCase() !== 'eligible') {
       if (shouldLog) {
-        console.log(`    ❌ REJECTED - Status is "${elig.Status}" (must be "eligible")`);
+        console.log(`      ❌ Status "${elig.Status}" (must be "eligible")`);
       }
       continue;
-    } else if (shouldLog) {
-      console.log(`    ✅ Status is "eligible"`);
     }
     
     if (shouldLog) {
-      console.log(`    ✅✅✅ MATCH FOUND - All criteria passed, using this eligibility`);
+      console.log(`      ✅ MATCH FOUND - Using this eligibility`);
     }
     
     if (usedEligibilities.has(elig['Eligibility Request Number'])) {
       if (shouldLog) {
-        console.log(`    ⚠️  Note: This eligibility was already used for another claim`);
+        console.log(`      ⚠️ Note: Already used for another claim`);
       }
     } else {
       usedEligibilities.add(elig['Eligibility Request Number']);
@@ -610,8 +588,7 @@ function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians =
   }
   
   if (shouldLog) {
-    console.log(`  \n❌ FINAL RESULT: No matching eligibility found after checking all ${eligList.length} records`);
-    console.log(`     All ${eligList.length} eligibilities were rejected due to mismatches shown above.\n`);
+    console.log(`   ❌ No match found after checking all ${eligList.length} eligibilities (see rejection reasons above)`);
   }
   
   return null;
