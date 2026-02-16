@@ -34,6 +34,7 @@ let rawParsedReport = null; // raw parsed sheet result (header detection output)
 let detectedReportType = 'Generic'; // detected report type before normalization
 const usedEligibilities = new Set();
 let lastReportWasCSV = false;
+let sourceFileName = '';   // Track the source report filename for export
 
 // Keep last eligibility map so UI filters can re-render without rebuilding the map
 let lastEligMap = null;
@@ -884,53 +885,74 @@ function normalizeReportData(rawData) {
       if (isCombined) {
         return {
           claimID: row['Pri. Claim No'] || '',
+          visitID: row['Visit Id'] || '',
           memberID: row['Pri. Patient Insurance Card No'] || '',
           claimDate: row['Encounter Date'] || '',
           clinician: row['Clinician License'] || '',
+          clinicianName: row['Clinician Name'] || '',
           department: row['Department'] || '',
           packageName: row['Pri. Plan Type'] || '',
           insuranceCompany: row['Pri. Plan Type'] || '',
           claimStatus: '',
           fileNo: row['Patient Code'] || '',
-          admittingDoctor: ''
+          admittingDoctor: '',
+          openedBy: row['Opened by'] || '',
+          price: row['Total Amount'] || '',
+          facilityID: row['Facility ID'] || ''
         };
       } else if (isInsta) {
         return {
           claimID: row['Pri. Claim No'] || '',
+          visitID: row['Visit Id'] || '',  // May not exist in Insta
           memberID: row['Pri. Patient Insurance Card No'] || '',
           claimDate: row['Encounter Date'] || '',
           clinician: row['Clinician License'] || '',
+          clinicianName: row['Clinician Name'] || '',  // May not exist in Insta
           department: row['Department'] || '',
           packageName: row['Pri. Payer Name'] || '',
           insuranceCompany: row['Pri. Payer Name'] || '',
           claimStatus: row['Codification Status'] || '',
           fileNo: row['Patient Code'] || '',
-          admittingDoctor: ''  // Insta reports don't have a separate Admitting Doctor column
+          admittingDoctor: '',  // Insta reports don't have a separate Admitting Doctor column
+          openedBy: row['Opened by'] || '',
+          price: row['Total Amount'] || '',
+          facilityID: row['Facility ID'] || ''
         };
       } else if (isOdoo) {
         return {
           claimID: row['Pri. Claim ID'] || '',
+          visitID: row['Visit Id'] || '',  // May not exist in Odoo
           memberID: row['Pri. Member ID'] || '',
           claimDate: row['Adm/Reg. Date'] || '',
           clinician: row['Admitting License'] || '',
+          clinicianName: row['Clinician Name'] || row['Admitting Doctor'] || '',
           department: row['Admitting Department'] || '',
           insuranceCompany: row['Pri. Plan Type'] || '',
+          packageName: row['Pri. Plan Type'] || '',
           claimStatus: row['Codification Status'] || '',
           fileNo: row['MR No'] || '',
-          admittingDoctor: row['Admitting Doctor'] || ''
+          admittingDoctor: row['Admitting Doctor'] || '',
+          openedBy: row['Opened by'] || '',
+          price: row['Total Amount'] || '',
+          facilityID: row['Facility ID'] || ''
         };
       } else {
         return {
           claimID: row['ClaimID'] || '',
+          visitID: row['Visit Id'] || '',
           memberID: row['PatientCardID'] || '',
           claimDate: row['ClaimDate'] || '',
           clinician: row['Clinician License'] || '',
+          clinicianName: row['Clinician Name'] || '',
           packageName: row['Insurance Company'] || '',
           insuranceCompany: row['Insurance Company'] || '',
           department: row['Clinic'] || '',
           claimStatus: row['VisitStatus'] || '',
           fileNo: row['MR No'] || row['Patient Code'] || row['File No'] || row['FileNo'] || '',
-          admittingDoctor: row['Admitting Doctor'] || row['Doctor'] || row['Physician'] || ''
+          admittingDoctor: row['Admitting Doctor'] || row['Doctor'] || row['Physician'] || '',
+          openedBy: row['Opened by'] || '',
+          price: row['Total Amount'] || '',
+          facilityID: row['Facility ID'] || ''
         };
       }
     });
@@ -954,53 +976,74 @@ function normalizeReportData(rawData) {
     if (isCombined) {
       return {
         claimID: r['Pri. Claim No'] || '',
+        visitID: r['Visit Id'] || '',
         memberID: r['Pri. Patient Insurance Card No'] || '',
         claimDate: r['Encounter Date'] || '',
         clinician: r['Clinician License'] || '',
+        clinicianName: r['Clinician Name'] || '',
         department: r['Department'] || '',
         packageName: r['Pri. Plan Type'] || '',
         insuranceCompany: r['Pri. Plan Type'] || '',
         claimStatus: '',
         fileNo: r['Patient Code'] || '',
-        admittingDoctor: ''
+        admittingDoctor: '',
+        openedBy: r['Opened by'] || '',
+        price: r['Total Amount'] || '',
+        facilityID: r['Facility ID'] || ''
       };
     } else if (isInsta) {
       return {
         claimID: r['Pri. Claim No'] || '',
+        visitID: r['Visit Id'] || '',
         memberID: r['Pri. Patient Insurance Card No'] || '',
         claimDate: r['Encounter Date'] || '',
         clinician: r['Clinician License'] || '',
+        clinicianName: r['Clinician Name'] || '',
         department: r['Department'] || '',
         packageName: r['Pri. Plan Name'] || '',
         insuranceCompany: r['Pri. Plan Name'] || '',
         claimStatus: r['Codification Status'] || '',
         fileNo: r['Patient Code'] || '',
-        admittingDoctor: ''  // Insta reports don't have a separate Admitting Doctor column
+        admittingDoctor: '',  // Insta reports don't have a separate Admitting Doctor column
+        openedBy: r['Opened by'] || '',
+        price: r['Total Amount'] || '',
+        facilityID: r['Facility ID'] || ''
       };
     } else if (isOdoo) {
       return {
         claimID: r['Pri. Claim ID'] || '',
+        visitID: r['Visit Id'] || '',
         memberID: r['Pri. Member ID'] || '',
         claimDate: r['Adm/Reg. Date'] || '',
         clinician: r['Admitting License'] || '',
+        clinicianName: r['Clinician Name'] || r['Admitting Doctor'] || '',
         department: r['Admitting Department'] || '',
         insuranceCompany: r['Pri. Sponsor'] || '',
+        packageName: r['Pri. Sponsor'] || '',
         claimStatus: r['Codification Status'] || '',
         fileNo: r['MR No'] || '',
-        admittingDoctor: r['Admitting Doctor'] || ''
+        admittingDoctor: r['Admitting Doctor'] || '',
+        openedBy: r['Opened by'] || '',
+        price: r['Total Amount'] || '',
+        facilityID: r['Facility ID'] || ''
       };
     } else {
       const out = {
         claimID: r['ClaimID'] || r['Pri. Claim No'] || r['Pri. Claim ID'] || getField(r, ['ClaimID','Pri. Claim No','Pri. Claim ID','Claim ID','Pri. Claim ID']) || '',
+        visitID: r['Visit Id'] || '',
         memberID: r['Pri. Member ID'] || r['Pri. Patient Insurance Card No'] || r['PatientCardID'] || getField(r, ['PatientCardID','Patient Insurance Card No','Card Number / DHA Member ID']) || '',
         claimDate: r['Encounter Date'] || r['Adm/Reg. Date'] || r['ClaimDate'] || getField(r, ['Encounter Date','ClaimDate','Adm/Reg. Date','Date']) || '',
         clinician: r['Clinician License'] || r['Admitting License'] || r['OrderDoctor'] || getField(r, ['Clinician License','Clinician','Admitting License','OrderDoctor']) || '',
+        clinicianName: r['Clinician Name'] || '',
         department: r['Department'] || r['Clinic'] || r['Admitting Department'] || getField(r, ['Department','Clinic','Admitting Department']) || '',
         packageName: r['Pri. Payer Name'] || r['Insurance Company'] || r['Pri. Sponsor'] || getField(r, ['Pri. Payer Name','Insurance Company','Pri. Plan Type','Package','Pri. Sponsor']) || '',
         insuranceCompany: r['Pri. Payer Name'] || r['Insurance Company'] || getField(r, ['Payer Name','Insurance Company','Pri. Payer Name']) || '',
         claimStatus: r['Codification Status'] || r['VisitStatus'] || r['Status'] || getField(r, ['Codification Status','VisitStatus','Status','Claim Status']) || '',
         fileNo: r['MR No'] || r['Patient Code'] || getField(r, ['MR No','Patient Code','File No','FileNo']) || '',
-        admittingDoctor: r['Admitting Doctor'] || getField(r, ['Admitting Doctor','Doctor','Physician']) || ''
+        admittingDoctor: r['Admitting Doctor'] || getField(r, ['Admitting Doctor','Doctor','Physician']) || '',
+        openedBy: r['Opened by'] || '',
+        price: r['Total Amount'] || '',
+        facilityID: r['Facility ID'] || ''
       };
 
       if (!out.memberID) {
@@ -1078,12 +1121,23 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
     if (memberID.startsWith('(VVIP)')) {
       if (claimIndex <= 3) console.log(`  Claim #${claimIndex} (${claimID}): VVIP member, skipping eligibility check`);
       results.push({ 
-        claimID, memberID, encounterStart: formattedDate, 
+        claimID, 
+        visitID: row.visitID || '',
+        memberID, 
+        encounterStart: formattedDate, 
         status: 'VVIP', finalStatus: 'valid', 
         remarks: ['VVIP member, eligibility check bypassed'], 
         fullEligibilityRecord: null,
         fileNo: row.fileNo || '',
-        admittingDoctor: row.admittingDoctor || ''
+        admittingDoctor: row.admittingDoctor || '',
+        clinicianName: row.clinicianName || '',
+        department: row.department || '',
+        clinician: row.clinician || '',
+        packageName: row.packageName || '',
+        provider: row.insuranceCompany || '',
+        openedBy: row.openedBy || '',
+        price: row.price || '',
+        facilityID: row.facilityID || ''
       });
       continue;
     }
@@ -1131,17 +1185,25 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
     }
 
     results.push({
-      claimID, memberID, encounterStart: formattedDate,
+      claimID, 
+      visitID: row.visitID || '',
+      memberID, 
+      encounterStart: formattedDate,
       packageName: eligibility?.['Package Name'] || row.packageName || '',
       provider: insurance,
       clinician: eligibility?.Clinician || row.clinician || '',
+      clinicianName: row.clinicianName || '',
+      department: row.department || '',
       serviceCategory: eligibility?.['Service Category'] || '',
       consultationStatus: eligibility?.['Consultation Status'] || '',
       status: eligibility?.Status || '',
       claimStatus: row.claimStatus || '',
       remarks, finalStatus, fullEligibilityRecord: eligibility,
       fileNo: row.fileNo || '',
-      admittingDoctor: row.admittingDoctor || ''
+      admittingDoctor: row.admittingDoctor || '',
+      openedBy: row.openedBy || '',
+      price: row.price || '',
+      facilityID: row.facilityID || ''
     });
   }
   return results;
@@ -1614,15 +1676,20 @@ function exportInvalidEntries(results) {
   const invalidEntries = (results || []).filter(r => r && r.finalStatus === 'invalid');
   if (!invalidEntries.length) { alert('No invalid entries to export.'); return; }
   const exportData = invalidEntries.map((entry, index) => ({
-    'FILE NO.': entry.fileNo || (index + 1),
-    'CLAIM ID': entry.claimID || '',
-    'VISIT ID': entry.claimID || '',
-    'PHY LICENSE': entry.clinician || '',
-    'DATE': entry.encounterStart || '',
-    'MEMBER ID': entry.memberID || '',
-    'ELIGIBILITY UNDER DOCTOR': entry.admittingDoctor || '',
-    'ERROR': (entry.remarks || []).join('; '),
-    'Reception': ''
+    'File No': entry.fileNo || '',
+    'Claim ID': entry.claimID || '',
+    'Visit ID': entry.visitID || entry.claimID || '',
+    'Phy Lic': entry.clinician || '',
+    'Date': entry.encounterStart || '',
+    'Member ID': entry.memberID || '',
+    'Clinician Name': entry.clinicianName || entry.admittingDoctor || '',
+    'Verdict': (entry.remarks || []).join('; '),
+    'Opened By': entry.openedBy || '',
+    'Price': entry.price || '',
+    'Admitting DEPT': entry.department || '',
+    'Pri. Plan Type': entry.packageName || entry.provider || '',
+    'Facility ID': entry.facilityID || '',
+    'File Name': sourceFileName || ''
   }));
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.json_to_sheet(exportData);
@@ -1648,6 +1715,7 @@ async function handleFileUpload(event, type) {
       return;
     }
     if (type === 'report') {
+      sourceFileName = file.name; // Store source filename for export
       lastReportWasCSV = file.name.toLowerCase().endsWith('.csv');
       const parsed = await (file.name.toLowerCase().endsWith('.csv') ? parseCsvFile(file) : parseExcelFile(file));
       rawParsedReport = parsed;
