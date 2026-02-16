@@ -58,8 +58,10 @@ function normalizeMemberID(id) {
   let normalized = String(id).replace(/\D/g, "").trim();
   
   // Optionally remove leading zeroes if the option is enabled
+  // Note: If input is all zeroes (e.g., "0000"), we keep at least one "0" 
+  // to maintain a valid ID rather than returning an empty string
   if (removeLeadingZeroes && normalized.length > 0) {
-    normalized = normalized.replace(/^0+/, '') || '0'; // Keep at least one zero if all zeroes
+    normalized = normalized.replace(/^0+/, '') || '0';
   }
   
   return normalized;
@@ -1800,7 +1802,7 @@ function onRemoveZeroesToggle() {
   
   // If we have data, we need to rebuild the eligibility map and re-process
   if (eligData && xlsData) {
-    updateStatus('Option changed. Click Process to re-check with new settings.');
+    updateStatus('Leading zeroes option changed. Click Process to re-check with new settings.');
     console.log(`🔧 Leading zeroes removal ${on ? 'ENABLED' : 'DISABLED'}. Re-processing required.`);
   }
 }
@@ -1831,6 +1833,8 @@ function initializeEventListeners() {
     filterCheckbox.addEventListener('change', onFilterToggle);
   }
   if (removeZeroesCheckbox) {
+    // Default to false (unchecked) to preserve leading zeroes by default
+    // This maintains backward compatibility and avoids unexpected behavior changes
     removeZeroesCheckbox.checked = false;
     removeZeroesCheckbox.addEventListener('change', onRemoveZeroesToggle);
   }
