@@ -11,7 +11,7 @@
 /* ===========================
    Version & Initialization
    =========================== */
-const VERSION = '2026.02.15.34';
+const VERSION = '2026.02.15.35';
 console.log(`✅ Eligibility Checker v${VERSION} loaded successfully`);
 
 /* ===========================
@@ -1113,11 +1113,16 @@ function getDisplayedResultsFromStored(results) {
   });
 }
 
-function renderResults(results, eligMap) {
+function renderResults(results, eligMap, totalResults = null) {
   if (!resultsContainer) return;
   resultsContainer.innerHTML = '';
 
-  if (!results || results.length === 0) {
+  // totalResults is used for calculating total counts, while results is what's displayed
+  // If not provided, assume all results are being displayed
+  const allResults = totalResults || results;
+  const displayedRows = results;
+
+  if (!displayedRows || displayedRows.length === 0) {
     resultsContainer.innerHTML = '<div class="text-muted">No claims to display</div>';
     return;
   }
@@ -1149,21 +1154,31 @@ function renderResults(results, eligMap) {
   const statusCounts = { valid: 0, invalid: 0, unknown: 0 };
   let processedRows = 0;
 
-  const finalStatusToBootstrap = {
-    valid: 'table-success',
-    invalid: 'table-danger',
-    unknown: 'table-warning'
-  };
-
-  results.forEach((result, index) => {
+  // Calculate total counts from ALL results (not just displayed ones)
+  allResults.forEach((result) => {
     if (!result.memberID || result.memberID.toString().trim() === '') return;
     const statusToCheck = (result.claimStatus || result.status || result.fullEligibilityRecord?.Status || '')
       .toString()
       .trim()
       .toLowerCase();
     if (statusToCheck === 'not seen') return;
-
     if (result.finalStatus && statusCounts.hasOwnProperty(result.finalStatus)) statusCounts[result.finalStatus]++;
+  });
+
+  const finalStatusToBootstrap = {
+    valid: 'table-success',
+    invalid: 'table-danger',
+    unknown: 'table-warning'
+  };
+
+  // Render only the displayed rows
+  displayedRows.forEach((result, index) => {
+    if (!result.memberID || result.memberID.toString().trim() === '') return;
+    const statusToCheck = (result.claimStatus || result.status || result.fullEligibilityRecord?.Status || '')
+      .toString()
+      .trim()
+      .toLowerCase();
+    if (statusToCheck === 'not seen') return;
 
     const row = document.createElement('tr');
 
@@ -1688,7 +1703,7 @@ async function handleProcessClick() {
 
     window.lastValidationResults = outputResults;
     const displayedResults = getDisplayedResultsFromStored(outputResults);
-    renderResults(displayedResults, eligMap);
+    renderResults(displayedResults, eligMap, outputResults);
     updateStatus(`Processed ${outputResults.length} claims successfully`);
   } catch (err) {
     console.error('Processing stopped due to error:', err);
@@ -1721,7 +1736,7 @@ function onFilterToggle() {
 
   const displayed = getDisplayedResultsFromStored(base);
   const eligMap = lastEligMap || (eligData ? prepareEligibilityMap(eligData) : new Map());
-  renderResults(displayed, eligMap);
+  renderResults(displayed, eligMap, base);
 }
 
 /* ===========================
@@ -1774,7 +1789,7 @@ function initializeEventListeners() {
       }
       const displayed = getDisplayedResultsFromStored(preFiltered);
       const eligMap = lastEligMap || (eligData ? prepareEligibilityMap(eligData) : new Map());
-      renderResults(displayed, eligMap);
+      renderResults(displayed, eligMap, preFiltered);
     });
   };
 
