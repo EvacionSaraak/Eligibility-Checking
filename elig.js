@@ -1678,11 +1678,11 @@ function exportInvalidEntries(results) {
   const exportData = invalidEntries.map((entry, index) => ({
     'File No': entry.fileNo || '',
     'Claim ID': entry.claimID || '',
-    'Visit ID': entry.visitID || entry.claimID || '',
+    'Visit ID': entry.visitID || '',
     'Phy Lic': entry.clinician || '',
     'Date': entry.encounterStart || '',
     'Member ID': entry.memberID || '',
-    'Clinician Name': entry.clinicianName || entry.admittingDoctor || '',
+    'Clinician Name': entry.clinicianName || '',
     'Verdict': (entry.remarks || []).join('; '),
     'Opened By': entry.openedBy || '',
     'Price': entry.price || '',
