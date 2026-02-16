@@ -747,6 +747,10 @@ function isServiceCategoryValid(serviceCategory, consultationStatus, rawPackage)
   const category = serviceCategory.trim().toLowerCase();
   const pkgRaw = rawPackage || '';
   const pkg = pkgRaw.toLowerCase();
+  
+  // TEMPORARILY DISABLED: Elective consultation restricted services check
+  // This check is being handled incorrectly and needs to be redesigned
+  /* 
   if (category === 'consultation' && consultationStatus?.toLowerCase() === 'elective') {
     const restrictedServices = {
       'dental': 'dental',
@@ -762,6 +766,8 @@ function isServiceCategoryValid(serviceCategory, consultationStatus, rawPackage)
     }
     return { valid: true };
   }
+  */
+  
   const allowedKeywords = SERVICE_PACKAGE_RULES[serviceCategory];
   if (allowedKeywords && allowedKeywords.length > 0) {
     if (pkg && !allowedKeywords.some(keyword => pkg.includes(keyword))) {
