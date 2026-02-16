@@ -11,7 +11,7 @@
 /* ===========================
    Version & Initialization
    =========================== */
-const VERSION = '2026.02.15.27';
+const VERSION = '2026.02.15.28';
 console.log(`✅ Eligibility Checker v${VERSION} loaded successfully`);
 
 /* ===========================
@@ -431,7 +431,6 @@ function prepareEligibilityMap(rawSheetArray) {
     
     let recordCount = 0;
     let columnUsed = '';
-    let skippedBlankRows = 0;
     let skippedNoMemberID = 0;
     let skippedEmptyMemberID = 0;
     const firstSkippedSamples = [];
@@ -439,14 +438,6 @@ function prepareEligibilityMap(rawSheetArray) {
     for (let i = headerRowIndex + 1; i < rawSheetArray.length; i++) {
       const row = rawSheetArray[i];
       if (!Array.isArray(row)) continue;
-      const blankOrJunkCount = row.filter((v, idx) => {
-        const key = headers[idx] || '';
-        return v === undefined || v === null || v === '' || key.startsWith('_') || key.toLowerCase().includes('policy');
-      }).length;
-      if (blankOrJunkCount > headers.length / 2) {
-        skippedBlankRows++;
-        continue;
-      }
 
       const record = {};
       headers.forEach((h, idx) => record[h] = row[idx] !== undefined ? row[idx] : '');
@@ -466,7 +457,7 @@ function prepareEligibilityMap(rawSheetArray) {
       if (!rawMemberID) {
         skippedNoMemberID++;
         if (firstSkippedSamples.length < 10) {
-          firstSkippedSamples.push({row: i, reason: 'No member ID found', raw: rawMemberID});
+          firstSkippedSamples.push({row: i, reason: 'No member ID found (card number is blank)', raw: rawMemberID});
         }
         continue;
       }
@@ -496,14 +487,13 @@ function prepareEligibilityMap(rawSheetArray) {
     }
 
     // Show skip statistics
-    const totalSkipped = skippedBlankRows + skippedNoMemberID + skippedEmptyMemberID;
+    const totalSkipped = skippedNoMemberID + skippedEmptyMemberID;
     if (totalSkipped > 0) {
       console.log(`\n⚠️ WARNING: ${totalSkipped} rows skipped during map building:`);
-      console.log(`   Blank/junk rows: ${skippedBlankRows}`);
-      console.log(`   No member ID found: ${skippedNoMemberID}`);
+      console.log(`   No member ID found (card number is blank): ${skippedNoMemberID}`);
       console.log(`   Empty after normalization: ${skippedEmptyMemberID}`);
       if (firstSkippedSamples.length > 0) {
-        console.log(`\n   First ${firstSkippedSamples.length} skipped rows (with member ID issues):`);
+        console.log(`\n   First ${firstSkippedSamples.length} skipped rows:`);
         firstSkippedSamples.forEach(s => {
           console.log(`   Row ${s.row}: ${s.reason}, Raw="${s.raw}"`);
         });
