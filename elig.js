@@ -11,7 +11,7 @@
 /* ===========================
    Version & Initialization
    =========================== */
-const VERSION = '2026.02.15.32';
+const VERSION = '2026.02.15.33';
 console.log(`✅ Eligibility Checker v${VERSION} loaded successfully`);
 
 /* ===========================
@@ -1229,19 +1229,23 @@ function renderResults(results, eligMap) {
   tableContainer.appendChild(table);
   resultsContainer.appendChild(tableContainer);
 
-  // Insert summary badges directly into resultsTitle element with report type
+  // Update results title to show report type
   const resultsTitle = document.getElementById('resultsTitle');
   if (resultsTitle) {
     const reportTypeText = detectedReportType === 'Insta' ? 'Insta Results' :
                            detectedReportType === 'Odoo' ? 'Odoo Results' : 
                            'Results';
-    resultsTitle.innerHTML = `
-      ${reportTypeText}
-      <span class="badge bg-success ms-2">${statusCounts.valid} valid</span>
-      <span class="badge bg-secondary ms-1">${statusCounts.unknown} unknown</span>
-      <span class="badge bg-danger ms-1">${statusCounts.invalid} invalid</span>
-    `;
+    resultsTitle.textContent = reportTypeText;
   }
+
+  // Update filter buttons to show counts
+  const filterValid = document.querySelector('#filterValid .badge');
+  const filterInvalid = document.querySelector('#filterInvalid .badge');
+  const filterUnknown = document.querySelector('#filterUnknown .badge');
+  
+  if (filterValid) filterValid.textContent = `valid (${statusCounts.valid})`;
+  if (filterInvalid) filterInvalid.textContent = `invalid (${statusCounts.invalid})`;
+  if (filterUnknown) filterUnknown.textContent = `unknown (${statusCounts.unknown})`;
 
   initEligibilityModal(results, lastEligMap);
 
