@@ -11,7 +11,7 @@
 /* ===========================
    Version & Initialization
    =========================== */
-const VERSION = '2026.02.15.25';
+const VERSION = '2026.02.15.26';
 console.log(`✅ Eligibility Checker v${VERSION} loaded successfully`);
 
 /* ===========================
@@ -403,6 +403,10 @@ function prepareEligibilityMap(rawSheetArray) {
     console.log(`📥 Building eligibility map from ${totalRows} eligibility records...`);
     let recordCount = 0;
     let columnUsed = '';
+    let skippedBlankRows = 0;
+    let skippedNoMemberID = 0;
+    let skippedEmptyMemberID = 0;
+    const firstSkippedSamples = [];
 
     for (let i = headerRowIndex + 1; i < rawSheetArray.length; i++) {
       const row = rawSheetArray[i];
@@ -411,7 +415,10 @@ function prepareEligibilityMap(rawSheetArray) {
         const key = headers[idx] || '';
         return v === undefined || v === null || v === '' || key.startsWith('_') || key.toLowerCase().includes('policy');
       }).length;
-      if (blankOrJunkCount > headers.length / 2) continue;
+      if (blankOrJunkCount > headers.length / 2) {
+        skippedBlankRows++;
+        continue;
+      }
 
       const record = {};
       headers.forEach((h, idx) => record[h] = row[idx] !== undefined ? row[idx] : '');
@@ -428,9 +435,21 @@ function prepareEligibilityMap(rawSheetArray) {
           break;
         }
       }
-      if (!rawMemberID) continue;
+      if (!rawMemberID) {
+        skippedNoMemberID++;
+        if (firstSkippedSamples.length < 10) {
+          firstSkippedSamples.push({row: i, reason: 'No member ID found', raw: rawMemberID});
+        }
+        continue;
+      }
       const memberID = normalizeMemberID(rawMemberID);
-      if (!memberID) continue;
+      if (!memberID) {
+        skippedEmptyMemberID++;
+        if (firstSkippedSamples.length < 10) {
+          firstSkippedSamples.push({row: i, reason: 'Empty after normalization', raw: rawMemberID});
+        }
+        continue;
+      }
 
       // Log first eligibility with column info
       if (recordCount === 0) {
@@ -448,9 +467,27 @@ function prepareEligibilityMap(rawSheetArray) {
       eligMap.get(memberID).push(record);
     }
 
+    // Show skip statistics
+    const totalSkipped = skippedBlankRows + skippedNoMemberID + skippedEmptyMemberID;
+    if (totalSkipped > 0) {
+      console.log(`\n⚠️ WARNING: ${totalSkipped} rows skipped during map building:`);
+      console.log(`   Blank/junk rows: ${skippedBlankRows}`);
+      console.log(`   No member ID found: ${skippedNoMemberID}`);
+      console.log(`   Empty after normalization: ${skippedEmptyMemberID}`);
+      if (firstSkippedSamples.length > 0) {
+        console.log(`\n   First ${firstSkippedSamples.length} skipped rows (with member ID issues):`);
+        firstSkippedSamples.forEach(s => {
+          console.log(`   Row ${s.row}: ${s.reason}, Raw="${s.raw}"`);
+        });
+      }
+    }
+
     // Show ALL unique member IDs
     const allKeys = Array.from(eligMap.keys());
-    console.log(`✅ Map built with ${eligMap.size} unique member IDs`);
+    console.log(`\n✅ Map built with ${eligMap.size} unique member IDs`);
+    console.log(`   Total rows in file: ${totalRows}`);
+    console.log(`   Successfully processed: ${recordCount}`);
+    console.log(`   Skipped: ${totalSkipped}`);
     console.log(`   Full list: ${allKeys.join(', ')}`);
     return eligMap;
   }
