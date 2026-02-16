@@ -11,7 +11,7 @@
 /* ===========================
    Version & Initialization
    =========================== */
-const VERSION = '2026.02.15.17';
+const VERSION = '2026.02.15.18';
 console.log(`✅ Eligibility Checker v${VERSION} loaded successfully`);
 
 /* ===========================
@@ -31,6 +31,7 @@ const MONTH_NAMES = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct"
 let xlsData = null;        // parsed & normalized report rows
 let eligData = null;       // eligibility sheet as array of arrays (raw) — keep raw rows for header detection
 let rawParsedReport = null; // raw parsed sheet result (header detection output)
+let detectedReportType = 'Generic'; // detected report type before normalization
 const usedEligibilities = new Set();
 let lastReportWasCSV = false;
 
@@ -621,6 +622,45 @@ function logNoEligibilityMatch(sourceType, claimSummary, memberID, parsedClaimDa
 /* ===========================
    Report normalization & validation
    =========================== */
+
+/**
+ * Detect report type from raw parsed data (before normalization)
+ * @param {Array|Object} rawData - Raw data from Excel/CSV parser
+ * @returns {string} - 'Insta', 'Odoo', or 'Generic'
+ */
+function detectReportType(rawData) {
+  if (!rawData) return 'Generic';
+  
+  // If it's array-of-arrays, convert to objects first to check headers
+  if (Array.isArray(rawData) && rawData.length > 0 && Array.isArray(rawData[0])) {
+    const detection = findHeaderRowFromArrays(rawData, 50);
+    if (detection.rows && detection.rows.length > 0) {
+      const sample = detection.rows[0];
+      if (sample.hasOwnProperty('Pri. Claim No')) return 'Insta';
+      if (sample.hasOwnProperty('Pri. Claim ID')) return 'Odoo';
+    }
+    return 'Generic';
+  }
+  
+  // If it's already an array of objects
+  if (Array.isArray(rawData) && rawData.length > 0 && typeof rawData[0] === 'object' && !Array.isArray(rawData[0])) {
+    const sample = rawData[0];
+    if (sample.hasOwnProperty('Pri. Claim No')) return 'Insta';
+    if (sample.hasOwnProperty('Pri. Claim ID')) return 'Odoo';
+    return 'Generic';
+  }
+  
+  // If it has a {headers, rows} shape
+  if (rawData.rows && Array.isArray(rawData.rows) && rawData.rows.length > 0) {
+    const sample = rawData.rows[0];
+    if (sample.hasOwnProperty('Pri. Claim No')) return 'Insta';
+    if (sample.hasOwnProperty('Pri. Claim ID')) return 'Odoo';
+    return 'Generic';
+  }
+  
+  return 'Generic';
+}
+
 function normalizeReportData(rawData) {
   if (!rawData) return [];
 
@@ -1364,6 +1404,11 @@ async function handleFileUpload(event, type) {
       lastReportWasCSV = file.name.toLowerCase().endsWith('.csv');
       const parsed = await (file.name.toLowerCase().endsWith('.csv') ? parseCsvFile(file) : parseExcelFile(file));
       rawParsedReport = parsed;
+      
+      // Detect report type BEFORE normalization
+      detectedReportType = detectReportType(parsed);
+      console.log(`📋 Report type detected during upload: ${detectedReportType}`);
+      
       const normalized = normalizeReportData(parsed);
       xlsData = normalized.filter(r => r && r.claimID && String(r.claimID).trim() !== '');
       if (!xlsData || xlsData.length === 0) console.warn('Report file contained no recognizable claim rows');
@@ -1387,6 +1432,11 @@ async function handlePasteCsvClick() {
     const parsed = await parseCsvText(text);
     lastReportWasCSV = true;
     rawParsedReport = parsed;
+    
+    // Detect report type BEFORE normalization
+    detectedReportType = detectReportType(parsed);
+    console.log(`📋 Report type detected during paste: ${detectedReportType}`);
+    
     const normalized = normalizeReportData(parsed);
     xlsData = normalized.filter(r => r && r.claimID && String(r.claimID).trim() !== '');
     updateStatus(`Loaded ${xlsData.length} rows from pasted CSV`);
@@ -1410,18 +1460,17 @@ async function handleProcessClick() {
     const eligMap = prepareEligibilityMap(eligData);
     lastEligMap = eligMap;
 
-    let reportType = 'Generic';
+    // Use the report type that was detected during file upload (before normalization)
+    const reportType = detectedReportType;
+    
+    // Log the normalized column headers for debugging
     const firstRow = xlsData[0];
     if (firstRow) {
-      // Log the column headers to debug report type detection
-      console.log('📋 Report columns detected:', Object.keys(firstRow).join(', '));
-      
-      if ('Pri. Claim No' in firstRow) reportType = 'Insta';
-      else if ('Pri. Claim ID' in firstRow) reportType = 'Odoo';
+      console.log('📋 Normalized columns in data:', Object.keys(firstRow).join(', '));
     }
     
-    // Log the detected report type immediately
-    console.log(`🔍 Report Type Detected: ${reportType}`);
+    // Log the report type
+    console.log(`🔍 Report Type: ${reportType}`);
     
     // Validate that we detected a valid report type
     if (reportType === 'Generic') {
@@ -1429,7 +1478,7 @@ async function handleProcessClick() {
       const errorMsg = `❌ Unable to detect report type. Expected either:\n` +
                        `  • Insta report (must have column "Pri. Claim No")\n` +
                        `  • Odoo report (must have column "Pri. Claim ID")\n\n` +
-                       `Found columns: ${columnList}`;
+                       `Found normalized columns: ${columnList}`;
       console.error(errorMsg);
       updateStatus('Error: Unknown report type - see console for details');
       alert(`Cannot process report file.\n\n` +
