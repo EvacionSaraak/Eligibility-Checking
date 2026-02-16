@@ -11,7 +11,7 @@
 /* ===========================
    Version & Initialization
    =========================== */
-const VERSION = '2026.02.15.19';
+const VERSION = '2026.02.15.20';
 console.log(`✅ Eligibility Checker v${VERSION} loaded successfully`);
 
 /* ===========================
@@ -486,10 +486,16 @@ function isDamanOrThiqa(provider) {
 function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians = [], provider = '', forceLog = false, claimIndex = 0) {
   const normalizedID = normalizeMemberID(memberID || '');
   const eligList = eligMap.get(normalizedID) || [];
-  if (!eligList.length) return null;
   
   // Log for first 3 claims
   const shouldLog = claimIndex > 0 && claimIndex <= 3;
+  
+  if (!eligList.length) {
+    if (shouldLog) {
+      console.log(`\n🔍 CLAIM #${claimIndex} - No eligibilities found for member ${memberID} (normalized: ${normalizedID})`);
+    }
+    return null;
+  }
   
   if (shouldLog) {
     console.log(`\n🔍 CLAIM #${claimIndex} - Comparing dates for all eligibilities:`);
@@ -816,20 +822,30 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
   const seenClaimIDs = new Set(); // Track claim IDs to avoid duplicates
   let claimIndex = 0; // Track claim index for detailed logging (first 3 non-duplicate claims)
   
+  // Log that validation started
+  console.log(`\n📊 Starting validation with ${reportDataArray.length} rows, reportType="${reportType}"`);
+  
   for (let i = 0; i < reportDataArray.length; i++) {
     const row = reportDataArray[i];
     const claimID = String(row.claimID || '').trim();
-    if (!claimID) continue;
+    if (!claimID) {
+      if (i < 3) console.log(`  Row ${i}: Skipped - no claimID`);
+      continue;
+    }
     
     // Skip duplicate claim IDs - keep only first occurrence
     if (seenClaimIDs.has(claimID)) {
+      if (i < 3) console.log(`  Row ${i}: Skipped - duplicate claimID ${claimID}`);
       continue;
     }
     seenClaimIDs.add(claimID);
     claimIndex++; // Increment for every non-duplicate claim
 
     const rawMemberID = String(row.memberID || '').trim();
-    if (!rawMemberID) continue;
+    if (!rawMemberID) {
+      if (claimIndex <= 3) console.log(`  Claim #${claimIndex} (${claimID}): Skipped - no memberID`);
+      continue;
+    }
     const memberID = normalizeMemberID(rawMemberID);
 
     let insurance = (row.insuranceCompany || '').trim();
@@ -850,10 +866,14 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
       }
     }
     
-    if (!claimDate) continue;
+    if (!claimDate) {
+      if (claimIndex <= 3) console.log(`  Claim #${claimIndex} (${claimID}): Skipped - failed to parse date from "${row.claimDate}"`);
+      continue;
+    }
     const formattedDate = DateHandler.format(claimDate);
 
     if (memberID.startsWith('(VVIP)')) {
+      if (claimIndex <= 3) console.log(`  Claim #${claimIndex} (${claimID}): VVIP member, skipping eligibility check`);
       results.push({ 
         claimID, memberID, encounterStart: formattedDate, 
         status: 'VVIP', finalStatus: 'valid', 
@@ -867,6 +887,10 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
 
     // Check for leading zero in original memberID
     const hasLeadingZero = rawMemberID.match(/^0+\d+$/);
+    
+    if (claimIndex <= 3) {
+      console.log(`  Claim #${claimIndex} (${claimID}): Processing - Member ${memberID}, Date ${formattedDate}`);
+    }
     
     // Pass claimIndex to enable logging for first 3 claims
     const eligibility = findEligibilityForClaim(eligMap, claimDate, memberID, [row.clinician], insurance, false, claimIndex);
