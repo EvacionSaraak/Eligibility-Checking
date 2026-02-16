@@ -19,7 +19,7 @@
   <!-- Main styles moved to tables.css -->
   <link rel="stylesheet" href="tables.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-  <script src="elig.js?v=2026.02.15.29"></script>
+  <script src="elig.js?v=2026.02.15.30"></script>
 </head>
 <body>
   <div class="app">
@@ -91,11 +91,8 @@
 
       <main class="main" id="mainPanel">
         <div class="results-header">
-          <div class="d-flex align-items-center gap-3">
-            <div class="results-title" id="resultsTitle">Results</div>
-            <!-- Results summary will be inserted here by JavaScript -->
-            <div id="resultsSummary"></div>
-          </div>
+          <!-- Results summary badges will be inserted directly into resultsTitle by JavaScript -->
+          <div class="results-title" id="resultsTitle">Results</div>
 
           <!-- Status filter buttons -->
           <div class="d-flex align-items-center gap-2">
