@@ -903,38 +903,38 @@ function normalizeReportData(rawData) {
       } else if (isInsta) {
         return {
           claimID: row['Pri. Claim No'] || '',
-          visitID: row['Visit Id'] || '',  // May not exist in Insta
+          visitID: row['Visit Id'] || '',
           memberID: row['Pri. Patient Insurance Card No'] || '',
           claimDate: row['Encounter Date'] || '',
           clinician: row['Clinician License'] || '',
-          clinicianName: row['Clinician Name'] || '',  // May not exist in Insta
+          clinicianName: row['Clinician Name'] || '',
           department: row['Department'] || '',
-          packageName: row['Pri. Payer Name'] || '',
-          insuranceCompany: row['Pri. Payer Name'] || '',
+          packageName: row['Pri. Plan Type'] || row['Pri. Plan Name'] || row['Pri. Payer Name'] || '',
+          insuranceCompany: row['Pri. Plan Type'] || row['Pri. Plan Name'] || row['Pri. Payer Name'] || '',
           claimStatus: row['Codification Status'] || '',
           fileNo: row['Patient Code'] || '',
           admittingDoctor: '',  // Insta reports don't have a separate Admitting Doctor column
           openedBy: row['Opened by'] || '',
-          price: row['Total Amount'] || '',
+          price: row['Net Amount'] || row['Gross Amount'] || '',
           facilityID: row['Facility ID'] || ''
         };
       } else if (isOdoo) {
         return {
           claimID: row['Pri. Claim ID'] || '',
-          visitID: row['Visit Id'] || '',  // May not exist in Odoo
+          visitID: row['Visit Id'] || '',
           memberID: row['Pri. Member ID'] || '',
           claimDate: row['Adm/Reg. Date'] || '',
           clinician: row['Admitting License'] || '',
-          clinicianName: row['Clinician Name'] || row['Admitting Doctor'] || '',
+          clinicianName: row['Admitting Doctor'] || '',
           department: row['Admitting Department'] || '',
-          insuranceCompany: row['Pri. Plan Type'] || '',
-          packageName: row['Pri. Plan Type'] || '',
+          insuranceCompany: row['Pri. Plan Type'] || row['Pri. Sponsor'] || '',
+          packageName: row['Pri. Plan Type'] || row['Pri. Sponsor'] || '',
           claimStatus: row['Codification Status'] || '',
-          fileNo: row['MR No'] || '',
+          fileNo: row['MR No.'] || row['MR No'] || '',
           admittingDoctor: row['Admitting Doctor'] || '',
           openedBy: row['Opened by'] || '',
-          price: row['Total Amount'] || '',
-          facilityID: row['Facility ID'] || ''
+          price: row['Total Sponsor Amt'] || '',
+          facilityID: row['Center Name'] || ''
         };
       } else {
         return {
@@ -1000,13 +1000,13 @@ function normalizeReportData(rawData) {
         clinician: r['Clinician License'] || '',
         clinicianName: r['Clinician Name'] || '',
         department: r['Department'] || '',
-        packageName: r['Pri. Plan Name'] || '',
-        insuranceCompany: r['Pri. Plan Name'] || '',
+        packageName: r['Pri. Plan Type'] || r['Pri. Plan Name'] || r['Pri. Payer Name'] || '',
+        insuranceCompany: r['Pri. Plan Type'] || r['Pri. Plan Name'] || r['Pri. Payer Name'] || '',
         claimStatus: r['Codification Status'] || '',
         fileNo: r['Patient Code'] || '',
         admittingDoctor: '',  // Insta reports don't have a separate Admitting Doctor column
         openedBy: r['Opened by'] || '',
-        price: r['Total Amount'] || '',
+        price: r['Net Amount'] || r['Gross Amount'] || '',
         facilityID: r['Facility ID'] || ''
       };
     } else if (isOdoo) {
@@ -1016,16 +1016,16 @@ function normalizeReportData(rawData) {
         memberID: r['Pri. Member ID'] || '',
         claimDate: r['Adm/Reg. Date'] || '',
         clinician: r['Admitting License'] || '',
-        clinicianName: r['Clinician Name'] || r['Admitting Doctor'] || '',
+        clinicianName: r['Admitting Doctor'] || '',
         department: r['Admitting Department'] || '',
-        insuranceCompany: r['Pri. Sponsor'] || '',
-        packageName: r['Pri. Sponsor'] || '',
+        insuranceCompany: r['Pri. Plan Type'] || r['Pri. Sponsor'] || '',
+        packageName: r['Pri. Plan Type'] || r['Pri. Sponsor'] || '',
         claimStatus: r['Codification Status'] || '',
-        fileNo: r['MR No'] || '',
+        fileNo: r['MR No.'] || r['MR No'] || '',
         admittingDoctor: r['Admitting Doctor'] || '',
         openedBy: r['Opened by'] || '',
-        price: r['Total Amount'] || '',
-        facilityID: r['Facility ID'] || ''
+        price: r['Total Sponsor Amt'] || '',
+        facilityID: r['Center Name'] || ''
       };
     } else {
       const out = {
@@ -1036,14 +1036,14 @@ function normalizeReportData(rawData) {
         clinician: r['Clinician License'] || r['Admitting License'] || r['OrderDoctor'] || getField(r, ['Clinician License','Clinician','Admitting License','OrderDoctor']) || '',
         clinicianName: r['Clinician Name'] || '',
         department: r['Department'] || r['Clinic'] || r['Admitting Department'] || getField(r, ['Department','Clinic','Admitting Department']) || '',
-        packageName: r['Pri. Payer Name'] || r['Insurance Company'] || r['Pri. Sponsor'] || getField(r, ['Pri. Payer Name','Insurance Company','Pri. Plan Type','Package','Pri. Sponsor']) || '',
-        insuranceCompany: r['Pri. Payer Name'] || r['Insurance Company'] || getField(r, ['Payer Name','Insurance Company','Pri. Payer Name']) || '',
+        packageName: r['Pri. Plan Type'] || r['Pri. Plan Name'] || r['Pri. Payer Name'] || r['Insurance Company'] || r['Pri. Sponsor'] || getField(r, ['Pri. Plan Type','Pri. Plan Name','Pri. Payer Name','Insurance Company','Package','Pri. Sponsor']) || '',
+        insuranceCompany: r['Pri. Plan Type'] || r['Pri. Payer Name'] || r['Insurance Company'] || r['Pri. Sponsor'] || getField(r, ['Pri. Plan Type','Payer Name','Insurance Company','Pri. Payer Name','Pri. Sponsor']) || '',
         claimStatus: r['Codification Status'] || r['VisitStatus'] || r['Status'] || getField(r, ['Codification Status','VisitStatus','Status','Claim Status']) || '',
-        fileNo: r['MR No'] || r['Patient Code'] || getField(r, ['MR No','Patient Code','File No','FileNo']) || '',
+        fileNo: r['MR No.'] || r['MR No'] || r['Patient Code'] || getField(r, ['MR No.','MR No','Patient Code','File No','FileNo']) || '',
         admittingDoctor: r['Admitting Doctor'] || getField(r, ['Admitting Doctor','Doctor','Physician']) || '',
         openedBy: r['Opened by'] || '',
-        price: r['Total Amount'] || '',
-        facilityID: r['Facility ID'] || ''
+        price: r['Net Amount'] || r['Gross Amount'] || r['Total Sponsor Amt'] || r['Total Amount'] || '',
+        facilityID: r['Facility ID'] || r['Center Name'] || ''
       };
 
       if (!out.memberID) {
