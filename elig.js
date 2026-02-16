@@ -11,7 +11,7 @@
 /* ===========================
    Version & Initialization
    =========================== */
-const VERSION = '2026.02.15.28';
+const VERSION = '2026.02.15.29';
 console.log(`✅ Eligibility Checker v${VERSION} loaded successfully`);
 
 /* ===========================
@@ -1229,15 +1229,16 @@ function renderResults(results, eligMap) {
   tableContainer.appendChild(table);
   resultsContainer.appendChild(tableContainer);
 
-  const summary = document.createElement('div');
-  summary.className = 'loaded-count mb-2';
-  summary.innerHTML = `
-    Processed ${processedRows} claims:
-    <span class="badge bg-success ms-2">${statusCounts.valid} valid</span>
-    <span class="badge bg-secondary ms-1">${statusCounts.unknown} unknown</span>
-    <span class="badge bg-danger ms-1">${statusCounts.invalid} invalid</span>
-  `;
-  resultsContainer.prepend(summary);
+  // Insert summary in the header area instead of in results
+  const summaryContainer = document.getElementById('resultsSummary');
+  if (summaryContainer) {
+    summaryContainer.innerHTML = `
+      <span class="small">Processed ${processedRows} claims:</span>
+      <span class="badge bg-success ms-2">${statusCounts.valid} valid</span>
+      <span class="badge bg-secondary ms-1">${statusCounts.unknown} unknown</span>
+      <span class="badge bg-danger ms-1">${statusCounts.invalid} invalid</span>
+    `;
+  }
 
   initEligibilityModal(results, lastEligMap);
 
