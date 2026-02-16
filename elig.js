@@ -11,7 +11,7 @@
 /* ===========================
    Version & Initialization
    =========================== */
-const VERSION = '2026.02.15.26';
+const VERSION = '2026.02.15.27';
 console.log(`✅ Eligibility Checker v${VERSION} loaded successfully`);
 
 /* ===========================
@@ -401,6 +401,34 @@ function prepareEligibilityMap(rawSheetArray) {
     
     const totalRows = rawSheetArray.length - headerRowIndex - 1;
     console.log(`📥 Building eligibility map from ${totalRows} eligibility records...`);
+    console.log(`📋 Header row found at index ${headerRowIndex}`);
+    console.log(`📋 Column headers (first 15):`, headers.slice(0, 15).join(', '));
+    
+    // Show first 3 raw data rows to inspect actual file structure
+    console.log(`\n🔍 RAW DATA INSPECTION - First 3 data rows from file:`);
+    for (let inspectIdx = headerRowIndex + 1; inspectIdx < Math.min(headerRowIndex + 4, rawSheetArray.length); inspectIdx++) {
+      const inspectRow = rawSheetArray[inspectIdx];
+      if (!Array.isArray(inspectRow)) continue;
+      const inspectRecord = {};
+      headers.forEach((h, idx) => {
+        if (inspectRow[idx] !== undefined && inspectRow[idx] !== null && inspectRow[idx] !== '') {
+          inspectRecord[h] = inspectRow[idx];
+        }
+      });
+      console.log(`   Row ${inspectIdx} (${Object.keys(inspectRecord).length} populated columns):`);
+      // Show all column names and first few chars of values
+      const sampleCols = Object.entries(inspectRecord).slice(0, 10);
+      sampleCols.forEach(([col, val]) => {
+        const valStr = String(val);
+        const preview = valStr.length > 30 ? valStr.substring(0, 30) + '...' : valStr;
+        console.log(`      "${col}": "${preview}"`);
+      });
+      if (Object.keys(inspectRecord).length > 10) {
+        console.log(`      ... and ${Object.keys(inspectRecord).length - 10} more columns`);
+      }
+    }
+    console.log(``);
+    
     let recordCount = 0;
     let columnUsed = '';
     let skippedBlankRows = 0;
