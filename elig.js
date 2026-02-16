@@ -929,7 +929,7 @@ function normalizeReportData(rawData) {
 
   return rows.map(r => {
     const isCombined = !!(r['Pri. Claim No'] && (r['Visit Id'] || r['Total Amount']));
-    const isInsta = !!(r['Pri. Claim No'] || r['Pri. Patient Insurance Card No']) && !isCombined;
+    const isInsta = !!(r['Pri. Claim No']) && !isCombined;
     const isOdoo = !!r['Pri. Claim ID'];
 
     if (isCombined) {
