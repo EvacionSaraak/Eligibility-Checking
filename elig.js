@@ -38,8 +38,12 @@ let lastReportWasCSV = false;
 // Keep last eligibility map so UI filters can re-render without rebuilding the map
 let lastEligMap = null;
 
+// Option to remove leading zeroes from member IDs and claim IDs
+let removeLeadingZeroes = false;
+
 // DOM Elements (lookups performed in initializeEventListeners)
 let reportInput, eligInput, processBtn, exportInvalidBtn, statusEl, resultsContainer, filterCheckbox, filterStatus, pasteTextarea, pasteBtn;
+let removeZeroesCheckbox, removeZeroesStatus;
 
 /* ===========================
    Small Utilities
@@ -51,7 +55,14 @@ function escapeHtml(s) {
 
 function normalizeMemberID(id) {
   if (!id) return "";
-  return String(id).replace(/\D/g, "").trim();
+  let normalized = String(id).replace(/\D/g, "").trim();
+  
+  // Optionally remove leading zeroes if the option is enabled
+  if (removeLeadingZeroes && normalized.length > 0) {
+    normalized = normalized.replace(/^0+/, '') || '0'; // Keep at least one zero if all zeroes
+  }
+  
+  return normalized;
 }
 
 function normalizeClinician(name) {
@@ -1778,6 +1789,22 @@ function onFilterToggle() {
   renderResults(displayed, eligMap, base);
 }
 
+function onRemoveZeroesToggle() {
+  if (!removeZeroesStatus) return;
+  const on = removeZeroesCheckbox && removeZeroesCheckbox.checked;
+  removeZeroesStatus.textContent = on ? 'ON' : 'OFF';
+  removeZeroesStatus.classList.toggle('active', on);
+  
+  // Update the global state
+  removeLeadingZeroes = on;
+  
+  // If we have data, we need to rebuild the eligibility map and re-process
+  if (eligData && xlsData) {
+    updateStatus('Option changed. Click Process to re-check with new settings.');
+    console.log(`🔧 Leading zeroes removal ${on ? 'ENABLED' : 'DISABLED'}. Re-processing required.`);
+  }
+}
+
 /* ===========================
    Initialization
    =========================== */
@@ -1790,6 +1817,8 @@ function initializeEventListeners() {
   resultsContainer = document.getElementById('results');
   filterCheckbox = document.getElementById('filterDamanThiqa');
   filterStatus = document.getElementById('filterStatus');
+  removeZeroesCheckbox = document.getElementById('removeLeadingZeroes');
+  removeZeroesStatus = document.getElementById('removeZeroesStatus');
   pasteTextarea = document.getElementById('pasteCsvTextarea');
   pasteBtn = document.getElementById('pasteCsvBtn');
 
@@ -1800,6 +1829,10 @@ function initializeEventListeners() {
   if (filterCheckbox) {
     filterCheckbox.checked = true;
     filterCheckbox.addEventListener('change', onFilterToggle);
+  }
+  if (removeZeroesCheckbox) {
+    removeZeroesCheckbox.checked = false;
+    removeZeroesCheckbox.addEventListener('change', onRemoveZeroesToggle);
   }
 
   // Setup status filter buttons
@@ -1838,6 +1871,7 @@ function initializeEventListeners() {
 
   if (pasteBtn) pasteBtn.addEventListener('click', handlePasteCsvClick);
   if (filterStatus) onFilterToggle();
+  if (removeZeroesStatus) onRemoveZeroesToggle();
 }
 
 document.addEventListener('DOMContentLoaded', () => {
