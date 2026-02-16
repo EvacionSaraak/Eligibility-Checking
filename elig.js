@@ -898,7 +898,8 @@ function normalizeReportData(rawData) {
           admittingDoctor: '',
           openedBy: row['Opened by'] || '',
           price: row['Total Amount'] || '',
-          facilityID: row['Facility ID'] || ''
+          facilityID: row['Facility ID'] || '',
+          sourceFile: row['Source File'] || ''
         };
       } else if (isInsta) {
         return {
@@ -989,7 +990,8 @@ function normalizeReportData(rawData) {
         admittingDoctor: '',
         openedBy: r['Opened by'] || '',
         price: r['Total Amount'] || '',
-        facilityID: r['Facility ID'] || ''
+        facilityID: r['Facility ID'] || '',
+        sourceFile: r['Source File'] || ''
       };
     } else if (isInsta) {
       return {
@@ -1137,7 +1139,8 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
         provider: row.insuranceCompany || '',
         openedBy: row.openedBy || '',
         price: row.price || '',
-        facilityID: row.facilityID || ''
+        facilityID: row.facilityID || '',
+        sourceFile: row.sourceFile || ''
       });
       continue;
     }
@@ -1203,7 +1206,8 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
       admittingDoctor: row.admittingDoctor || '',
       openedBy: row.openedBy || '',
       price: row.price || '',
-      facilityID: row.facilityID || ''
+      facilityID: row.facilityID || '',
+      sourceFile: row.sourceFile || ''
     });
   }
   return results;
@@ -1689,7 +1693,7 @@ function exportInvalidEntries(results) {
     'Admitting DEPT': entry.department || '',
     'Pri. Plan Type': entry.packageName || entry.provider || '',
     'Facility ID': entry.facilityID || '',
-    'File Name': sourceFileName || ''
+    'File Name': entry.sourceFile || sourceFileName || ''
   }));
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.json_to_sheet(exportData);
