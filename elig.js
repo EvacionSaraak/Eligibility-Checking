@@ -11,7 +11,7 @@
 /* ===========================
    Version & Initialization
    =========================== */
-const VERSION = '2026.02.15.31';
+const VERSION = '2026.02.15.32';
 console.log(`✅ Eligibility Checker v${VERSION} loaded successfully`);
 
 /* ===========================
@@ -1232,8 +1232,8 @@ function renderResults(results, eligMap) {
   // Insert summary badges directly into resultsTitle element with report type
   const resultsTitle = document.getElementById('resultsTitle');
   if (resultsTitle) {
-    const reportTypeText = detectedReportType === 'Insta' ? 'Insta Report Results' :
-                           detectedReportType === 'Odoo' ? 'Odoo Report Results' : 
+    const reportTypeText = detectedReportType === 'Insta' ? 'Insta Results' :
+                           detectedReportType === 'Odoo' ? 'Odoo Results' : 
                            'Results';
     resultsTitle.innerHTML = `
       ${reportTypeText}
