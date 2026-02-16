@@ -11,7 +11,7 @@
 /* ===========================
    Version & Initialization
    =========================== */
-const VERSION = '2026.02.15.20';
+const VERSION = '2026.02.15.21';
 console.log(`✅ Eligibility Checker v${VERSION} loaded successfully`);
 
 /* ===========================
@@ -39,7 +39,7 @@ let lastReportWasCSV = false;
 let lastEligMap = null;
 
 // DOM Elements (lookups performed in initializeEventListeners)
-let reportInput, eligInput, processBtn, exportInvalidBtn, statusEl, resultsContainer, filterCheckbox, filterStatus, pasteTextarea, pasteBtn, invalidOnlyCheckbox;
+let reportInput, eligInput, processBtn, exportInvalidBtn, statusEl, resultsContainer, filterCheckbox, filterStatus, pasteTextarea, pasteBtn;
 
 /* ===========================
    Small Utilities
@@ -944,11 +944,23 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
 /* ===========================
    Display helpers & rendering
    =========================== */
+// Track which status filters are active
+const activeStatusFilters = {
+  valid: true,
+  invalid: true,
+  unknown: true
+};
+
 function getDisplayedResultsFromStored(results) {
   const raw = results || window.lastValidationResults || [];
-  const invalidOnly = (invalidOnlyCheckbox && invalidOnlyCheckbox.checked) ? true : false;
-  if (!invalidOnly) return raw;
-  return raw.filter(r => r && r.finalStatus === 'invalid');
+  
+  // Filter based on active status filters
+  return raw.filter(r => {
+    if (!r || !r.finalStatus) return false;
+    const status = r.finalStatus.toLowerCase();
+    // Show the result if its status filter is active
+    return activeStatusFilters[status] === true;
+  });
 }
 
 function renderResults(results, eligMap) {
@@ -1568,7 +1580,6 @@ function initializeEventListeners() {
   filterStatus = document.getElementById('filterStatus');
   pasteTextarea = document.getElementById('pasteCsvTextarea');
   pasteBtn = document.getElementById('pasteCsvBtn');
-  invalidOnlyCheckbox = document.getElementById('filterInvalidOnly');
 
   if (eligInput) eligInput.addEventListener('change', (e) => handleFileUpload(e, 'eligibility'));
   if (reportInput) reportInput.addEventListener('change', (e) => handleFileUpload(e, 'report'));
@@ -1579,9 +1590,21 @@ function initializeEventListeners() {
     filterCheckbox.addEventListener('change', onFilterToggle);
   }
 
-  if (invalidOnlyCheckbox) {
-    invalidOnlyCheckbox.checked = true;
-    invalidOnlyCheckbox.addEventListener('change', () => {
+  // Setup status filter buttons
+  const filterValid = document.getElementById('filterValid');
+  const filterInvalid = document.getElementById('filterInvalid');
+  const filterUnknown = document.getElementById('filterUnknown');
+
+  const setupStatusFilter = (btn, status) => {
+    if (!btn) return;
+    btn.addEventListener('click', () => {
+      // Toggle the filter state
+      activeStatusFilters[status] = !activeStatusFilters[status];
+      
+      // Update button appearance
+      btn.classList.toggle('active', activeStatusFilters[status]);
+      
+      // Re-render results with updated filters
       if (!window.lastValidationResults) return;
       const base = window.lastValidationResults.slice();
       let preFiltered = base;
@@ -1595,7 +1618,11 @@ function initializeEventListeners() {
       const eligMap = lastEligMap || (eligData ? prepareEligibilityMap(eligData) : new Map());
       renderResults(displayed, eligMap);
     });
-  }
+  };
+
+  setupStatusFilter(filterValid, 'valid');
+  setupStatusFilter(filterInvalid, 'invalid');
+  setupStatusFilter(filterUnknown, 'unknown');
 
   if (pasteBtn) pasteBtn.addEventListener('click', handlePasteCsvClick);
   if (filterStatus) onFilterToggle();

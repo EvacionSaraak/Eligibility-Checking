@@ -19,7 +19,7 @@
   <!-- Main styles moved to tables.css -->
   <link rel="stylesheet" href="tables.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-  <script src="elig.js?v=2026.02.15.20"></script>
+  <script src="elig.js?v=2026.02.15.21"></script>
 </head>
 <body>
   <div class="app">
@@ -93,11 +93,19 @@
         <div class="results-header">
           <div class="results-title" id="resultsTitle">Results</div>
 
-          <!-- Result-window-only filters (invalid-only default checked) -->
+          <!-- Status filter buttons -->
           <div class="d-flex align-items-center gap-2">
-            <div class="form-check form-switch mb-0">
-              <input class="form-check-input" type="checkbox" id="filterInvalidOnly" checked>
-              <label class="form-check-label small" for="filterInvalidOnly">Invalid only</label>
+            <div class="d-flex align-items-center gap-2">
+              <span class="small text-muted">Show:</span>
+              <span class="status-filter-btn active" data-status="valid" id="filterValid" title="Click to toggle Valid results">
+                <span class="badge bg-success">Valid</span>
+              </span>
+              <span class="status-filter-btn active" data-status="invalid" id="filterInvalid" title="Click to toggle Invalid results">
+                <span class="badge bg-danger">Invalid</span>
+              </span>
+              <span class="status-filter-btn active" data-status="unknown" id="filterUnknown" title="Click to toggle Unknown results">
+                <span class="badge bg-warning text-dark">Unknown</span>
+              </span>
             </div>
             <div style="font-size:0.9rem; color:#6c757d;">Table output and export actions</div>
           </div>

@@ -721,3 +721,51 @@ html.dragging, html.dragging * { cursor: col-resize !important; }
   box-shadow: 0 0 0 3px rgba(0,123,255,0.15);
   border-radius: 2px;
 }
+
+/* === STATUS FILTER BUTTONS === */
+.status-filter-btn {
+  cursor: pointer;
+  user-select: none;
+  display: inline-block;
+  transition: opacity 0.2s ease, transform 0.1s ease;
+  position: relative;
+}
+
+.status-filter-btn:hover {
+  transform: scale(1.05);
+}
+
+.status-filter-btn:active {
+  transform: scale(0.95);
+}
+
+/* Inactive state - grayed out and semi-transparent */
+.status-filter-btn:not(.active) {
+  opacity: 0.4;
+  filter: grayscale(0.8);
+}
+
+.status-filter-btn:not(.active)::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: rgba(0, 0, 0, 0.5);
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+/* Active state - full color and opacity */
+.status-filter-btn.active {
+  opacity: 1;
+  filter: none;
+}
+
+.status-filter-btn .badge {
+  pointer-events: none;
+  font-size: 0.85rem;
+  padding: 0.35em 0.65em;
+  font-weight: 600;
+}
