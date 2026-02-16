@@ -11,7 +11,7 @@
 /* ===========================
    Version & Initialization
    =========================== */
-const VERSION = '2026.02.15.24';
+const VERSION = '2026.02.15.25';
 console.log(`✅ Eligibility Checker v${VERSION} loaded successfully`);
 
 /* ===========================
@@ -402,6 +402,7 @@ function prepareEligibilityMap(rawSheetArray) {
     const totalRows = rawSheetArray.length - headerRowIndex - 1;
     console.log(`📥 Building eligibility map from ${totalRows} eligibility records...`);
     let recordCount = 0;
+    let columnUsed = '';
 
     for (let i = headerRowIndex + 1; i < rawSheetArray.length; i++) {
       const row = rawSheetArray[i];
@@ -423,6 +424,7 @@ function prepareEligibilityMap(rawSheetArray) {
       for (const k of idCandidates) {
         if (Object.prototype.hasOwnProperty.call(record, k) && record[k]) {
           rawMemberID = String(record[k]).trim();
+          if (!columnUsed) columnUsed = k; // Track which column was used
           break;
         }
       }
@@ -430,6 +432,12 @@ function prepareEligibilityMap(rawSheetArray) {
       const memberID = normalizeMemberID(rawMemberID);
       if (!memberID) continue;
 
+      // Log first eligibility with column info
+      if (recordCount === 0) {
+        console.log(`📋 Using "${columnUsed}" column for member identification`);
+        console.log(`  Sample record:`, {[columnUsed]: rawMemberID, 'Request Number': record['Request Number'] || record['RequestNo'], Status: record['Status']});
+      }
+      
       // Log first 10 eligibilities to show mapping process
       recordCount++;
       if (recordCount <= 10) {
@@ -440,7 +448,10 @@ function prepareEligibilityMap(rawSheetArray) {
       eligMap.get(memberID).push(record);
     }
 
+    // Show ALL unique member IDs
+    const allKeys = Array.from(eligMap.keys());
     console.log(`✅ Map built with ${eligMap.size} unique member IDs`);
+    console.log(`   Full list: ${allKeys.join(', ')}`);
     return eligMap;
   }
 
@@ -517,16 +528,58 @@ function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians =
       if (eligMap.size === 0) {
         console.log(`  ❌ Eligibility map is EMPTY (no eligibilities loaded)`);
       } else {
-        const sampleIDs = Array.from(eligMap.keys()).slice(0, 5);
-        console.log(`  ❌ NOT FOUND in map (${eligMap.size} members loaded). Sample IDs: ${sampleIDs.join(', ')}`);
+        console.log(``);
+        console.log(`  🔎 Exhaustive search through ALL ${eligMap.size} member IDs:`);
         
-        // Check for similar IDs
-        const similarIDs = Array.from(eligMap.keys()).filter(id => {
-          return id.includes(normalizedID) || normalizedID.includes(id);
-        }).slice(0, 3);
-        if (similarIDs.length > 0) {
-          console.log(`     ⚠️  Similar IDs in map: ${similarIDs.join(', ')}`);
+        const allMapKeys = Array.from(eligMap.keys());
+        
+        // Exact match (should be false if we're here)
+        const exactMatch = allMapKeys.includes(normalizedID);
+        console.log(`     • Exact match: ${exactMatch ? 'YES' : 'NO'}`);
+        
+        // Partial match - map ID contains claim ID
+        const partialMatches = allMapKeys.filter(k => k.includes(normalizedID));
+        if (partialMatches.length > 0) {
+          console.log(`     • Partial (map contains "${normalizedID}"): ${partialMatches.slice(0, 3).join(', ')}`);
+        } else {
+          console.log(`     • Partial (map contains "${normalizedID}"): NO`);
         }
+        
+        // Reverse match - claim ID contains map ID
+        const reverseMatches = allMapKeys.filter(k => normalizedID.includes(k));
+        if (reverseMatches.length > 0) {
+          console.log(`     • Reverse ("${normalizedID}" contains map ID): ${reverseMatches.slice(0, 3).join(', ')}`);
+        } else {
+          console.log(`     • Reverse ("${normalizedID}" contains map ID): NO`);
+        }
+        
+        // Prefix match
+        if (normalizedID.length >= 3) {
+          const prefix = normalizedID.substring(0, 3);
+          const prefixMatches = allMapKeys.filter(k => k.startsWith(prefix));
+          if (prefixMatches.length > 0) {
+            console.log(`     • Starts with "${prefix}": ${prefixMatches.slice(0, 3).join(', ')}`);
+          } else {
+            console.log(`     • Starts with "${prefix}": NO`);
+          }
+        }
+        
+        // Suffix match
+        if (normalizedID.length >= 3) {
+          const suffix = normalizedID.substring(normalizedID.length - 3);
+          const suffixMatches = allMapKeys.filter(k => k.endsWith(suffix));
+          if (suffixMatches.length > 0) {
+            console.log(`     • Ends with "${suffix}": ${suffixMatches.slice(0, 3).join(', ')}`);
+          } else {
+            console.log(`     • Ends with "${suffix}": NO`);
+          }
+        }
+        
+        console.log(``);
+        console.log(`  ❌ Member "${normalizedID}" not found in ANY form in the map`);
+        
+        const sampleIDs = allMapKeys.slice(0, 5);
+        console.log(`  Sample IDs in map: ${sampleIDs.join(', ')}`);
       }
     }
     return null;
