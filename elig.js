@@ -11,7 +11,7 @@
 /* ===========================
    Version & Initialization
    =========================== */
-const VERSION = '2026.02.15.18';
+const VERSION = '2026.02.15.19';
 console.log(`✅ Eligibility Checker v${VERSION} loaded successfully`);
 
 /* ===========================
@@ -480,40 +480,48 @@ function isDamanOrThiqa(provider) {
  * @param {Array} claimClinicians - Array of clinician names/IDs
  * @param {string} provider - Provider/insurance name (used to filter diagnostic logging to Daman/Thiqa only)
  * @param {boolean} forceLog - Force diagnostic logging regardless of provider
- * @param {boolean} logEligDetails - Log eligibility date details for first 3 claims
+ * @param {number} claimIndex - Index of the claim (for logging first 3)
  * @returns {Object|null} - Matching eligibility record or null
  */
-function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians = [], provider = '', forceLog = false) {
+function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians = [], provider = '', forceLog = false, claimIndex = 0) {
   const normalizedID = normalizeMemberID(memberID || '');
   const eligList = eligMap.get(normalizedID) || [];
   if (!eligList.length) return null;
   
-  // Only log diagnostics when explicitly requested via diagnostics button
-  const shouldLog = forceLog || false;
+  // Log for first 3 claims
+  const shouldLog = claimIndex > 0 && claimIndex <= 3;
   
   if (shouldLog) {
-    console.log(`[Diagnostics] Searching eligibilities for member "${memberID}" (normalized: "${normalizedID}")`);
-    console.log(`[Diagnostics] Claim date: ${claimDate} (${DateHandler.format(claimDate)}), Claim clinicians: ${JSON.stringify(claimClinicians)}`);
+    console.log(`\n🔍 CLAIM #${claimIndex} - Comparing dates for all eligibilities:`);
+    console.log(`  Claim date: ${DateHandler.format(claimDate)} (UTC: ${claimDate.toISOString()})`);
+    console.log(`  Member: ${memberID}, Eligibilities found: ${eligList.length}`);
   }
   
   for (const elig of eligList) {
-    if (shouldLog) {
-      console.log(`[Diagnostics] Checking eligibility ${elig["Eligibility Request Number"] || "(unknown)"}:`);
-    }
-    
     const eligDate = DateHandler.parse(elig["Answered On"], { preferMDY: false });
     
-    if (!DateHandler.isSameDay(claimDate, eligDate)) {
-      if (shouldLog) {
-        console.log(`  ❌ Date mismatch: claim ${DateHandler.format(claimDate)} vs elig ${DateHandler.format(eligDate)}`);
+    if (shouldLog) {
+      const eligNum = elig["Eligibility Request Number"] || "(unknown)";
+      console.log(`\n  Eligibility #${eligNum}:`);
+      console.log(`    Answered On (raw): "${elig["Answered On"]}"`);
+      if (eligDate) {
+        console.log(`    Parsed date: ${DateHandler.format(eligDate)} (UTC: ${eligDate.toISOString()})`);
+        console.log(`    Comparison: Claim ${claimDate.getUTCFullYear()}-${claimDate.getUTCMonth()+1}-${claimDate.getUTCDate()} vs Elig ${eligDate.getUTCFullYear()}-${eligDate.getUTCMonth()+1}-${eligDate.getUTCDate()}`);
+        const matches = DateHandler.isSameDay(claimDate, eligDate);
+        console.log(`    Date Match: ${matches ? '✅ YES' : '❌ NO'}`);
+      } else {
+        console.log(`    ❌ Failed to parse eligibility date`);
       }
+    }
+    
+    if (!DateHandler.isSameDay(claimDate, eligDate)) {
       continue;
     }
     
     const eligClinician = (elig.Clinician || '').trim();
     if (eligClinician && claimClinicians.length && !claimClinicians.includes(eligClinician)) {
       if (shouldLog) {
-        console.log(`  ❌ Clinician mismatch: claim clinicians ${JSON.stringify(claimClinicians)} vs elig clinician "${eligClinician}"`);
+        console.log(`    Clinician mismatch (skipping this eligibility)`);
       }
       continue;
     }
@@ -525,27 +533,37 @@ function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians =
     
     if (!categoryCheck.valid) {
       if (shouldLog) {
-        console.log(`  ❌ Service category validation failed: claim dept "${department}" not valid for category "${serviceCategory}" / consult "${consultationStatus}"`);
+        console.log(`    Service category validation failed (skipping this eligibility)`);
       }
       continue;
     }
     
     if ((elig.Status || '').toLowerCase() !== 'eligible') {
       if (shouldLog) {
-        console.log(`  ❌ Status mismatch: expected Eligible, got "${elig.Status}"`);
+        console.log(`    Status is not 'eligible' (skipping this eligibility)`);
       }
       continue;
     }
     
     if (shouldLog) {
-      console.log(`  ✅ Eligibility match found: ${elig["Eligibility Request Number"]}`);
+      console.log(`    ✅ MATCH FOUND - Using this eligibility`);
     }
+    
+    if (usedEligibilities.has(elig['Eligibility Request Number'])) {
+      if (shouldLog) {
+        console.log(`    ⚠️  Already used for another claim`);
+      }
+    } else {
+      usedEligibilities.add(elig['Eligibility Request Number']);
+    }
+    
     return elig;
   }
   
   if (shouldLog) {
-    console.log(`[Diagnostics] No matching eligibility passed all checks for member "${memberID}"`);
+    console.log(`  ❌ No matching eligibility found after checking all ${eligList.length} eligibilities\n`);
   }
+  
   return null;
 }
 
@@ -798,9 +816,6 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
   const seenClaimIDs = new Set(); // Track claim IDs to avoid duplicates
   let claimIndex = 0; // Track claim index for detailed logging (first 3 non-duplicate claims)
   
-  // Log report type at the start of validation
-  console.log(`📊 validateReportClaims called with reportType: "${reportType}"`);
-  
   for (let i = 0; i < reportDataArray.length; i++) {
     const row = reportDataArray[i];
     const claimID = String(row.claimID || '').trim();
@@ -808,7 +823,6 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
     
     // Skip duplicate claim IDs - keep only first occurrence
     if (seenClaimIDs.has(claimID)) {
-      // Removed console log for duplicates
       continue;
     }
     seenClaimIDs.add(claimID);
@@ -827,45 +841,12 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
     // Apply swap ONLY for Insta reports (claim dates are backwards in Insta CSV)
     // Eligibility dates are NOT swapped (they are already correct)
     let wasSwapped = false;
-    if (claimIndex <= 3) {
-      console.log(`  📌 Checking swap: reportType="${reportType}", hasClaimDate=${!!claimDate}`);
-    }
     if (reportType === 'Insta' && claimDate) {
       const originalDate = new Date(claimDate);
       const swappedDate = DateHandler._swapDayMonth(claimDate);
       if (swappedDate.getTime() !== originalDate.getTime()) {
         claimDate = swappedDate;
         wasSwapped = true;
-      }
-    }
-    
-    // Log detailed date conversion for first 3 non-duplicate claims
-    if (claimIndex <= 3) {
-      console.log(`🔍 DATE CONVERSION #${claimIndex} - Claim: ${claimID}, Member: ${rawMemberID}`);
-      console.log(`  Raw date string from report: "${row.claimDate}"`);
-      console.log(`  Insurance: ${insurance}`);
-      
-      // Show what format the date is in
-      const rawDate = row.claimDate;
-      const isExcelSerial = typeof rawDate === 'number' || (typeof rawDate === 'string' && /^[\d.]+$/.test(rawDate.trim()));
-      if (isExcelSerial) {
-        console.log(`  ℹ️  Excel serial number detected`);
-      }
-      
-      if (wasSwapped) {
-        // Show the swap that was applied for Insta reports
-        const originalDate = DateHandler.parse(row.claimDate, { preferMDY: false });
-        console.log(`  ⚠️  Insta report detected - swapping claim date day/month`);
-        console.log(`  ⚠️  Original: ${DateHandler.format(originalDate)} → Swapped: ${DateHandler.format(claimDate)}`);
-      }
-      
-      if (claimDate) {
-        console.log(`  ✅ Parsed Date object: ${claimDate.toISOString()}`);
-        const formatted = DateHandler.format(claimDate);
-        console.log(`  ✅ Formatted output: "${formatted}"`);
-        console.log(`  UTC Components: Year=${claimDate.getUTCFullYear()}, Month=${claimDate.getUTCMonth() + 1}, Day=${claimDate.getUTCDate()}`);
-      } else {
-        console.log(`  ❌ FAILED TO PARSE DATE!`);
       }
     }
     
@@ -887,7 +868,8 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
     // Check for leading zero in original memberID
     const hasLeadingZero = rawMemberID.match(/^0+\d+$/);
     
-    const eligibility = findEligibilityForClaim(eligMap, claimDate, memberID, [row.clinician], insurance);
+    // Pass claimIndex to enable logging for first 3 claims
+    const eligibility = findEligibilityForClaim(eligMap, claimDate, memberID, [row.clinician], insurance, false, claimIndex);
     let finalStatus = 'invalid', remarks = [];
     
     if (hasLeadingZero) {
@@ -904,7 +886,6 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
           if (!packageNamesMatch(row.packageName, eligibility['Package Name'])) {
             finalStatus = 'invalid';
             remarks.push(`Package name mismatch: claim has "${row.packageName}", eligibility has "${eligibility['Package Name']}"`);
-            // Removed console log for package mismatches
           } else {
             finalStatus = 'valid';
           }
@@ -1407,12 +1388,10 @@ async function handleFileUpload(event, type) {
       
       // Detect report type BEFORE normalization
       detectedReportType = detectReportType(parsed);
-      console.log(`📋 Report type detected during upload: ${detectedReportType}`);
       
       const normalized = normalizeReportData(parsed);
       xlsData = normalized.filter(r => r && r.claimID && String(r.claimID).trim() !== '');
       if (!xlsData || xlsData.length === 0) {
-        console.warn('Report file contained no recognizable claim rows');
         // Reset report type if no valid data
         detectedReportType = 'Generic';
       }
@@ -1439,7 +1418,6 @@ async function handlePasteCsvClick() {
     
     // Detect report type BEFORE normalization
     detectedReportType = detectReportType(parsed);
-    console.log(`📋 Report type detected during paste: ${detectedReportType}`);
     
     const normalized = normalizeReportData(parsed);
     xlsData = normalized.filter(r => r && r.claimID && String(r.claimID).trim() !== '');
@@ -1472,15 +1450,6 @@ async function handleProcessClick() {
 
     // Use the report type that was detected during file upload (before normalization)
     const reportType = detectedReportType;
-    
-    // Log the normalized column headers for debugging
-    const firstRow = xlsData[0];
-    if (firstRow) {
-      console.log('📋 Normalized columns in data:', Object.keys(firstRow).join(', '));
-    }
-    
-    // Log the report type
-    console.log(`🔍 Report Type: ${reportType}`);
     
     // Validate that we detected a valid report type
     if (reportType === 'Generic') {
