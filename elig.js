@@ -800,7 +800,7 @@ function logNoEligibilityMatch(sourceType, claimSummary, memberID, parsedClaimDa
 /**
  * Detect report type from raw parsed data (before normalization)
  * @param {Array|Object} rawData - Raw data from Excel/CSV parser
- * @returns {string} - 'Insta', 'Odoo', or 'Generic'
+ * @returns {string} - 'Insta', 'Odoo', 'Combined', or 'Generic'
  */
 function detectReportType(rawData) {
   if (!rawData) return 'Generic';
@@ -810,6 +810,8 @@ function detectReportType(rawData) {
     const detection = findHeaderRowFromArrays(rawData, 50);
     if (detection.rows && detection.rows.length > 0) {
       const sample = detection.rows[0];
+      // Check for Combined report first (has Pri. Claim No + Visit Id or Total Amount)
+      if (sample.hasOwnProperty('Pri. Claim No') && (sample.hasOwnProperty('Visit Id') || sample.hasOwnProperty('Total Amount'))) return 'Combined';
       if (sample.hasOwnProperty('Pri. Claim No')) return 'Insta';
       if (sample.hasOwnProperty('Pri. Claim ID')) return 'Odoo';
     }
@@ -819,6 +821,8 @@ function detectReportType(rawData) {
   // If it's already an array of objects
   if (Array.isArray(rawData) && rawData.length > 0 && typeof rawData[0] === 'object' && !Array.isArray(rawData[0])) {
     const sample = rawData[0];
+    // Check for Combined report first (has Pri. Claim No + Visit Id or Total Amount)
+    if (sample.hasOwnProperty('Pri. Claim No') && (sample.hasOwnProperty('Visit Id') || sample.hasOwnProperty('Total Amount'))) return 'Combined';
     if (sample.hasOwnProperty('Pri. Claim No')) return 'Insta';
     if (sample.hasOwnProperty('Pri. Claim ID')) return 'Odoo';
     return 'Generic';
@@ -827,6 +831,8 @@ function detectReportType(rawData) {
   // If it has a {headers, rows} shape
   if (rawData.rows && Array.isArray(rawData.rows) && rawData.rows.length > 0) {
     const sample = rawData.rows[0];
+    // Check for Combined report first (has Pri. Claim No + Visit Id or Total Amount)
+    if (sample.hasOwnProperty('Pri. Claim No') && (sample.hasOwnProperty('Visit Id') || sample.hasOwnProperty('Total Amount'))) return 'Combined';
     if (sample.hasOwnProperty('Pri. Claim No')) return 'Insta';
     if (sample.hasOwnProperty('Pri. Claim ID')) return 'Odoo';
     return 'Generic';
@@ -852,10 +858,24 @@ function normalizeReportData(rawData) {
   // If rawData is an array of plain objects (not the {headers, rows} shape), handle that too.
   if (Array.isArray(rawData) && rawData.length > 0 && !rawData.headers && typeof rawData[0] === 'object' && !Array.isArray(rawData[0])) {
     const sample = rawData[0];
-    const isInsta = sample.hasOwnProperty('Pri. Claim No');
+    const isCombined = sample.hasOwnProperty('Pri. Claim No') && (sample.hasOwnProperty('Visit Id') || sample.hasOwnProperty('Total Amount'));
+    const isInsta = sample.hasOwnProperty('Pri. Claim No') && !isCombined;
     const isOdoo = sample.hasOwnProperty('Pri. Claim ID');
     return rawData.map(row => {
-      if (isInsta) {
+      if (isCombined) {
+        return {
+          claimID: row['Pri. Claim No'] || '',
+          memberID: row['Pri. Patient Insurance Card No'] || '',
+          claimDate: row['Encounter Date'] || '',
+          clinician: row['Clinician License'] || '',
+          department: row['Department'] || '',
+          packageName: row['Pri. Plan Type'] || '',
+          insuranceCompany: row['Pri. Plan Type'] || '',
+          claimStatus: '',
+          fileNo: row['Patient Code'] || '',
+          admittingDoctor: ''
+        };
+      } else if (isInsta) {
         return {
           claimID: row['Pri. Claim No'] || '',
           memberID: row['Pri. Patient Insurance Card No'] || '',
@@ -908,10 +928,24 @@ function normalizeReportData(rawData) {
   }
 
   return rows.map(r => {
-    const isInsta = !!(r['Pri. Claim No'] || r['Pri. Patient Insurance Card No']);
+    const isCombined = !!(r['Pri. Claim No'] && (r['Visit Id'] || r['Total Amount']));
+    const isInsta = !!(r['Pri. Claim No'] || r['Pri. Patient Insurance Card No']) && !isCombined;
     const isOdoo = !!r['Pri. Claim ID'];
 
-    if (isInsta) {
+    if (isCombined) {
+      return {
+        claimID: r['Pri. Claim No'] || '',
+        memberID: r['Pri. Patient Insurance Card No'] || '',
+        claimDate: r['Encounter Date'] || '',
+        clinician: r['Clinician License'] || '',
+        department: r['Department'] || '',
+        packageName: r['Pri. Plan Type'] || '',
+        insuranceCompany: r['Pri. Plan Type'] || '',
+        claimStatus: '',
+        fileNo: r['Patient Code'] || '',
+        admittingDoctor: ''
+      };
+    } else if (isInsta) {
       return {
         claimID: r['Pri. Claim No'] || '',
         memberID: r['Pri. Patient Insurance Card No'] || '',
@@ -1248,7 +1282,8 @@ function renderResults(results, eligMap, totalResults = null) {
   const resultsTitle = document.getElementById('resultsTitle');
   if (resultsTitle) {
     const reportTypeText = detectedReportType === 'Insta' ? 'Insta Results' :
-                           detectedReportType === 'Odoo' ? 'Odoo Results' : 
+                           detectedReportType === 'Odoo' ? 'Odoo Results' :
+                           detectedReportType === 'Combined' ? 'Combined Results' :
                            'Results';
     resultsTitle.textContent = `${displayedRows.length} ${reportTypeText}`;
   }
@@ -1665,16 +1700,18 @@ async function handleProcessClick() {
       const errorMsg = `❌ Unable to detect report type from uploaded file.\n\n` +
                        `Expected original columns in file:\n` +
                        `  • Insta report must have: "Pri. Claim No"\n` +
-                       `  • Odoo report must have: "Pri. Claim ID"\n\n` +
+                       `  • Odoo report must have: "Pri. Claim ID"\n` +
+                       `  • Combined report must have: "Pri. Claim No" and "Visit Id" (or "Total Amount")\n\n` +
                        `These columns were not found in your file.\n` +
-                       `Please verify you're uploading a valid Insta or Odoo export.`;
+                       `Please verify you're uploading a valid Insta, Odoo, or Combined export.`;
       console.error(errorMsg);
       updateStatus('Error: Unknown report type - see console for details');
       alert(`Cannot process report file.\n\n` +
-            `This file does not appear to be a valid Insta or Odoo report.\n\n` +
+            `This file does not appear to be a valid Insta, Odoo, or Combined report.\n\n` +
             `Expected columns in original file:\n` +
             `  • Insta reports must have: "Pri. Claim No"\n` +
-            `  • Odoo reports must have: "Pri. Claim ID"\n\n` +
+            `  • Odoo reports must have: "Pri. Claim ID"\n` +
+            `  • Combined reports must have: "Pri. Claim No" and "Visit Id" (or "Total Amount")\n\n` +
             `Please check your file and try again.`);
       return; // Stop processing
     }
@@ -1686,6 +1723,8 @@ async function handleProcessClick() {
         resultsTitle.textContent = 'Insta Report Results';
       } else if (reportType === 'Odoo') {
         resultsTitle.textContent = 'Odoo Report Results';
+      } else if (reportType === 'Combined') {
+        resultsTitle.textContent = 'Combined Report Results';
       } else {
         resultsTitle.textContent = 'Results';
       }
