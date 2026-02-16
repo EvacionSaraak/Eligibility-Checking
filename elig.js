@@ -1411,7 +1411,11 @@ async function handleFileUpload(event, type) {
       
       const normalized = normalizeReportData(parsed);
       xlsData = normalized.filter(r => r && r.claimID && String(r.claimID).trim() !== '');
-      if (!xlsData || xlsData.length === 0) console.warn('Report file contained no recognizable claim rows');
+      if (!xlsData || xlsData.length === 0) {
+        console.warn('Report file contained no recognizable claim rows');
+        // Reset report type if no valid data
+        detectedReportType = 'Generic';
+      }
       updateStatus(`Loaded ${xlsData.length} report rows`);
       updateProcessButtonState();
       if (eligData && (rawParsedReport || xlsData)) summarizeAndDisplayCounts();
@@ -1439,6 +1443,10 @@ async function handlePasteCsvClick() {
     
     const normalized = normalizeReportData(parsed);
     xlsData = normalized.filter(r => r && r.claimID && String(r.claimID).trim() !== '');
+    if (xlsData.length === 0) {
+      // Reset report type if no valid data
+      detectedReportType = 'Generic';
+    }
     updateStatus(`Loaded ${xlsData.length} rows from pasted CSV`);
     updateProcessButtonState();
     if (eligData && (rawParsedReport || xlsData)) summarizeAndDisplayCounts();
@@ -1446,6 +1454,8 @@ async function handlePasteCsvClick() {
     console.error('Error parsing pasted CSV:', err);
     updateStatus('Error parsing pasted CSV');
     alert('Failed to parse pasted CSV');
+    // Reset report type on error
+    detectedReportType = 'Generic';
   }
 }
 
@@ -1474,20 +1484,20 @@ async function handleProcessClick() {
     
     // Validate that we detected a valid report type
     if (reportType === 'Generic') {
-      const columnList = firstRow ? Object.keys(firstRow).join(', ') : 'No columns found';
-      const errorMsg = `❌ Unable to detect report type. Expected either:\n` +
-                       `  • Insta report (must have column "Pri. Claim No")\n` +
-                       `  • Odoo report (must have column "Pri. Claim ID")\n\n` +
-                       `Found normalized columns: ${columnList}`;
+      const errorMsg = `❌ Unable to detect report type from uploaded file.\n\n` +
+                       `Expected original columns in file:\n` +
+                       `  • Insta report must have: "Pri. Claim No"\n` +
+                       `  • Odoo report must have: "Pri. Claim ID"\n\n` +
+                       `These columns were not found in your file.\n` +
+                       `Please verify you're uploading a valid Insta or Odoo export.`;
       console.error(errorMsg);
       updateStatus('Error: Unknown report type - see console for details');
       alert(`Cannot process report file.\n\n` +
             `This file does not appear to be a valid Insta or Odoo report.\n\n` +
-            `Expected columns:\n` +
+            `Expected columns in original file:\n` +
             `  • Insta reports must have: "Pri. Claim No"\n` +
             `  • Odoo reports must have: "Pri. Claim ID"\n\n` +
-            `Please check your file and try again.\n\n` +
-            `See browser console for full column list.`);
+            `Please check your file and try again.`);
       return; // Stop processing
     }
 
