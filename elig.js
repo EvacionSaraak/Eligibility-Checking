@@ -11,7 +11,7 @@
 /* ===========================
    Version & Initialization
    =========================== */
-const VERSION = '2026.02.15.23';
+const VERSION = '2026.02.15.24';
 console.log(`✅ Eligibility Checker v${VERSION} loaded successfully`);
 
 /* ===========================
@@ -398,6 +398,10 @@ function prepareEligibilityMap(rawSheetArray) {
 
     const headers = (rawSheetArray[headerRowIndex] || []).map(h => String(h || '').trim());
     const eligMap = new Map();
+    
+    const totalRows = rawSheetArray.length - headerRowIndex - 1;
+    console.log(`📥 Building eligibility map from ${totalRows} eligibility records...`);
+    let recordCount = 0;
 
     for (let i = headerRowIndex + 1; i < rawSheetArray.length; i++) {
       const row = rawSheetArray[i];
@@ -426,10 +430,17 @@ function prepareEligibilityMap(rawSheetArray) {
       const memberID = normalizeMemberID(rawMemberID);
       if (!memberID) continue;
 
+      // Log first 10 eligibilities to show mapping process
+      recordCount++;
+      if (recordCount <= 10) {
+        console.log(`  Elig ${recordCount}: Raw="${rawMemberID}" → Normalized="${memberID}" → Map key="${memberID}"`);
+      }
+
       if (!eligMap.has(memberID)) eligMap.set(memberID, []);
       eligMap.get(memberID).push(record);
     }
 
+    console.log(`✅ Map built with ${eligMap.size} unique member IDs`);
     return eligMap;
   }
 
@@ -485,26 +496,36 @@ function isDamanOrThiqa(provider) {
  */
 function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians = [], provider = '', forceLog = false, claimIndex = 0) {
   const normalizedID = normalizeMemberID(memberID || '');
+  
+  // Log lookup process for first 3 claims
+  const shouldLog = claimIndex > 0 && claimIndex <= 3;
+  if (shouldLog) {
+    console.log(`🔍 CLAIM #${claimIndex} - Member ID Lookup:`);
+    console.log(`  1️⃣ Raw from claim: "${memberID}"`);
+    console.log(`  2️⃣ Normalized: "${normalizedID}"`);
+    console.log(`  3️⃣ Lookup: eligibilityMap["${normalizedID}"]`);
+  }
+  
   const eligList = eligMap.get(normalizedID) || [];
   
-  // Log for first 3 claims
-  const shouldLog = claimIndex > 0 && claimIndex <= 3;
+  if (shouldLog) {
+    console.log(`  4️⃣ Result: ${eligList.length > 0 ? `Found ${eligList.length} eligibilities` : 'undefined (NOT FOUND)'}`);
+  }
   
   if (!eligList.length) {
     if (shouldLog) {
       if (eligMap.size === 0) {
-        console.log(`❌ CLAIM #${claimIndex}: Member ${memberID} - Eligibility map is EMPTY (no eligibilities loaded)`);
+        console.log(`  ❌ Eligibility map is EMPTY (no eligibilities loaded)`);
       } else {
         const sampleIDs = Array.from(eligMap.keys()).slice(0, 5);
-        const normalizedNote = (normalizedID !== memberID) ? ` (normalized from "${memberID}")` : '';
-        console.log(`❌ CLAIM #${claimIndex}: Member ${normalizedID}${normalizedNote} NOT FOUND in map (${eligMap.size} members loaded). Sample IDs: ${sampleIDs.join(', ')}`);
+        console.log(`  ❌ NOT FOUND in map (${eligMap.size} members loaded). Sample IDs: ${sampleIDs.join(', ')}`);
         
         // Check for similar IDs
         const similarIDs = Array.from(eligMap.keys()).filter(id => {
           return id.includes(normalizedID) || normalizedID.includes(id);
         }).slice(0, 3);
         if (similarIDs.length > 0) {
-          console.log(`   ⚠️  Similar IDs in map: ${similarIDs.join(', ')}`);
+          console.log(`     ⚠️  Similar IDs in map: ${similarIDs.join(', ')}`);
         }
       }
     }
