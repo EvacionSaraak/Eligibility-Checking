@@ -11,7 +11,7 @@
 /* ===========================
    Version & Initialization
    =========================== */
-const VERSION = '2026.02.15.16';
+const VERSION = '2026.02.15.17';
 console.log(`✅ Eligibility Checker v${VERSION} loaded successfully`);
 
 /* ===========================
@@ -291,17 +291,33 @@ function findHeaderRowFromArrays(allRows, maxScan = 10) {
 
   const headerRowIndex = bestScore > 0 ? bestIndex : 0;
   const rawHeaderRow = allRows[headerRowIndex] || [];
-  const headers = rawHeaderRow.map(h => (h === null || h === undefined) ? '' : String(h).trim());
+  
+  // Build a mapping of non-empty headers to their column indices
+  const headerMapping = [];
+  for (let c = 0; c < rawHeaderRow.length; c++) {
+    const headerValue = rawHeaderRow[c];
+    const headerStr = (headerValue === null || headerValue === undefined || headerValue === '') 
+      ? '' 
+      : String(headerValue).trim();
+    
+    // Only include non-empty headers
+    if (headerStr !== '') {
+      headerMapping.push({ index: c, name: headerStr });
+    }
+  }
+  
+  const headers = headerMapping.map(h => h.name);
   const dataRows = allRows.slice(headerRowIndex + 1);
 
   const rows = dataRows.map(rowArray => {
     const obj = {};
-    for (let c = 0; c < headers.length; c++) {
-      const key = headers[c] || `Column${c+1}`;
-      obj[key] = rowArray[c] === undefined || rowArray[c] === null ? '' : rowArray[c];
+    // Map only the non-empty header columns to the object
+    for (const { index, name } of headerMapping) {
+      obj[name] = rowArray[index] === undefined || rowArray[index] === null ? '' : rowArray[index];
     }
     return obj;
   });
+  
   return { headerRowIndex, headers, rows };
 }
 
