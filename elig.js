@@ -1083,6 +1083,7 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
     }
 
     // Check for leading zero in original memberID
+    // Only mark as invalid if the removeLeadingZeroes option is OFF
     const hasLeadingZero = rawMemberID.match(/^0+\d+$/);
     
     if (claimIndex <= 3) {
@@ -1093,7 +1094,8 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
     const eligibility = findEligibilityForClaim(eligMap, claimDate, memberID, [row.clinician], insurance, false, claimIndex);
     let finalStatus = 'invalid', remarks = [];
     
-    if (hasLeadingZero) {
+    // Only treat leading zero as invalid if the option to remove them is OFF
+    if (hasLeadingZero && !removeLeadingZeroes) {
       finalStatus = 'invalid';
       remarks.push('Member ID has a leading zero; claim marked as invalid.');
     } else if (!eligibility) {
