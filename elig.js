@@ -1163,7 +1163,7 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
       finalStatus = 'invalid';
       remarks.push('Member ID has a leading zero; claim marked as invalid.');
     } else if (!eligibility) {
-      remarks.push(`No matching eligibility found for ${memberID} on ${formattedDate}`);
+      remarks.push('Eligibility Not Taken');
     } else if (eligibility.Status?.toLowerCase() === 'eligible') {
       const categoryCheck = isServiceCategoryValid(eligibility['Service Category'], eligibility['Consultation Status'], (row.department || '').toLowerCase());
       if (categoryCheck.valid) {
