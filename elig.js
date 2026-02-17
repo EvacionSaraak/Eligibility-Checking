@@ -42,9 +42,13 @@ let lastEligMap = null;
 // Option to remove leading zeroes from member IDs and claim IDs
 let removeLeadingZeroes = false;
 
+// Option to show/hide diagnostics buttons
+let showDiagnosticsButtons = true;
+
 // DOM Elements (lookups performed in initializeEventListeners)
 let reportInput, eligInput, processBtn, exportInvalidBtn, statusEl, resultsContainer, filterCheckbox, filterStatus, pasteTextarea, pasteBtn;
 let removeZeroesCheckbox, removeZeroesStatus;
+let diagnosticsCheckbox, diagnosticsStatus;
 
 /* ===========================
    Small Utilities
@@ -1339,14 +1343,19 @@ function renderResults(results, eligMap, totalResults = null) {
         data-claimdate="${escapeHtml(result.encounterStart)}"
         data-claimclinician="${escapeHtml(result.clinician || '')}"
         data-claimpackage="${escapeHtml(result.packageName || '')}">View eligibilities</button>`;
-      detailsCellHtml += ` <button class="btn btn-sm btn-outline-info show-diagnostics" data-index="${index}" title="Show diagnostic logging for this claim">
-        <i class="bi bi-terminal"></i> Diagnostics
-      </button>`;
+      // Conditionally add diagnostics button based on toggle state
+      if (showDiagnosticsButtons) {
+        detailsCellHtml += ` <button class="btn btn-sm btn-outline-info show-diagnostics" data-index="${index}" title="Show diagnostic logging for this claim">
+          <i class="bi bi-terminal"></i> Diagnostics
+        </button>`;
+      }
     } else {
-      // Even if no eligibility found, add diagnostics button to help debug why
-      detailsCellHtml = `<button class="btn btn-sm btn-outline-info show-diagnostics" data-index="${index}" title="Show diagnostic logging for this claim">
-        <i class="bi bi-terminal"></i> Diagnostics
-      </button>`;
+      // Even if no eligibility found, conditionally add diagnostics button to help debug why
+      if (showDiagnosticsButtons) {
+        detailsCellHtml = `<button class="btn btn-sm btn-outline-info show-diagnostics" data-index="${index}" title="Show diagnostic logging for this claim">
+          <i class="bi bi-terminal"></i> Diagnostics
+        </button>`;
+      }
     }
 
     row.innerHTML = `
@@ -1978,6 +1987,23 @@ function onRemoveZeroesToggle() {
   }
 }
 
+function onDiagnosticsToggle() {
+  if (!diagnosticsStatus) return;
+  const on = diagnosticsCheckbox && diagnosticsCheckbox.checked;
+  diagnosticsStatus.textContent = on ? 'ON' : 'OFF';
+  diagnosticsStatus.classList.toggle('active', on);
+  
+  // Update the global state
+  showDiagnosticsButtons = on;
+  
+  // Re-render the results to show/hide diagnostics buttons
+  if (window.lastValidationResults && window.lastValidationResults.length > 0) {
+    const displayed = getDisplayedResultsFromStored(window.lastValidationResults);
+    const eligMap = lastEligMap || new Map();
+    renderResults(displayed, eligMap, window.lastValidationResults);
+  }
+}
+
 /* ===========================
    Initialization
    =========================== */
@@ -1992,6 +2018,8 @@ function initializeEventListeners() {
   filterStatus = document.getElementById('filterStatus');
   removeZeroesCheckbox = document.getElementById('removeLeadingZeroes');
   removeZeroesStatus = document.getElementById('removeZeroesStatus');
+  diagnosticsCheckbox = document.getElementById('showDiagnosticsButtons');
+  diagnosticsStatus = document.getElementById('diagnosticsStatus');
   pasteTextarea = document.getElementById('pasteCsvTextarea');
   pasteBtn = document.getElementById('pasteCsvBtn');
 
@@ -2008,6 +2036,11 @@ function initializeEventListeners() {
     // This maintains backward compatibility and avoids unexpected behavior changes
     removeZeroesCheckbox.checked = false;
     removeZeroesCheckbox.addEventListener('change', onRemoveZeroesToggle);
+  }
+  if (diagnosticsCheckbox) {
+    // Default to true (checked) to show diagnostics buttons by default
+    diagnosticsCheckbox.checked = true;
+    diagnosticsCheckbox.addEventListener('change', onDiagnosticsToggle);
   }
 
   // Setup status filter buttons
@@ -2047,6 +2080,7 @@ function initializeEventListeners() {
   if (pasteBtn) pasteBtn.addEventListener('click', handlePasteCsvClick);
   if (filterStatus) onFilterToggle();
   if (removeZeroesStatus) onRemoveZeroesToggle();
+  if (diagnosticsStatus) onDiagnosticsToggle();
 }
 
 document.addEventListener('DOMContentLoaded', () => {
