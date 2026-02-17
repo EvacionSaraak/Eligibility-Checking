@@ -1535,8 +1535,8 @@ function initEligibilityModal(results, eligMap) {
         }
         
         const matchStatus = reasons.length > 0 
-          ? `<span class="text-danger" title="${escapeHtml(reasons.join(', '))}">❌ ${escapeHtml(reasons.join(', '))}</span>`
-          : '<span class="text-success">✅ Match</span>';
+          ? `<span class="text-danger" title="${escapeHtml(reasons.join(', '))}">❌</span>`
+          : '<span class="text-success">✅</span>';
         
         html += `<tr class="${trClass}">
           <td>${idx + 1}</td>
@@ -1679,7 +1679,7 @@ function formatEligibilityDetails(record, memberID, claimDate, claimInfo = {}) {
   // Check date mismatch
   const eligDate = DateHandler.parse(record["Answered On"]);
   if (claimDate && eligDate && !DateHandler.isSameDay(claimDate, eligDate)) {
-    mismatches.push(`Date mismatch: Claim date is ${DateHandler.format(claimDate)}, but eligibility date is ${DateHandler.format(eligDate)}`);
+    mismatches.push(`Date mismatch: Claim date is ${escapeHtml(DateHandler.format(claimDate))}, but eligibility date is ${escapeHtml(DateHandler.format(eligDate))}`);
   }
   
   // Check clinician mismatch
