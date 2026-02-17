@@ -78,7 +78,7 @@ function normalizeClinician(name) {
 }
 
 /**
- * Check if package names match with special handling for Thiqa/TC packages
+ * Check if package names match with special handling for Thiqa/TC packages and DAMAN classifications
  * @param {string} claimPackage - Package name from the claim
  * @param {string} eligPackage - Package name from the eligibility
  * @returns {boolean} - True if packages match
@@ -95,6 +95,17 @@ function packageNamesMatch(claimPackage, eligPackage) {
   // Special Thiqa/TC matching: if claim has "thiqa" and eligibility has "tc", consider it a match
   if (claimLower.includes('thiqa') && eligLower.includes('tc')) {
     return true;
+  }
+  
+  // Special DAMAN classification matching: if claim starts with "daman" or has "daman" after _ or -
+  // and eligibility has classification (Silver/Gold/Bronze), consider it a match
+  // Match patterns: "DAMAN...", "_DAMAN...", "-DAMAN..."
+  // This covers: "DAMAN Premium", "TrueLife_DAMAN Low-End", "Premium-DAMAN", etc.
+  if (/(^|[_\-])daman/i.test(claimPackage)) {
+    const classifications = ['silver', 'gold', 'bronze'];
+    if (classifications.includes(eligLower)) {
+      return true;
+    }
   }
   
   return false;
