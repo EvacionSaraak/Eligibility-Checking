@@ -1492,7 +1492,7 @@ function initEligibilityModal(results, eligMap) {
                 <th>Clinician</th>
                 <th>Service Category</th>
                 <th>Package Name</th>
-                <th>Match Status</th>
+                <th style="min-width:250px">Match Status / Mismatch Details</th>
               </tr>
             </thead>
             <tbody>`;
@@ -1503,7 +1503,7 @@ function initEligibilityModal(results, eligMap) {
         const formattedEligDate = eligDate ? DateHandler.format(eligDate) : answeredOnRaw;
         let trClass = '';
         
-        // Calculate match reasons
+        // Calculate match reasons with detailed information
         const reasons = [];
         
         // Date mismatch
@@ -1512,31 +1512,32 @@ function initEligibilityModal(results, eligMap) {
             trClass = 'table-warning';
           } else {
             trClass = 'table-danger';
-            reasons.push('Date mismatch');
+            const claimDateFormatted = DateHandler.format(claimDate);
+            reasons.push(`Date: Claim ${escapeHtml(claimDateFormatted)} ≠ Elig ${escapeHtml(formattedEligDate)}`);
           }
         }
         
         // Clinician mismatch
         const eligClinician = (rec['Clinician'] || '').trim();
         if (eligClinician && claimClinician && eligClinician !== claimClinician) {
-          reasons.push('Different clinician');
+          reasons.push(`Clinician: Claim "${escapeHtml(claimClinician)}" ≠ Elig "${escapeHtml(eligClinician)}"`);
         }
         
         // Package mismatch
         const eligPackage = (rec['Package Name'] || '').trim();
         if (eligPackage && claimPackage && !packageNamesMatch(claimPackage, eligPackage)) {
-          reasons.push('Package mismatch');
+          reasons.push(`Package: Claim "${escapeHtml(claimPackage)}" ≠ Elig "${escapeHtml(eligPackage)}"`);
         }
         
         // Status check
         const status = rec['Status'] || '';
         if (status.toLowerCase() !== 'eligible') {
-          reasons.push('Not eligible');
+          reasons.push(`Status: "${escapeHtml(status)}" (not Eligible)`);
         }
         
         const matchStatus = reasons.length > 0 
-          ? `<span class="text-danger" title="${escapeHtml(reasons.join(', '))}">❌</span>`
-          : '<span class="text-success">✅</span>';
+          ? `<span class="text-danger" style="font-size: 0.85em;">❌ ${reasons.join('<br>')}</span>`
+          : '<span class="text-success">✅ Match</span>';
         
         html += `<tr class="${trClass}">
           <td>${idx + 1}</td>
