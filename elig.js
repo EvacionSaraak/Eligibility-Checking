@@ -77,6 +77,10 @@ function normalizeClinician(name) {
   return name.trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
+// Constants for package matching
+const DAMAN_PATTERN = /(^|[_\-])daman/i;
+const DAMAN_CLASSIFICATIONS = ['silver', 'gold', 'bronze'];
+
 /**
  * Check if package names match with special handling for Thiqa/TC packages and DAMAN classifications
  * @param {string} claimPackage - Package name from the claim
@@ -101,9 +105,8 @@ function packageNamesMatch(claimPackage, eligPackage) {
   // and eligibility has classification (Silver/Gold/Bronze), consider it a match
   // Match patterns: "DAMAN...", "_DAMAN...", "-DAMAN..."
   // This covers: "DAMAN Premium", "TrueLife_DAMAN Low-End", "Premium-DAMAN", etc.
-  if (/(^|[_\-])daman/i.test(claimPackage)) {
-    const classifications = ['silver', 'gold', 'bronze'];
-    if (classifications.includes(eligLower)) {
+  if (DAMAN_PATTERN.test(claimPackage)) {
+    if (DAMAN_CLASSIFICATIONS.includes(eligLower)) {
       return true;
     }
   }
