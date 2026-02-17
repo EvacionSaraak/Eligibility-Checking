@@ -1334,7 +1334,11 @@ function renderResults(results, eligMap, totalResults = null) {
       detailsCellHtml = `<button class="btn btn-sm btn-outline-primary eligibility-details" data-index="${index}" data-claimdate="${escapeHtml(result.encounterStart)}">View details</button>`;
     } else if (eligMap && typeof eligMap.get === 'function' && (eligMap.get(normalizeMemberID(result.memberID)) || []).length) {
       // Otherwise, if there are eligibilities in the map for this member, offer a secondary button to view all eligibilities for the member
-      detailsCellHtml = `<button class="btn btn-sm btn-outline-secondary show-all-eligibilities" data-member="${escapeHtml(result.memberID)}" data-claimdate="${escapeHtml(result.encounterStart)}">View eligibilities</button>`;
+      detailsCellHtml = `<button class="btn btn-sm btn-outline-secondary show-all-eligibilities" 
+        data-member="${escapeHtml(result.memberID)}" 
+        data-claimdate="${escapeHtml(result.encounterStart)}"
+        data-claimclinician="${escapeHtml(result.clinician || '')}"
+        data-claimpackage="${escapeHtml(result.packageName || '')}">View eligibilities</button>`;
       detailsCellHtml += ` <button class="btn btn-sm btn-outline-info show-diagnostics" data-index="${index}" title="Show diagnostic logging for this claim">
         <i class="bi bi-terminal"></i> Diagnostics
       </button>`;
@@ -1445,7 +1449,14 @@ function initEligibilityModal(results, eligMap) {
       const claimDate = claimDateStr ? DateHandler.parse(claimDateStr) : null;
       window.__elig_current_debug = { mode: 'single', member: result.memberID, claimDate: claimDateStr || '', record, resultIndex: index };
       const debugBtn = document.getElementById('modalDebugBtn'); if (debugBtn) debugBtn.style.display = '';
-      document.getElementById("modalTable").innerHTML = formatEligibilityDetails(record, result.memberID, claimDate);
+      
+      // Pass claim info for mismatch detection
+      const claimInfo = {
+        claimClinician: result.clinician || '',
+        claimPackage: result.packageName || ''
+      };
+      
+      document.getElementById("modalTable").innerHTML = formatEligibilityDetails(record, result.memberID, claimDate, claimInfo);
       showModal();
     });
   });
@@ -1455,6 +1466,8 @@ function initEligibilityModal(results, eligMap) {
     btn.addEventListener('click', function () {
       const member = this.dataset.member;
       const claimDateStr = this.dataset.claimdate || '';
+      const claimClinician = this.dataset.claimclinician || '';
+      const claimPackage = this.dataset.claimpackage || '';
       const claimDate = claimDateStr ? DateHandler.parse(claimDateStr) : null;
       const list = (typeof eligMap.get === 'function') ? (eligMap.get(normalizeMemberID(member)) || []) : [];
       const modalTable = document.getElementById("modalTable");
@@ -1479,6 +1492,7 @@ function initEligibilityModal(results, eligMap) {
                 <th>Clinician</th>
                 <th>Service Category</th>
                 <th>Package Name</th>
+                <th>Match Status</th>
               </tr>
             </thead>
             <tbody>`;
@@ -1488,10 +1502,42 @@ function initEligibilityModal(results, eligMap) {
         const eligDate = DateHandler.parse(answeredOnRaw);
         const formattedEligDate = eligDate ? DateHandler.format(eligDate) : answeredOnRaw;
         let trClass = '';
+        
+        // Calculate match reasons
+        const reasons = [];
+        
+        // Date mismatch
         if (claimDate && eligDate) {
-          if (DateHandler.isSameDay(claimDate, eligDate)) trClass = 'table-warning';
-          else trClass = 'table-danger';
+          if (DateHandler.isSameDay(claimDate, eligDate)) {
+            trClass = 'table-warning';
+          } else {
+            trClass = 'table-danger';
+            reasons.push('Date mismatch');
+          }
         }
+        
+        // Clinician mismatch
+        const eligClinician = (rec['Clinician'] || '').trim();
+        if (eligClinician && claimClinician && eligClinician !== claimClinician) {
+          reasons.push('Different clinician');
+        }
+        
+        // Package mismatch
+        const eligPackage = (rec['Package Name'] || '').trim();
+        if (eligPackage && claimPackage && !packageNamesMatch(claimPackage, eligPackage)) {
+          reasons.push('Package mismatch');
+        }
+        
+        // Status check
+        const status = rec['Status'] || '';
+        if (status.toLowerCase() !== 'eligible') {
+          reasons.push('Not eligible');
+        }
+        
+        const matchStatus = reasons.length > 0 
+          ? `<span class="text-danger" title="${escapeHtml(reasons.join(', '))}">❌ ${escapeHtml(reasons.join(', '))}</span>`
+          : '<span class="text-success">✅ Match</span>';
+        
         html += `<tr class="${trClass}">
           <td>${idx + 1}</td>
           <td>${escapeHtml(rec['Eligibility Request Number'] || '')}</td>
@@ -1500,6 +1546,7 @@ function initEligibilityModal(results, eligMap) {
           <td>${escapeHtml(rec['Clinician'] || '')}</td>
           <td>${escapeHtml(rec['Service Category'] || '')}</td>
           <td>${escapeHtml(rec['Package Name'] || '')}</td>
+          <td>${matchStatus}</td>
         </tr>`;
       });
 
@@ -1617,13 +1664,52 @@ function generateAndSendDebugLog(ctx, results, eligMap) {
 function hideModal() { const overlay = document.getElementById("modalOverlay"); if (overlay) overlay.style.display = "none"; }
 
 /* Details formatter for a single eligibility record.
-   Optional claimDate param can be used to colour date rows. */
-function formatEligibilityDetails(record, memberID, claimDate) {
+   Optional claimDate param can be used to colour date rows.
+   claimInfo param can include: claimClinician, claimPackage to show mismatch reasons */
+function formatEligibilityDetails(record, memberID, claimDate, claimInfo = {}) {
   if (!record) return '<div>No details</div>';
 
   const status = (record.Status || '').toString();
   const statusClass = status.toLowerCase() === 'eligible' ? 'status-badge eligible' : 'status-badge ineligible';
   let html = `<div class="mb-2"><strong>Member:</strong> ${escapeHtml(memberID)} <span class="${statusClass}" style="margin-left:8px;">${escapeHtml(status)}</span></div>`;
+
+  // Generate mismatch reasons
+  const mismatches = [];
+  
+  // Check date mismatch
+  const eligDate = DateHandler.parse(record["Answered On"]);
+  if (claimDate && eligDate && !DateHandler.isSameDay(claimDate, eligDate)) {
+    mismatches.push(`Date mismatch: Claim date is ${DateHandler.format(claimDate)}, but eligibility date is ${DateHandler.format(eligDate)}`);
+  }
+  
+  // Check clinician mismatch
+  const eligClinician = (record.Clinician || '').trim();
+  const claimClinician = claimInfo.claimClinician || '';
+  if (eligClinician && claimClinician && eligClinician !== claimClinician) {
+    mismatches.push(`Different clinician: Claim has "${escapeHtml(claimClinician)}", but eligibility is for "${escapeHtml(eligClinician)}"`);
+  }
+  
+  // Check package mismatch
+  const eligPackage = (record['Package Name'] || '').trim();
+  const claimPackage = claimInfo.claimPackage || '';
+  if (eligPackage && claimPackage && !packageNamesMatch(claimPackage, eligPackage)) {
+    mismatches.push(`Package mismatch: Claim has "${escapeHtml(claimPackage)}", but eligibility is for "${escapeHtml(eligPackage)}"`);
+  }
+  
+  // Check status mismatch
+  if (status.toLowerCase() !== 'eligible') {
+    mismatches.push(`Status is not "Eligible": Currently "${escapeHtml(status)}"`);
+  }
+  
+  // Display mismatch reasons if any
+  if (mismatches.length > 0) {
+    html += '<div class="alert alert-warning mb-3" style="padding: 10px; background-color: #fff3cd; border: 1px solid #ffc107; border-radius: 4px;">';
+    html += '<strong>⚠️ Mismatch Reasons:</strong><ul style="margin: 8px 0 0 0; padding-left: 20px;">';
+    mismatches.forEach(reason => {
+      html += `<li>${reason}</li>`;
+    });
+    html += '</ul></div>';
+  }
 
   html += '<table class="eligibility-details"><tbody>';
 
