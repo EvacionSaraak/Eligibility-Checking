@@ -1535,6 +1535,9 @@ function initEligibilityModal(results, eligMap) {
           reasons.push(`Status: "${escapeHtml(status)}" (not Eligible)`);
         }
         
+        // Display match status with detailed reasons
+        // Note: Each dynamic value is escaped individually before building the reason string,
+        // then safe strings are joined with <br> tags for multi-line display
         const matchStatus = reasons.length > 0 
           ? `<span class="text-danger" style="font-size: 0.85em;">❌ ${reasons.join('<br>')}</span>`
           : '<span class="text-success">✅ Match</span>';
