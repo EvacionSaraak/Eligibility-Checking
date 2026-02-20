@@ -434,7 +434,14 @@ function prepareEligibilityMap(rawSheetArray) {
     const totalRows = rawSheetArray.length - headerRowIndex - 1;
     console.log(`📥 Building eligibility map from ${totalRows} eligibility records...`);
     console.log(`📋 Header row found at index ${headerRowIndex}`);
+    console.log(`📋 Total columns: ${headers.length}`);
     console.log(`📋 Column headers (first 15):`, headers.slice(0, 15).join(', '));
+    if (headers.length > 15) {
+      console.log(`📋 Column headers (columns 16-30):`, headers.slice(15, 30).join(', '));
+    }
+    if (headers.length > 30) {
+      console.log(`📋 ALL column headers:`, headers.join(', '));
+    }
     
     // Show first 3 raw data rows to inspect actual file structure
     console.log(`\n🔍 RAW DATA INSPECTION - First 3 data rows from file:`);
@@ -466,6 +473,21 @@ function prepareEligibilityMap(rawSheetArray) {
     let skippedNoMemberID = 0;
     let skippedEmptyMemberID = 0;
     const firstSkippedSamples = [];
+    
+    // Log which ID columns are available in the file
+    const idCandidates = [
+      'Card Number / DHA Member ID', 'Card Number', 'MemberID', 'Member ID',
+      'Patient Insurance Card No', 'Policy1', 'Policy 1', 'PatientCardID'
+    ];
+    const availableIdColumns = idCandidates.filter(col => headers.includes(col));
+    console.log(`\n🔍 ID Column Analysis:`);
+    console.log(`   Candidates searched: ${idCandidates.join(', ')}`);
+    console.log(`   Available in file: ${availableIdColumns.length > 0 ? availableIdColumns.join(', ') : 'NONE'}`);
+    if (availableIdColumns.length === 0) {
+      console.log(`   ⚠️ WARNING: No standard ID columns found! Will try first available from candidates.`);
+      console.log(`   All columns in file: ${headers.join(', ')}`);
+    }
+    console.log(``);
 
     for (let i = headerRowIndex + 1; i < rawSheetArray.length; i++) {
       const row = rawSheetArray[i];
@@ -474,10 +496,6 @@ function prepareEligibilityMap(rawSheetArray) {
       const record = {};
       headers.forEach((h, idx) => record[h] = row[idx] !== undefined ? row[idx] : '');
 
-      const idCandidates = [
-        'Card Number / DHA Member ID', 'Card Number', 'MemberID', 'Member ID',
-        'Patient Insurance Card No', 'Policy1', 'Policy 1', 'PatientCardID'
-      ];
       let rawMemberID = '';
       for (const k of idCandidates) {
         if (Object.prototype.hasOwnProperty.call(record, k) && record[k]) {
