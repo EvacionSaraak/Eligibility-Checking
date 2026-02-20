@@ -120,11 +120,12 @@ function packageNamesMatch(claimPackage, eligPackage) {
     }
   }
   
-  // DAMAN Low-End variant matching: "TrueLife_DAMAN Low-End" should match various DAMAN plan names
-  // These are specific plan names within DAMAN's network that correspond to low-end/entry-level packages
+  // DAMAN Low-End variant matching: "TrueLife_DAMAN Low-End" should match various DAMAN plan names and classifications
+  // These include specific plan names within DAMAN's network and also Silver/Gold/Bronze classifications
   if (claimLower.includes('daman') && claimLower.includes('low-end')) {
-    // Match with specific DAMAN plan names
-    if (eligLower.includes('enhanced-auh') || eligLower.includes('abu dhabi') || eligLower === 'sahtak') {
+    // Match with specific DAMAN plan names OR classifications (Silver/Gold/Bronze)
+    if (eligLower.includes('enhanced-auh') || eligLower.includes('abu dhabi') || 
+        eligLower === 'sahtak' || DAMAN_CLASSIFICATIONS.includes(eligLower)) {
       return true;
     }
   }
