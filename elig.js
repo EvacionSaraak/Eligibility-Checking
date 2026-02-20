@@ -40,7 +40,7 @@ let sourceFileName = '';   // Track the source report filename for export
 let lastEligMap = null;
 
 // Option to remove leading zeroes from member IDs and claim IDs
-let removeLeadingZeroes = false;
+let removeLeadingZeroes = true;
 
 // Option to show/hide diagnostics buttons
 let showDiagnosticsButtons = true;
@@ -120,12 +120,21 @@ function packageNamesMatch(claimPackage, eligPackage) {
     }
   }
   
+  // DAMAN Low-End variant matching: "TrueLife_DAMAN Low-End" should match various DAMAN plan names
+  // These are specific plan names within DAMAN's network that correspond to low-end/entry-level packages
+  if (claimLower.includes('daman') && claimLower.includes('low-end')) {
+    // Match with specific DAMAN plan names
+    if (eligLower.includes('enhanced-auh') || eligLower.includes('abu dhabi') || eligLower === 'sahtak') {
+      return true;
+    }
+  }
+  
   // Special DAMAN classification matching: if claim starts with "daman" or has "daman" after _ or -
   // and eligibility has classification (Silver/Gold/Bronze), consider it a match
   // Match patterns: "DAMAN...", "_DAMAN...", "-DAMAN..."
   // This covers: "DAMAN Premium", "TrueLife_DAMAN Low-End", "Premium-DAMAN", etc.
-  // Note: DAMAN BASIC and DAMAN Enhanced are handled above with more specific rules
-  if (DAMAN_PATTERN.test(claimPackage) && !claimLower.includes('basic') && !claimLower.includes('enhanced')) {
+  // Note: DAMAN BASIC, DAMAN Enhanced, and DAMAN Low-End are handled above with more specific rules
+  if (DAMAN_PATTERN.test(claimPackage) && !claimLower.includes('basic') && !claimLower.includes('enhanced') && !claimLower.includes('low-end')) {
     if (DAMAN_CLASSIFICATIONS.includes(eligLower)) {
       return true;
     }
@@ -2084,9 +2093,8 @@ function initializeEventListeners() {
     filterCheckbox.addEventListener('change', onFilterToggle);
   }
   if (removeZeroesCheckbox) {
-    // Default to false (unchecked) to preserve leading zeroes by default
-    // This maintains backward compatibility and avoids unexpected behavior changes
-    removeZeroesCheckbox.checked = false;
+    // Default to true (checked) to enable leading zeroes removal by default
+    removeZeroesCheckbox.checked = true;
     removeZeroesCheckbox.addEventListener('change', onRemoveZeroesToggle);
   }
   if (diagnosticsCheckbox) {
