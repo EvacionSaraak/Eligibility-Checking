@@ -796,16 +796,14 @@ function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians =
       console.log(`      ✅ MATCH FOUND - Adding to results (match ${matchingEligs.length + 1})`);
     }
     
-    if (usedEligibilities.has(elig['Eligibility Request Number'])) {
-      if (shouldLog) {
-        console.log(`      ⚠️ Note: Already used for another claim`);
-      }
-    } else {
-      usedEligibilities.add(elig['Eligibility Request Number']);
+    // Check if already used, but don't mark as used yet - will mark the selected one later
+    const isUsed = usedEligibilities.has(elig['Eligibility Request Number']);
+    if (shouldLog && isUsed) {
+      console.log(`      ⚠️ Note: Already used for another claim`);
     }
     
-    // Add this eligibility to matches and continue checking for more
-    matchingEligs.push(elig);
+    // Add this eligibility to matches with usage status and continue checking for more
+    matchingEligs.push({...elig, _isUsed: isUsed});
   }
   
   if (shouldLog) {
@@ -823,6 +821,76 @@ function checkClinicianMatch(claimClinicians, eligClinician) {
   if (!eligClinician || !claimClinicians?.length) return true;
   const normElig = normalizeClinician(eligClinician);
   return claimClinicians.some(c => normalizeClinician(c) === normElig);
+}
+
+/**
+ * Select the best matching eligibility from multiple options
+ * Ranks by:
+ * 1. Not already used (prefer unused over used)
+ * 2. Service category/consultation status match specificity
+ * 3. First in list if all else equal
+ * 
+ * @param {Array} eligibilities - Array of matching eligibilities with _isUsed flag
+ * @param {string} claimDepartment - The claim's department/service category
+ * @returns {Object|null} - The best matching eligibility
+ */
+function selectBestEligibility(eligibilities, claimDepartment = '') {
+  if (!eligibilities || eligibilities.length === 0) return null;
+  if (eligibilities.length === 1) return eligibilities[0];
+  
+  const dept = (claimDepartment || '').toLowerCase().trim();
+  
+  // Score each eligibility
+  const scored = eligibilities.map(elig => {
+    let score = 0;
+    
+    // Heavily favor unused eligibilities (weight: 1000)
+    if (!elig._isUsed) {
+      score += 1000;
+    }
+    
+    const serviceCategory = (elig['Service Category'] || '').toLowerCase().trim();
+    const consultationStatus = (elig['Consultation Status'] || '').toLowerCase().trim();
+    
+    // Exact service category match (weight: 100)
+    if (dept && serviceCategory && dept.includes(serviceCategory)) {
+      score += 100;
+    } else if (dept && serviceCategory && serviceCategory.includes(dept)) {
+      score += 100;
+    }
+    
+    // Specific service category (weight: 50) - prefer specific over generic
+    if (serviceCategory === 'consultation') {
+      score += 50;
+      // Consultation with specific status (weight: +25)
+      if (consultationStatus === 'elective' || consultationStatus === 'emergency') {
+        score += 25;
+      }
+    } else if (serviceCategory && serviceCategory !== 'other op services' && serviceCategory !== 'other') {
+      score += 40; // Other specific categories
+    }
+    
+    // Generic categories get lower score (weight: 10)
+    if (serviceCategory === 'other op services' || serviceCategory === 'other') {
+      score += 10;
+    }
+    
+    return { elig, score };
+  });
+  
+  // Sort by score (highest first)
+  scored.sort((a, b) => b.score - a.score);
+  
+  console.log(`   🎯 Best eligibility selection (${eligibilities.length} options):`);
+  scored.forEach((item, idx) => {
+    const status = item.elig._isUsed ? '(USED)' : '(available)';
+    const svc = item.elig['Service Category'] || 'N/A';
+    const consult = item.elig['Consultation Status'] ? ` - ${item.elig['Consultation Status']}` : '';
+    console.log(`      ${idx + 1}. Score ${item.score}: ${svc}${consult} ${status}`);
+  });
+  console.log(`   ✅ Selected: #${scored[0].elig['Eligibility Request Number']} (score: ${scored[0].score})`);
+  
+  return scored[0].elig;
 }
 
 function isServiceCategoryValid(serviceCategory, consultationStatus, rawPackage) {
@@ -1239,8 +1307,19 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
     // Pass claimIndex to enable logging for first 3 claims
     const matchingEligibilities = findEligibilityForClaim(eligMap, claimDate, memberID, [row.clinician], insurance, false, claimIndex);
     
-    // Use first match for primary validation, but store all matches
-    const eligibility = matchingEligibilities.length > 0 ? matchingEligibilities[0] : null;
+    // Select the BEST match from all available eligibilities
+    const selectedEligibility = selectBestEligibility(matchingEligibilities, row.department);
+    
+    // Mark the selected eligibility as used (only mark the one we actually use)
+    if (selectedEligibility && selectedEligibility['Eligibility Request Number']) {
+      if (!usedEligibilities.has(selectedEligibility['Eligibility Request Number'])) {
+        usedEligibilities.add(selectedEligibility['Eligibility Request Number']);
+        console.log(`   📌 Marked eligibility #${selectedEligibility['Eligibility Request Number']} as USED`);
+      }
+    }
+    
+    // Use selected eligibility for validation
+    const eligibility = selectedEligibility;
     let finalStatus = 'invalid', remarks = [];
     
     // Only treat leading zeroes as invalid if the option to remove them is OFF
@@ -1581,10 +1660,15 @@ function initEligibilityModal(results, eligMap) {
           const answeredOnRaw = rec['Answered On'] || rec['Ordered On'] || '';
           const eligDate = DateHandler.parse(answeredOnRaw);
           const formattedEligDate = eligDate ? DateHandler.format(eligDate) : answeredOnRaw;
-          const trClass = idx === 0 ? 'table-primary' : ''; // Highlight first match (the one used)
+          
+          // Highlight the selected eligibility (the one actually used for validation)
+          const isSelected = result.fullEligibilityRecord && 
+                             rec['Eligibility Request Number'] === result.fullEligibilityRecord['Eligibility Request Number'];
+          const trClass = isSelected ? 'table-success' : (rec._isUsed ? 'table-warning' : '');
+          const rowLabel = isSelected ? '✓ SELECTED' : (rec._isUsed ? '(used)' : '');
           
           html += `<tr class="${trClass}">
-            <td>${idx + 1}</td>
+            <td>${idx + 1} ${rowLabel}</td>
             <td>${escapeHtml(rec['Eligibility Request Number'] || '')}</td>
             <td>${escapeHtml(formattedEligDate)}</td>
             <td>${escapeHtml(rec.Status || '')}</td>
@@ -1596,7 +1680,13 @@ function initEligibilityModal(results, eligMap) {
         });
         
         html += `</tbody></table></div>`;
-        html += `<div class="px-3 pb-3"><small class="text-muted">Note: The first eligibility (highlighted) was used for validation.</small></div>`;
+        html += `<div class="px-3 pb-3">
+          <small class="text-muted">
+            <strong>Legend:</strong> 
+            <span class="badge bg-success">✓ SELECTED</span> = Used for this claim | 
+            <span class="badge bg-warning text-dark">(used)</span> = Already used by another claim
+          </small>
+        </div>`;
         modalTable.innerHTML = html;
       }
       
