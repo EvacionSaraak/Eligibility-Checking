@@ -1276,7 +1276,8 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
         claimID, 
         visitID: row.visitID || '',
         memberID, 
-        encounterStart: formattedDate, 
+        encounterStart: formattedDate,
+        encounterDate: claimDate, // Store original Date object to avoid re-parsing issues
         status: 'VVIP', finalStatus: 'valid', 
         remarks: ['VVIP member, eligibility check bypassed'], 
         fullEligibilityRecord: null,
@@ -1356,6 +1357,7 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
       visitID: row.visitID || '',
       memberID, 
       encounterStart: formattedDate,
+      encounterDate: claimDate, // Store original Date object to avoid re-parsing issues
       packageName: eligibility?.['Package Name'] || row.packageName || '',
       provider: insurance,
       clinician: eligibility?.Clinician || row.clinician || '',
@@ -1618,8 +1620,8 @@ function initEligibilityModal(results, eligMap) {
       const result = results[index];
       if (!result?.allEligibilityRecords || result.allEligibilityRecords.length === 0) return;
       
-      const claimDateStr = this.dataset.claimdate || result.encounterStart || '';
-      const claimDate = claimDateStr ? DateHandler.parse(claimDateStr) : null;
+      // Use stored Date object instead of re-parsing to avoid date shift issues
+      const claimDate = result.encounterDate || null;
       const claimInfo = {
         claimClinician: result.clinician || '',
         claimPackage: result.packageName || ''
@@ -1631,12 +1633,12 @@ function initEligibilityModal(results, eligMap) {
       // If only ONE match, show it in detailed view
       if (result.allEligibilityRecords.length === 1) {
         const record = result.allEligibilityRecords[0];
-        window.__elig_current_debug = { mode: 'single', member: result.memberID, claimDate: claimDateStr || '', record, resultIndex: index };
+        window.__elig_current_debug = { mode: 'single', member: result.memberID, claimDate: result.encounterStart || '', record, resultIndex: index };
         if (debugBtn) debugBtn.style.display = '';
         modalTable.innerHTML = formatEligibilityDetails(record, result.memberID, claimDate, claimInfo);
       } else {
         // Multiple matches - show them in a list view
-        window.__elig_current_debug = { mode: 'list', member: result.memberID, claimDate: claimDateStr || '', listSnapshot: result.allEligibilityRecords };
+        window.__elig_current_debug = { mode: 'list', member: result.memberID, claimDate: result.encounterStart || '', listSnapshot: result.allEligibilityRecords };
         if (debugBtn) debugBtn.style.display = '';
         
         let html = `<h6 class="px-3 pt-3">Matched Eligibilities for ${escapeHtml(result.memberID)} (${result.allEligibilityRecords.length} matches)</h6>
@@ -1815,7 +1817,8 @@ function initEligibilityModal(results, eligMap) {
       });
       
       // Re-run eligibility matching with forced logging
-      const claimDate = DateHandler.parse(result.encounterStart);
+      // Use stored Date object to avoid re-parsing issues
+      const claimDate = result.encounterDate || DateHandler.parse(result.encounterStart);
       if (claimDate && eligMap) {
         console.log('Re-running eligibility matching with forced diagnostics...');
         const clinicians = result.clinician ? [result.clinician] : [];
