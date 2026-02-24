@@ -1505,6 +1505,7 @@ function renderResults(results, eligMap, totalResults = null) {
     } else if (eligMap && typeof eligMap.get === 'function' && (eligMap.get(normalizeMemberID(result.memberID)) || []).length) {
       // Otherwise, if there are eligibilities in the map for this member, offer a secondary button to view all eligibilities for the member
       detailsCellHtml = `<button class="btn btn-sm btn-outline-secondary show-all-eligibilities" 
+        data-index="${index}"
         data-member="${escapeHtml(result.memberID)}" 
         data-claimdate="${escapeHtml(result.encounterStart)}"
         data-claimclinician="${escapeHtml(result.clinician || '')}"
@@ -1699,14 +1700,16 @@ function initEligibilityModal(results, eligMap) {
   document.querySelectorAll(".show-all-eligibilities").forEach(btn => {
     btn.onclick = null;
     btn.addEventListener('click', function () {
+      const index = parseInt(this.dataset.index, 10);
+      const result = displayedResults[index];
       const member = this.dataset.member;
-      const claimDateStr = this.dataset.claimdate || '';
       const claimClinician = this.dataset.claimclinician || '';
       const claimPackage = this.dataset.claimpackage || '';
-      const claimDate = claimDateStr ? DateHandler.parse(claimDateStr) : null;
+      // Use stored Date object instead of re-parsing to avoid timezone/parsing issues
+      const claimDate = result && result.encounterDate ? result.encounterDate : null;
       const list = (typeof eligMap.get === 'function') ? (eligMap.get(normalizeMemberID(member)) || []) : [];
       const modalTable = document.getElementById("modalTable");
-      window.__elig_current_debug = { mode: 'list', member, claimDate: claimDateStr || '', listSnapshot: list.slice(0,200) };
+      window.__elig_current_debug = { mode: 'list', member, claimDate: result ? result.encounterStart : '', listSnapshot: list.slice(0,200) };
       const debugBtn = document.getElementById('modalDebugBtn'); if (debugBtn) debugBtn.style.display = '';
 
       if (!list.length) {
