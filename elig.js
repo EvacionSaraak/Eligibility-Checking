@@ -184,6 +184,14 @@ const DateHandler = {
     return `${day} ${monthName} ${year}`;
   },
 
+  formatForExport: function(date) {
+    if (!(date instanceof Date) || isNaN(date)) return '';
+    const day = date.getUTCDate();
+    const month = date.getUTCMonth() + 1; // Month is 0-indexed, so add 1
+    const year = date.getUTCFullYear();
+    return `${month}/${day}/${year}`;
+  },
+
   isSameDay: function(date1, date2) {
     if (!date1 || !date2) return false;
     return date1.getUTCDate() === date2.getUTCDate() &&
@@ -1840,22 +1848,33 @@ function formatEligibilityDetails(record, memberID, claimDate, claimInfo = {}) {
 function exportInvalidEntries(results) {
   const invalidEntries = (results || []).filter(r => r && r.finalStatus === 'invalid');
   if (!invalidEntries.length) { alert('No invalid entries to export.'); return; }
-  const exportData = invalidEntries.map((entry, index) => ({
-    'File No': entry.fileNo || '',
-    'Claim ID': entry.claimID || '',
-    'Visit ID': entry.visitID || '',
-    'Phy Lic': entry.clinician || '',
-    'Date': entry.encounterStart || '',
-    'Member ID': entry.memberID || '',
-    'Clinician Name': entry.clinicianName || '',
-    'Verdict': (entry.remarks || []).join('; '),
-    'Opened By': entry.openedBy || '',
-    'Price': entry.price || '',
-    'Admitting DEPT': entry.department || '',
-    'Pri. Plan Type': entry.packageName || entry.provider || '',
-    'Facility ID': entry.facilityID || '',
-    'File Name': entry.sourceFile || sourceFileName || ''
-  }));
+  const exportData = invalidEntries.map((entry, index) => {
+    // Convert date from "23 Feb 2026" format to "2/23/2026" for Excel compatibility
+    let exportDate = entry.encounterStart || '';
+    if (exportDate) {
+      const parsedDate = DateHandler.parse(exportDate);
+      if (parsedDate) {
+        exportDate = DateHandler.formatForExport(parsedDate);
+      }
+    }
+    
+    return {
+      'File No': entry.fileNo || '',
+      'Claim ID': entry.claimID || '',
+      'Visit ID': entry.visitID || '',
+      'Phy Lic': entry.clinician || '',
+      'Date': exportDate,
+      'Member ID': entry.memberID || '',
+      'Clinician Name': entry.clinicianName || '',
+      'Verdict': (entry.remarks || []).join('; '),
+      'Opened By': entry.openedBy || '',
+      'Price': entry.price || '',
+      'Admitting DEPT': entry.department || '',
+      'Pri. Plan Type': entry.packageName || entry.provider || '',
+      'Facility ID': entry.facilityID || '',
+      'File Name': entry.sourceFile || sourceFileName || ''
+    };
+  });
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.json_to_sheet(exportData);
   XLSX.utils.book_append_sheet(wb, ws, 'Invalid Claims');
