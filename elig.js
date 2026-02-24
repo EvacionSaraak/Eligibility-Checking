@@ -638,7 +638,7 @@ function isDamanOrThiqa(provider) {
 }
 
 /**
- * Find matching eligibility record for a claim
+ * Find matching eligibility records for a claim
  * @param {Map} eligMap - Map of member IDs to eligibility records
  * @param {Date} claimDate - Claim date
  * @param {string} memberID - Member ID
@@ -646,7 +646,7 @@ function isDamanOrThiqa(provider) {
  * @param {string} provider - Provider/insurance name (used to filter diagnostic logging to Daman/Thiqa only)
  * @param {boolean} forceLog - Force diagnostic logging regardless of provider
  * @param {number} claimIndex - Index of the claim (for logging first 3)
- * @returns {Object|null} - Matching eligibility record or null
+ * @returns {Array} - Array of matching eligibility records (empty array if none found)
  */
 function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians = [], provider = '', forceLog = false, claimIndex = 0) {
   const normalizedID = normalizeMemberID(memberID || '');
@@ -725,7 +725,7 @@ function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians =
         console.log(`  Sample IDs in map: ${sampleIDs.join(', ')}`);
       }
     }
-    return null;
+    return [];
   }
   
   if (shouldLog) {
@@ -733,7 +733,10 @@ function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians =
     console.log(`⚠️ CLAIM #${claimIndex}: Found ${eligList.length} eligibilities for member ${memberID}, Date: ${DateHandler.format(claimDate)}${clinInfo}`);
   }
   
+  // Collect ALL matching eligibilities instead of returning just the first one
+  const matchingEligs = [];
   let eligIndex = 0;
+  
   for (const elig of eligList) {
     eligIndex++;
     const eligDate = DateHandler.parse(elig["Answered On"], { preferMDY: false });
@@ -790,7 +793,7 @@ function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians =
     }
     
     if (shouldLog) {
-      console.log(`      ✅ MATCH FOUND - Using this eligibility`);
+      console.log(`      ✅ MATCH FOUND - Adding to results (match ${matchingEligs.length + 1})`);
     }
     
     if (usedEligibilities.has(elig['Eligibility Request Number'])) {
@@ -801,14 +804,19 @@ function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians =
       usedEligibilities.add(elig['Eligibility Request Number']);
     }
     
-    return elig;
+    // Add this eligibility to matches and continue checking for more
+    matchingEligs.push(elig);
   }
   
   if (shouldLog) {
-    console.log(`   ❌ No match found after checking all ${eligList.length} eligibilities (see rejection reasons above)`);
+    if (matchingEligs.length === 0) {
+      console.log(`   ❌ No match found after checking all ${eligList.length} eligibilities (see rejection reasons above)`);
+    } else {
+      console.log(`   ✅ Total matches found: ${matchingEligs.length}`);
+    }
   }
   
-  return null;
+  return matchingEligs;
 }
 
 function checkClinicianMatch(claimClinicians, eligClinician) {
@@ -1229,7 +1237,10 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
     }
     
     // Pass claimIndex to enable logging for first 3 claims
-    const eligibility = findEligibilityForClaim(eligMap, claimDate, memberID, [row.clinician], insurance, false, claimIndex);
+    const matchingEligibilities = findEligibilityForClaim(eligMap, claimDate, memberID, [row.clinician], insurance, false, claimIndex);
+    
+    // Use first match for primary validation, but store all matches
+    const eligibility = matchingEligibilities.length > 0 ? matchingEligibilities[0] : null;
     let finalStatus = 'invalid', remarks = [];
     
     // Only treat leading zeroes as invalid if the option to remove them is OFF
@@ -1275,7 +1286,9 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
       consultationStatus: eligibility?.['Consultation Status'] || '',
       status: eligibility?.Status || '',
       claimStatus: row.claimStatus || '',
-      remarks, finalStatus, fullEligibilityRecord: eligibility,
+      remarks, finalStatus, 
+      fullEligibilityRecord: eligibility,
+      allEligibilityRecords: matchingEligibilities, // Store ALL matches
       fileNo: row.fileNo || '',
       admittingDoctor: row.admittingDoctor || '',
       openedBy: row.openedBy || '',
@@ -1403,9 +1416,11 @@ function renderResults(results, eligMap, totalResults = null) {
 
     // Build details button html without truncation
     let detailsCellHtml = '<div class="source-note">N/A</div>';
-    if (result.fullEligibilityRecord && result.fullEligibilityRecord['Eligibility Request Number']) {
-      // If a full eligibility record is attached to this result, show a primary "View details" button that opens the modal with the single record
-      detailsCellHtml = `<button class="btn btn-sm btn-outline-primary eligibility-details" data-index="${index}" data-claimdate="${escapeHtml(result.encounterStart)}">View details</button>`;
+    if (result.allEligibilityRecords && result.allEligibilityRecords.length > 0) {
+      // Show how many eligibilities were matched
+      const count = result.allEligibilityRecords.length;
+      const label = count === 1 ? 'View details' : `View details (${count} matches)`;
+      detailsCellHtml = `<button class="btn btn-sm btn-outline-primary eligibility-details" data-index="${index}" data-claimdate="${escapeHtml(result.encounterStart)}">${label}</button>`;
     } else if (eligMap && typeof eligMap.get === 'function' && (eligMap.get(normalizeMemberID(result.memberID)) || []).length) {
       // Otherwise, if there are eligibilities in the map for this member, offer a secondary button to view all eligibilities for the member
       detailsCellHtml = `<button class="btn btn-sm btn-outline-secondary show-all-eligibilities" 
@@ -1522,20 +1537,69 @@ function initEligibilityModal(results, eligMap) {
     btn.addEventListener('click', function () {
       const index = parseInt(this.dataset.index, 10);
       const result = results[index];
-      if (!result?.fullEligibilityRecord) return;
-      const record = result.fullEligibilityRecord;
+      if (!result?.allEligibilityRecords || result.allEligibilityRecords.length === 0) return;
+      
       const claimDateStr = this.dataset.claimdate || result.encounterStart || '';
       const claimDate = claimDateStr ? DateHandler.parse(claimDateStr) : null;
-      window.__elig_current_debug = { mode: 'single', member: result.memberID, claimDate: claimDateStr || '', record, resultIndex: index };
-      const debugBtn = document.getElementById('modalDebugBtn'); if (debugBtn) debugBtn.style.display = '';
-      
-      // Pass claim info for mismatch detection
       const claimInfo = {
         claimClinician: result.clinician || '',
         claimPackage: result.packageName || ''
       };
       
-      document.getElementById("modalTable").innerHTML = formatEligibilityDetails(record, result.memberID, claimDate, claimInfo);
+      const modalTable = document.getElementById("modalTable");
+      const debugBtn = document.getElementById('modalDebugBtn');
+      
+      // If only ONE match, show it in detailed view
+      if (result.allEligibilityRecords.length === 1) {
+        const record = result.allEligibilityRecords[0];
+        window.__elig_current_debug = { mode: 'single', member: result.memberID, claimDate: claimDateStr || '', record, resultIndex: index };
+        if (debugBtn) debugBtn.style.display = '';
+        modalTable.innerHTML = formatEligibilityDetails(record, result.memberID, claimDate, claimInfo);
+      } else {
+        // Multiple matches - show them in a list view
+        window.__elig_current_debug = { mode: 'list', member: result.memberID, claimDate: claimDateStr || '', listSnapshot: result.allEligibilityRecords };
+        if (debugBtn) debugBtn.style.display = '';
+        
+        let html = `<h6 class="px-3 pt-3">Matched Eligibilities for ${escapeHtml(result.memberID)} (${result.allEligibilityRecords.length} matches)</h6>
+          <div class="table-responsive px-3 pb-3">
+            <table class="table table-sm table-striped table-bordered mb-0">
+              <thead class="table-light">
+                <tr>
+                  <th style="min-width:38px">#</th>
+                  <th>Request No</th>
+                  <th>Answered On</th>
+                  <th>Status</th>
+                  <th>Clinician</th>
+                  <th>Service Category</th>
+                  <th>Consultation Status</th>
+                  <th>Package Name</th>
+                </tr>
+              </thead>
+              <tbody>`;
+        
+        result.allEligibilityRecords.forEach((rec, idx) => {
+          const answeredOnRaw = rec['Answered On'] || rec['Ordered On'] || '';
+          const eligDate = DateHandler.parse(answeredOnRaw);
+          const formattedEligDate = eligDate ? DateHandler.format(eligDate) : answeredOnRaw;
+          const trClass = idx === 0 ? 'table-primary' : ''; // Highlight first match (the one used)
+          
+          html += `<tr class="${trClass}">
+            <td>${idx + 1}</td>
+            <td>${escapeHtml(rec['Eligibility Request Number'] || '')}</td>
+            <td>${escapeHtml(formattedEligDate)}</td>
+            <td>${escapeHtml(rec.Status || '')}</td>
+            <td>${escapeHtml(rec.Clinician || '')}</td>
+            <td>${escapeHtml(rec['Service Category'] || '')}</td>
+            <td>${escapeHtml(rec['Consultation Status'] || '')}</td>
+            <td>${escapeHtml(rec['Package Name'] || '')}</td>
+          </tr>`;
+        });
+        
+        html += `</tbody></table></div>`;
+        html += `<div class="px-3 pb-3"><small class="text-muted">Note: The first eligibility (highlighted) was used for validation.</small></div>`;
+        modalTable.innerHTML = html;
+      }
+      
       showModal();
     });
   });
