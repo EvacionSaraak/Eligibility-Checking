@@ -2009,12 +2009,12 @@ function exportInvalidEntries(results) {
   const invalidEntries = (results || []).filter(r => r && r.finalStatus === 'invalid');
   if (!invalidEntries.length) { alert('No invalid entries to export.'); return; }
   const exportData = invalidEntries.map((entry, index) => {
-    // Convert date from "23 Feb 2026" format to "2/23/2026" for Excel compatibility
+    // Convert date to Date object for Excel to recognize it as a date
     let exportDate = entry.encounterStart || '';
     if (exportDate) {
       const parsedDate = DateHandler.parse(exportDate);
       if (parsedDate) {
-        exportDate = DateHandler.formatForExport(parsedDate);
+        exportDate = parsedDate;  // Keep as Date object for proper Excel formatting
       }
     }
     
