@@ -1701,7 +1701,7 @@ function initEligibilityModal(results, eligMap) {
     btn.onclick = null;
     btn.addEventListener('click', function () {
       const index = parseInt(this.dataset.index, 10);
-      const result = displayedResults[index];
+      const result = results[index];
       const member = this.dataset.member;
       const claimClinician = this.dataset.claimclinician || '';
       const claimPackage = this.dataset.claimpackage || '';
