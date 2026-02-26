@@ -20,7 +20,7 @@ console.log(`✅ Eligibility Checker v${VERSION} loaded successfully`);
 const SERVICE_PACKAGE_RULES = {
   'Dental Services': ['dental', 'orthodontic'],
   'Physiotherapy': ['physio'],
-  'Other OP Services': ['physio', 'diet', 'occupational', 'speech'],
+  'Other OP Services': ['physio', 'diet', 'occupational', 'speech', 'orthop', 'family'],
   'Consultation': []  // Special handling below
 };
 const DATE_KEYS = ['Date', 'On'];
