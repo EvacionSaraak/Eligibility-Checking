@@ -884,8 +884,28 @@ function selectBestEligibility(eligibilities, claimDepartment = '') {
     return { elig, score };
   });
   
-  // Sort by score (highest first)
-  scored.sort((a, b) => b.score - a.score);
+  // Sort by score first (highest first), then by date (most recent first)
+  scored.sort((a, b) => {
+    // Primary: Sort by score (descending)
+    if (b.score !== a.score) {
+      return b.score - a.score;
+    }
+    
+    // Secondary: Sort by "Answered On" date (most recent first)
+    const dateA = DateHandler.parse(a.elig['Answered On']);
+    const dateB = DateHandler.parse(b.elig['Answered On']);
+    
+    // If both dates are valid, compare them
+    if (dateA && dateB) {
+      return dateB.getTime() - dateA.getTime();  // More recent first
+    }
+    
+    // Fallback: If one date is invalid, prefer the valid one
+    if (dateA && !dateB) return -1;  // A has valid date, prefer A
+    if (!dateA && dateB) return 1;   // B has valid date, prefer B
+    
+    return 0;  // Both invalid or equal, keep original order
+  });
   
   // Log all options with their scores
   scored.forEach((item, idx) => {
