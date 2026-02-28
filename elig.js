@@ -840,14 +840,20 @@ function selectBestEligibility(eligibilities, claimDepartment = '') {
   
   const dept = (claimDepartment || '').toLowerCase().trim();
   
+  // PRIORITY 1: Always prefer unused eligibilities over used ones
+  // Separate unused and used eligibilities
+  const unusedEligibilities = eligibilities.filter(e => !e._isUsed);
+  const usedEligibilities = eligibilities.filter(e => e._isUsed);
+  
+  // If there are ANY unused eligibilities, only consider those
+  // Otherwise, fall back to used eligibilities
+  const eligibilitiesToScore = unusedEligibilities.length > 0 ? unusedEligibilities : usedEligibilities;
+  
+  console.log(`   🎯 Best eligibility selection (${eligibilities.length} total: ${unusedEligibilities.length} unused, ${usedEligibilities.length} used):`);
+  
   // Score each eligibility
-  const scored = eligibilities.map(elig => {
+  const scored = eligibilitiesToScore.map(elig => {
     let score = 0;
-    
-    // Heavily favor unused eligibilities (weight: 1000)
-    if (!elig._isUsed) {
-      score += 1000;
-    }
     
     const serviceCategory = (elig['Service Category'] || '').toLowerCase().trim();
     const consultationStatus = (elig['Consultation Status'] || '').toLowerCase().trim();
@@ -881,13 +887,19 @@ function selectBestEligibility(eligibilities, claimDepartment = '') {
   // Sort by score (highest first)
   scored.sort((a, b) => b.score - a.score);
   
-  console.log(`   🎯 Best eligibility selection (${eligibilities.length} options):`);
+  // Log all options with their scores
   scored.forEach((item, idx) => {
     const status = item.elig._isUsed ? '(USED)' : '(available)';
     const svc = item.elig['Service Category'] || 'N/A';
     const consult = item.elig['Consultation Status'] ? ` - ${item.elig['Consultation Status']}` : '';
     console.log(`      ${idx + 1}. Score ${item.score}: ${svc}${consult} ${status}`);
   });
+  
+  // If we had to use a used eligibility, log a warning
+  if (scored[0].elig._isUsed) {
+    console.log(`   ⚠️ WARNING: Selected a USED eligibility (no unused options available)`);
+  }
+  
   console.log(`   ✅ Selected: #${scored[0].elig['Eligibility Request Number']} (score: ${scored[0].score})`);
   
   return scored[0].elig;
