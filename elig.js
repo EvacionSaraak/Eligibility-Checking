@@ -884,7 +884,7 @@ function selectBestEligibility(eligibilities, claimDepartment = '') {
     return { elig, score };
   });
   
-  // Sort by score first (highest first), then by date (most recent first)
+  // Sort by score first (highest first), then by date (most recent first), then by request number (highest first)
   scored.sort((a, b) => {
     // Primary: Sort by score (descending)
     if (b.score !== a.score) {
@@ -897,14 +897,23 @@ function selectBestEligibility(eligibilities, claimDepartment = '') {
     
     // If both dates are valid, compare them
     if (dateA && dateB) {
-      return dateB.getTime() - dateA.getTime();  // More recent first
+      const dateDiff = dateB.getTime() - dateA.getTime();
+      if (dateDiff !== 0) return dateDiff;  // Dates are different, use date order
+      // Dates are equal, continue to next tiebreaker
     }
     
     // Fallback: If one date is invalid, prefer the valid one
     if (dateA && !dateB) return -1;  // A has valid date, prefer A
     if (!dateA && dateB) return 1;   // B has valid date, prefer B
     
-    return 0;  // Both invalid or equal, keep original order
+    // Tertiary: Sort by Eligibility Request Number (higher/more recent first)
+    const reqNumA = extractRequestNumber(a.elig['Eligibility Request Number']);
+    const reqNumB = extractRequestNumber(b.elig['Eligibility Request Number']);
+    if (reqNumA !== null && reqNumB !== null) {
+      return reqNumB - reqNumA;  // Higher number (more recent) first
+    }
+    
+    return 0;  // Keep original order only as absolute last resort
   });
   
   // Log all options with their scores
@@ -923,6 +932,14 @@ function selectBestEligibility(eligibilities, claimDepartment = '') {
   console.log(`   ✅ Selected: #${scored[0].elig['Eligibility Request Number']} (score: ${scored[0].score})`);
   
   return scored[0].elig;
+}
+
+// Helper function to extract numeric portion from Eligibility Request Number
+function extractRequestNumber(requestNumber) {
+  if (!requestNumber) return null;
+  // Extract numeric portion from format like "eELIG - 229624246"
+  const match = requestNumber.match(/(\d+)/);
+  return match ? parseInt(match[1], 10) : null;
 }
 
 function isServiceCategoryValid(serviceCategory, consultationStatus, rawPackage) {
