@@ -1491,6 +1491,7 @@ function renderResults(results, eligMap, totalResults = null) {
       <th>Package</th>
       <th>Provider</th>
       <th>Clinician</th>
+      <th>Department</th>
       <th>Service Category</th>
       <th>Status</th>
       <th class="wrap-col">Remarks</th>
@@ -1591,6 +1592,7 @@ function renderResults(results, eligMap, totalResults = null) {
       <td class="description-col">${escapeHtml(result.packageName)}</td>
       <td class="description-col">${escapeHtml(result.provider)}</td>
       <td class="description-col">${escapeHtml(result.clinician)}</td>
+      <td class="description-col">${escapeHtml(result.department || '')}</td>
       <td class="description-col">${escapeHtml(result.serviceCategory)}</td>
       <td class="description-col">${statusBadge}</td>
       <td class="wrap-col">${remarksHTML}</td>
