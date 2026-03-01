@@ -43,7 +43,7 @@ let lastEligMap = null;
 let removeLeadingZeroes = true;
 
 // Option to show/hide diagnostics buttons
-let showDiagnosticsButtons = true;
+let showDiagnosticsButtons = false;
 
 // DOM Elements (lookups performed in initializeEventListeners)
 let reportInput, eligInput, processBtn, exportInvalidBtn, statusEl, resultsContainer, filterCheckbox, filterStatus, pasteTextarea, pasteBtn;
@@ -2370,8 +2370,8 @@ function initializeEventListeners() {
     removeZeroesCheckbox.addEventListener('change', onRemoveZeroesToggle);
   }
   if (diagnosticsCheckbox) {
-    // Default to true (checked) to show diagnostics buttons by default
-    diagnosticsCheckbox.checked = true;
+    // Default to false (unchecked) to hide diagnostics buttons by default
+    diagnosticsCheckbox.checked = false;
     diagnosticsCheckbox.addEventListener('change', onDiagnosticsToggle);
   }
 
