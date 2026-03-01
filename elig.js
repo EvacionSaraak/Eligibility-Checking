@@ -836,30 +836,60 @@ function checkClinicianMatch(claimClinicians, eligClinician) {
 /**
  * Select the best matching eligibility from multiple options
  * Ranks by:
- * 1. Not already used (prefer unused over used)
- * 2. Service category/consultation status match specificity
- * 3. First in list if all else equal
+ * 1. Valid (passes all validation checks) over invalid
+ * 2. Not already used (prefer unused over used)
+ * 3. Service category/consultation status match specificity
+ * 4. Date (most recent first)
+ * 5. Request number (highest/most recent first)
  * 
  * @param {Array} eligibilities - Array of matching eligibilities with _isUsed flag
  * @param {string} claimDepartment - The claim's department/service category
+ * @param {string} claimPackage - The claim's package name for validation
  * @returns {Object|null} - The best matching eligibility
  */
-function selectBestEligibility(eligibilities, claimDepartment = '') {
+function selectBestEligibility(eligibilities, claimDepartment = '', claimPackage = '') {
   if (!eligibilities || eligibilities.length === 0) return null;
-  if (eligibilities.length === 1) return eligibilities[0];
+  
+  // PRE-FILTER: Remove eligibilities that fail validation
+  // This ensures we always pick a valid eligibility if one exists
+  const validEligibilities = eligibilities.filter(elig => {
+    // Must have 'eligible' status
+    if (elig.Status?.toLowerCase() !== 'eligible') return false;
+    
+    // Check service category validity
+    const categoryCheck = isServiceCategoryValid(
+      elig['Service Category'], 
+      elig['Consultation Status'], 
+      claimDepartment
+    );
+    if (!categoryCheck.valid) return false;
+    
+    // Check package name match if both exist
+    if (claimPackage && elig['Package Name']) {
+      if (!packageNamesMatch(claimPackage, elig['Package Name'])) return false;
+    }
+    
+    return true;
+  });
+  
+  // If no valid eligibilities found, fall back to all eligibilities
+  // This allows the system to show WHY it failed (package mismatch, etc.)
+  const eligsToConsider = validEligibilities.length > 0 ? validEligibilities : eligibilities;
+  
+  if (eligsToConsider.length === 1) return eligsToConsider[0];
   
   const dept = (claimDepartment || '').toLowerCase().trim();
   
   // PRIORITY 1: Always prefer unused eligibilities over used ones
   // Separate unused and used eligibilities
-  const unusedEligibilities = eligibilities.filter(e => !e._isUsed);
-  const usedEligibilities = eligibilities.filter(e => e._isUsed);
+  const unusedEligibilities = eligsToConsider.filter(e => !e._isUsed);
+  const usedEligibilities = eligsToConsider.filter(e => e._isUsed);
   
   // If there are ANY unused eligibilities, only consider those
   // Otherwise, fall back to used eligibilities
   const eligibilitiesToScore = unusedEligibilities.length > 0 ? unusedEligibilities : usedEligibilities;
   
-  console.log(`   🎯 Best eligibility selection (${eligibilities.length} total: ${unusedEligibilities.length} unused, ${usedEligibilities.length} used):`);
+  console.log(`   🎯 Best eligibility selection (${eligibilities.length} total: ${validEligibilities.length} valid, ${eligsToConsider.length - validEligibilities.length} invalid, ${unusedEligibilities.length} unused, ${usedEligibilities.length} used):`);
   
   // Score each eligibility
   const scored = eligibilitiesToScore.map(elig => {
@@ -1368,7 +1398,8 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
     const matchingEligibilities = findEligibilityForClaim(eligMap, claimDate, memberID, [row.clinician], insurance, false, claimIndex);
     
     // Select the BEST match from all available eligibilities
-    const selectedEligibility = selectBestEligibility(matchingEligibilities, row.department);
+    // Pass package name and department for validation filtering
+    const selectedEligibility = selectBestEligibility(matchingEligibilities, row.department, row.packageName);
     
     // Mark the selected eligibility as used (only mark the one we actually use)
     if (selectedEligibility && selectedEligibility['Eligibility Request Number']) {
