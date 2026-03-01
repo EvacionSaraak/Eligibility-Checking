@@ -82,6 +82,16 @@ const DAMAN_PATTERN = /(^|[_\-])daman/i;
 const DAMAN_CLASSIFICATIONS = ['silver', 'gold', 'bronze'];
 
 /**
+ * Check if eligibility package contains any DAMAN classification keyword
+ * Handles variants like "Silver Plus", "Gold Premium", etc.
+ * @param {string} eligLower - Lowercase eligibility package name
+ * @returns {boolean} - True if contains a classification keyword
+ */
+function containsDAMANClassification(eligLower) {
+  return DAMAN_CLASSIFICATIONS.some(classification => eligLower.includes(classification));
+}
+
+/**
  * Check if package names match with special handling for Thiqa/TC packages and DAMAN classifications
  * @param {string} claimPackage - Package name from the claim
  * @param {string} eligPackage - Package name from the eligibility
@@ -112,31 +122,31 @@ function packageNamesMatch(claimPackage, eligPackage) {
     return true;
   }
   
-  // DAMAN Enhanced variant matching: "Daman Enhanced" should match "Sahtak" or Silver/Gold/Bronze
+  // DAMAN Enhanced variant matching: "Daman Enhanced" should match "Sahtak" or Silver/Gold/Bronze variants
   // Check this BEFORE the general DAMAN classification matching to include Sahtak
   if (claimLower.includes('daman') && claimLower.includes('enhanced')) {
-    if (eligLower === 'sahtak' || DAMAN_CLASSIFICATIONS.includes(eligLower)) {
+    if (eligLower === 'sahtak' || containsDAMANClassification(eligLower)) {
       return true;
     }
   }
   
   // DAMAN Low-End variant matching: "TrueLife_DAMAN Low-End" should match various DAMAN plan names and classifications
-  // These include specific plan names within DAMAN's network and also Silver/Gold/Bronze classifications
+  // These include specific plan names within DAMAN's network and also Silver/Gold/Bronze classification variants
   if (claimLower.includes('daman') && claimLower.includes('low-end')) {
-    // Match with specific DAMAN plan names OR classifications (Silver/Gold/Bronze)
+    // Match with specific DAMAN plan names OR classification variants (Silver/Gold/Bronze + variants)
     if (eligLower.includes('enhanced-auh') || eligLower.includes('abu dhabi') || 
-        eligLower === 'sahtak' || DAMAN_CLASSIFICATIONS.includes(eligLower)) {
+        eligLower === 'sahtak' || containsDAMANClassification(eligLower)) {
       return true;
     }
   }
   
   // Special DAMAN classification matching: if claim starts with "daman" or has "daman" after _ or -
-  // and eligibility has classification (Silver/Gold/Bronze), consider it a match
+  // and eligibility has classification (Silver/Gold/Bronze or variants like Silver Plus), consider it a match
   // Match patterns: "DAMAN...", "_DAMAN...", "-DAMAN..."
-  // This covers: "DAMAN Premium", "TrueLife_DAMAN Low-End", "Premium-DAMAN", etc.
+  // This covers: "DAMAN Premium", "DAMAN Royal", "TrueLife_DAMAN", "Premium-DAMAN", etc.
   // Note: DAMAN BASIC, DAMAN Enhanced, and DAMAN Low-End are handled above with more specific rules
   if (DAMAN_PATTERN.test(claimPackage) && !claimLower.includes('basic') && !claimLower.includes('enhanced') && !claimLower.includes('low-end')) {
-    if (DAMAN_CLASSIFICATIONS.includes(eligLower)) {
+    if (containsDAMANClassification(eligLower)) {
       return true;
     }
   }
