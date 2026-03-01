@@ -35,7 +35,7 @@
         <div id="explanation" class="mb-3">
           <b>Welcome!</b> This is a simple tool for checking patient eligibility.
           <ul class="mb-0 mt-2">
-            <li><b>1.</b> Upload your patient report (Odoo or InstaHMS).</li>
+            <li><b>1.</b> Upload your patient report (Odoo, InstaHMS, or Combined).</li>
             <li><b>2.</b> Upload the Eligibility XLSX file.</li>
             <li><b>3.</b> Click <b>Process</b> to check eligibility.</li>
             <li><b>4.</b> Click <b>Export Invalid Rows</b> to download patients not eligible.</li>
@@ -45,7 +45,7 @@
         <form>
           <div class="file-upload-area mb-3">
             <div class="mb-3">
-              <label for="reportFileInput" class="form-label">Upload Patient Report (Odoo or InstaHMS):</label>
+              <label for="reportFileInput" class="form-label">Upload Patient Report (Odoo, InstaHMS, or Combined):</label>
               <div class="input-group">
                 <span class="input-group-text"><i class="bi bi-file-earmark-excel"></i></span>
                 <input type="file" class="form-control" id="reportFileInput" multiple accept=".xls,.xlsx,.csv">
@@ -60,13 +60,29 @@
             </div>
           </div>
 
-          <!-- Daman/Thiqa Filter Toggle -->
+          <!-- Filter Options -->
           <div class="filter-toggle-area">
-            <label class="form-check-label">
-              <input class="form-check-input me-2" type="checkbox" id="filterDamanThiqa">
-              Show only <b>Daman / Thiqa</b> claims
-            </label>
-            <span id="filterStatus" class="filter-status">OFF</span>
+            <div class="mb-2">
+              <label class="form-check-label">
+                <input class="form-check-input me-2" type="checkbox" id="filterDamanThiqa">
+                Show only <b>Daman / Thiqa</b> claims
+              </label>
+              <span id="filterStatus" class="filter-status">OFF</span>
+            </div>
+            <div class="mb-2">
+              <label class="form-check-label">
+                <input class="form-check-input me-2" type="checkbox" id="removeLeadingZeroes">
+                Remove <b>leading zeroes</b> from member/claim IDs
+              </label>
+              <span id="removeZeroesStatus" class="filter-status">OFF</span>
+            </div>
+            <div>
+              <label class="form-check-label">
+                <input class="form-check-input me-2" type="checkbox" id="showDiagnosticsButtons">
+                Show <b>diagnostics</b> buttons for all claims
+              </label>
+              <span id="diagnosticsStatus" class="filter-status">OFF</span>
+            </div>
           </div>
 
           <div class="d-flex gap-2 mb-2 justify-content-start">
