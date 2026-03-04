@@ -2104,10 +2104,30 @@ function formatEligibilityDetails(record, memberID, claimDate, claimInfo = {}) {
       const parsed = DateHandler.parse(raw);
       disp = parsed ? DateHandler.format(parsed) : raw;
       if (claimDate && parsed) {
-        if (isAccepted) {
-          if (DateHandler.isSameDay(claimDate, parsed)) rowClass = 'table-success';
+        const keyLow = key.toLowerCase();
+        const isRangeStart = keyLow.startsWith('effective');
+        const isRangeEnd = keyLow.startsWith('expir');
+        if (isRangeStart) {
+          // Claim date must be on or after the effective date
+          if (isAccepted) {
+            if (claimDate.getTime() >= parsed.getTime()) rowClass = 'table-success';
+          } else {
+            if (claimDate.getTime() < parsed.getTime()) rowClass = 'table-danger';
+          }
+        } else if (isRangeEnd) {
+          // Claim date must be on or before the expiry date
+          if (isAccepted) {
+            if (claimDate.getTime() <= parsed.getTime()) rowClass = 'table-success';
+          } else {
+            if (claimDate.getTime() > parsed.getTime()) rowClass = 'table-danger';
+          }
         } else {
-          if (!DateHandler.isSameDay(claimDate, parsed)) rowClass = 'table-danger';
+          // Regular date field: must match exactly
+          if (isAccepted) {
+            if (DateHandler.isSameDay(claimDate, parsed)) rowClass = 'table-success';
+          } else {
+            if (!DateHandler.isSameDay(claimDate, parsed)) rowClass = 'table-danger';
+          }
         }
       }
     }
