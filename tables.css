@@ -292,8 +292,36 @@ td.last-copied {
   background-color: #f9f9f9;
 }
 
+.eligibility-details tr.table-danger,
+.eligibility-details tr.table-danger:nth-child(even) {
+  background-color: #f8d7da;
+  color: #842029;
+}
+
+.eligibility-details tr.table-danger th {
+  background-color: #f1aeb5;
+}
+
+.eligibility-details tr.table-warning,
+.eligibility-details tr.table-warning:nth-child(even) {
+  background-color: #fff3cd;
+  color: #664d03;
+}
+
+.eligibility-details tr.table-warning th {
+  background-color: #ffe69c;
+}
+
 .eligibility-details tr:hover {
   background-color: #f0f0f0;
+}
+
+.eligibility-details tr.table-danger:hover {
+  background-color: #f1aeb5;
+}
+
+.eligibility-details tr.table-warning:hover {
+  background-color: #ffe69c;
 }
 
 .eligibility-details .date-value {
