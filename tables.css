@@ -722,6 +722,104 @@ html.dragging, html.dragging * { cursor: col-resize !important; }
   border-radius: 2px;
 }
 
+/* === ELIGIBILITY MODAL TABS === */
+.elig-modal-tabs-wrapper {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* Chrome-style sticky tab bar */
+.elig-modal-tab-bar {
+  display: flex;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  gap: 2px;
+  padding: 8px 12px 0;
+  background: #f0f2f5;
+  border-bottom: 2px solid #dee2e6;
+  list-style: none;
+  margin: 0;
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  scrollbar-width: thin;
+}
+
+.elig-modal-tab-bar::-webkit-scrollbar {
+  height: 4px;
+}
+.elig-modal-tab-bar::-webkit-scrollbar-thumb {
+  background: #c0c8d0;
+  border-radius: 2px;
+}
+
+/* Individual tab button */
+.elig-tab-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid #cfd4da;
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  background: #dde1e7;
+  color: #495057;
+  font-size: 0.82em;
+  padding: 6px 14px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.13s, color 0.13s, box-shadow 0.13s;
+  margin-bottom: -2px;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.3;
+}
+
+.elig-tab-btn:hover:not(.active) {
+  background: #cdd2d9;
+  color: #212529;
+}
+
+.elig-tab-btn.active {
+  background: #ffffff;
+  color: #212529;
+  font-weight: 600;
+  border-color: #dee2e6;
+  border-bottom: 2px solid #ffffff;
+  box-shadow: 0 -2px 6px rgba(0, 0, 0, 0.07);
+  z-index: 1;
+  position: relative;
+}
+
+/* Badge inside tab (✓ selected / used) */
+.elig-tab-selected-badge,
+.elig-tab-used-badge {
+  font-size: 0.72em;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+
+/* Tab content area */
+.elig-modal-tab-content {
+  padding: 0;
+}
+
+.elig-tab-pane {
+  display: none;
+  padding: 16px;
+  animation: eligTabFadeIn 0.15s ease;
+}
+
+.elig-tab-pane.active {
+  display: block;
+}
+
+@keyframes eligTabFadeIn {
+  from { opacity: 0; transform: translateY(2px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
 /* === STATUS FILTER BUTTONS === */
 .status-filter-btn {
   cursor: pointer;

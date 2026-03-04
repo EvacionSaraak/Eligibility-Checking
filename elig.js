@@ -1680,7 +1680,7 @@ function initEligibilityModal(results, eligMap) {
               <button type="button" class="btn-close" id="modalCloseBtn" aria-label="Close"></button>
             </div>
             <div class="modal-body p-0">
-              <div id="modalTable" class="p-3" style="overflow:auto; max-height:70vh;"></div>
+              <div id="modalTable" class="p-0" style="overflow:auto; max-height:70vh;"></div>
             </div>
           </div>
         </div>
@@ -1722,69 +1722,83 @@ function initEligibilityModal(results, eligMap) {
       
       const modalTable = document.getElementById("modalTable");
       const debugBtn = document.getElementById('modalDebugBtn');
-      
-      // If only ONE match, show it in detailed view
-      if (result.allEligibilityRecords.length === 1) {
-        const record = result.allEligibilityRecords[0];
-        window.__elig_current_debug = { mode: 'single', member: result.memberID, claimDate: result.encounterStart || '', record, resultIndex: index };
-        if (debugBtn) debugBtn.style.display = '';
-        modalTable.innerHTML = formatEligibilityDetails(record, result.memberID, claimDate, claimInfo);
-      } else {
-        // Multiple matches - show them in a list view
-        window.__elig_current_debug = { mode: 'list', member: result.memberID, claimDate: result.encounterStart || '', listSnapshot: result.allEligibilityRecords };
-        if (debugBtn) debugBtn.style.display = '';
-        
-        let html = `<h6 class="px-3 pt-3">Matched Eligibilities for ${escapeHtml(result.memberID)} (${result.allEligibilityRecords.length} matches)</h6>
-          <div class="table-responsive px-3 pb-3">
-            <table class="table table-sm table-striped table-bordered mb-0">
-              <thead class="table-light">
-                <tr>
-                  <th style="min-width:38px">#</th>
-                  <th>Request No</th>
-                  <th>Answered On</th>
-                  <th>Status</th>
-                  <th>Clinician</th>
-                  <th>Service Category</th>
-                  <th>Consultation Status</th>
-                  <th>Package Name</th>
-                </tr>
-              </thead>
-              <tbody>`;
-        
-        result.allEligibilityRecords.forEach((rec, idx) => {
-          const answeredOnRaw = rec['Answered On'] || rec['Ordered On'] || '';
-          const eligDate = DateHandler.parse(answeredOnRaw);
-          const formattedEligDate = eligDate ? DateHandler.format(eligDate) : answeredOnRaw;
-          
-          // Highlight the selected eligibility (the one actually used for validation)
-          const isSelected = result.fullEligibilityRecord && 
-                             rec['Eligibility Request Number'] === result.fullEligibilityRecord['Eligibility Request Number'];
-          const trClass = isSelected ? 'table-success' : (rec._isUsed ? 'table-warning' : '');
-          const rowLabel = isSelected ? '✓ SELECTED' : (rec._isUsed ? '(used)' : '');
-          
-          html += `<tr class="${trClass}">
-            <td>${idx + 1} ${rowLabel}</td>
-            <td>${escapeHtml(rec['Eligibility Request Number'] || '')}</td>
-            <td>${escapeHtml(formattedEligDate)}</td>
-            <td>${escapeHtml(rec.Status || '')}</td>
-            <td>${escapeHtml(rec.Clinician || '')}</td>
-            <td>${escapeHtml(rec['Service Category'] || '')}</td>
-            <td>${escapeHtml(rec['Consultation Status'] || '')}</td>
-            <td>${escapeHtml(rec['Package Name'] || '')}</td>
-          </tr>`;
-        });
-        
-        html += `</tbody></table></div>`;
-        html += `<div class="px-3 pb-3">
-          <small class="text-muted">
-            <strong>Legend:</strong> 
-            <span class="badge bg-success">✓ SELECTED</span> = Used for this claim | 
-            <span class="badge bg-warning text-dark">(used)</span> = Already used by another claim
-          </small>
-        </div>`;
-        modalTable.innerHTML = html;
+
+      // Determine which record is selected/matched
+      const selectedEligNumber = result.fullEligibilityRecord
+        ? result.fullEligibilityRecord['Eligibility Request Number']
+        : null;
+
+      // Find the default tab (the selected/matched elig, or first)
+      let defaultTabIdx = 0;
+      if (selectedEligNumber && result.allEligibilityRecords.length > 1) {
+        const found = result.allEligibilityRecords.findIndex(
+          r => r['Eligibility Request Number'] === selectedEligNumber
+        );
+        if (found >= 0) defaultTabIdx = found;
       }
-      
+
+      window.__elig_current_debug = {
+        mode: result.allEligibilityRecords.length === 1 ? 'single' : 'list',
+        member: result.memberID,
+        claimDate: result.encounterStart || '',
+        record: result.allEligibilityRecords[0],
+        listSnapshot: result.allEligibilityRecords,
+        resultIndex: index
+      };
+      if (debugBtn) debugBtn.style.display = '';
+
+      // Build Chrome-style tabbed interface for all eligibility records
+      let tabsHtml = `<div class="elig-modal-tabs-wrapper">`;
+
+      // Tab bar
+      tabsHtml += `<ul class="nav elig-modal-tab-bar" role="tablist">`;
+      result.allEligibilityRecords.forEach((rec, idx) => {
+        const isSelected = selectedEligNumber &&
+          rec['Eligibility Request Number'] === selectedEligNumber;
+        const isActive = idx === defaultTabIdx;
+        const reqNum = rec['Eligibility Request Number'] || '';
+        const tabLabel = reqNum ? escapeHtml(reqNum) : `Elig #${idx + 1}`;
+        const selectedBadge = isSelected
+          ? ` <span class="badge bg-success ms-1 elig-tab-selected-badge">✓</span>`
+          : (rec._isUsed ? ` <span class="badge bg-warning text-dark ms-1 elig-tab-used-badge">used</span>` : '');
+        tabsHtml += `<li class="nav-item" role="presentation">
+          <button class="nav-link elig-tab-btn${isActive ? ' active' : ''}" id="elig-tab-${idx}" data-elig-tab="${idx}" type="button" role="tab" aria-selected="${isActive ? 'true' : 'false'}" aria-controls="elig-tabpanel-${idx}">
+            ${tabLabel}${selectedBadge}
+          </button>
+        </li>`;
+      });
+      tabsHtml += `</ul>`;
+
+      // Tab content panels
+      tabsHtml += `<div class="elig-modal-tab-content">`;
+      result.allEligibilityRecords.forEach((rec, idx) => {
+        const isActive = idx === defaultTabIdx;
+        tabsHtml += `<div class="elig-tab-pane${isActive ? ' active' : ''}" id="elig-tabpanel-${idx}" role="tabpanel" aria-labelledby="elig-tab-${idx}">`;
+        tabsHtml += formatEligibilityDetails(rec, result.memberID, claimDate, claimInfo);
+        tabsHtml += `</div>`;
+      });
+      tabsHtml += `</div></div>`;
+
+      modalTable.innerHTML = tabsHtml;
+
+      // Wire up tab switching
+      modalTable.querySelectorAll('.elig-tab-btn').forEach(tabBtn => {
+        tabBtn.addEventListener('click', function () {
+          const tabIdx = parseInt(this.dataset.eligTab, 10);
+          modalTable.querySelectorAll('.elig-tab-btn').forEach(btn => {
+            btn.classList.remove('active');
+            btn.setAttribute('aria-selected', 'false');
+          });
+          modalTable.querySelectorAll('.elig-tab-pane').forEach(pane => {
+            pane.classList.remove('active');
+          });
+          this.classList.add('active');
+          this.setAttribute('aria-selected', 'true');
+          const pane = modalTable.querySelector(`#elig-tabpanel-${tabIdx}`);
+          if (pane) pane.classList.add('active');
+        });
+      });
+
       showModal();
     });
   });
