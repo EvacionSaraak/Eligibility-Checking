@@ -312,6 +312,16 @@ td.last-copied {
   background-color: #ffe69c;
 }
 
+.eligibility-details tr.table-success,
+.eligibility-details tr.table-success:nth-child(even) {
+  background-color: #d1e7dd;
+  color: #0a3622;
+}
+
+.eligibility-details tr.table-success th {
+  background-color: #a3cfbb;
+}
+
 .eligibility-details tr:hover {
   background-color: #f0f0f0;
 }
@@ -322,6 +332,10 @@ td.last-copied {
 
 .eligibility-details tr.table-warning:hover {
   background-color: #ffe69c;
+}
+
+.eligibility-details tr.table-success:hover {
+  background-color: #a3cfbb;
 }
 
 .eligibility-details .date-value {

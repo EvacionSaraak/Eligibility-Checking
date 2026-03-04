@@ -2053,6 +2053,8 @@ function formatEligibilityDetails(record, memberID, claimDate, claimInfo = {}) {
     html += '</ul></div>';
   }
 
+  const isAccepted = mismatches.length === 0;
+
   html += '<table class="eligibility-details"><tbody>';
 
   const preferredKeys = [
@@ -2072,15 +2074,21 @@ function formatEligibilityDetails(record, memberID, claimDate, claimInfo = {}) {
         const parsed = DateHandler.parse(raw);
         disp = parsed ? DateHandler.format(parsed) : raw;
         if (claimDate && parsed) {
-          if (DateHandler.isSameDay(claimDate, parsed)) rowClass = 'table-warning';
-          else rowClass = 'table-danger';
+          if (isAccepted) {
+            if (DateHandler.isSameDay(claimDate, parsed)) rowClass = 'table-success';
+          } else {
+            if (!DateHandler.isSameDay(claimDate, parsed)) rowClass = 'table-danger';
+          }
         }
-      } else if (key === 'Status' && status.toLowerCase() !== 'eligible') {
-        rowClass = 'table-danger';
-      } else if (key === 'Clinician' && eligClinician && claimClinician && eligClinician !== claimClinician) {
-        rowClass = 'table-danger';
-      } else if (key === 'Package Name' && eligPackage && claimPackage && !packageNamesMatch(claimPackage, eligPackage)) {
-        rowClass = 'table-danger';
+      } else if (key === 'Status') {
+        if (isAccepted) rowClass = 'table-success';
+        else if (status.toLowerCase() !== 'eligible') rowClass = 'table-danger';
+      } else if (key === 'Clinician') {
+        if (isAccepted && eligClinician && claimClinician) rowClass = 'table-success';
+        else if (!isAccepted && eligClinician && claimClinician && eligClinician !== claimClinician) rowClass = 'table-danger';
+      } else if (key === 'Package Name') {
+        if (isAccepted && eligPackage && claimPackage) rowClass = 'table-success';
+        else if (!isAccepted && eligPackage && claimPackage && !packageNamesMatch(claimPackage, eligPackage)) rowClass = 'table-danger';
       }
       html += `<tr class="${rowClass}"><th>${escapeHtml(key)}</th><td>${escapeHtml(String(disp))}</td></tr>`;
     }
@@ -2096,8 +2104,11 @@ function formatEligibilityDetails(record, memberID, claimDate, claimInfo = {}) {
       const parsed = DateHandler.parse(raw);
       disp = parsed ? DateHandler.format(parsed) : raw;
       if (claimDate && parsed) {
-        if (DateHandler.isSameDay(claimDate, parsed)) rowClass = 'table-warning';
-        else rowClass = 'table-danger';
+        if (isAccepted) {
+          if (DateHandler.isSameDay(claimDate, parsed)) rowClass = 'table-success';
+        } else {
+          if (!DateHandler.isSameDay(claimDate, parsed)) rowClass = 'table-danger';
+        }
       }
     }
     html += `<tr class="${rowClass}"><th>${escapeHtml(key)}</th><td>${escapeHtml(String(disp))}</td></tr>`;
