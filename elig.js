@@ -1824,82 +1824,75 @@ function initEligibilityModal(results, eligMap) {
         return;
       }
 
-      let html = `<h6 class="px-3 pt-3">Eligibilities for ${escapeHtml(member)}</h6>
-        <div class="table-responsive px-3 pb-3">
-          <table class="table table-sm table-striped table-bordered mb-0">
-            <thead class="table-light">
-              <tr>
-                <th style="min-width:38px">#</th>
-                <th>Request No</th>
-                <th>Answered On</th>
-                <th>Status</th>
-                <th>Clinician</th>
-                <th>Service Category</th>
-                <th>Package Name</th>
-                <th style="min-width:250px">Match Status / Mismatch Details</th>
-              </tr>
-            </thead>
-            <tbody>`;
+      const claimInfo = { claimClinician, claimPackage };
 
-      list.forEach((rec, idx) => {
+      // Pre-compute match status for each record to determine tab badge and default tab
+      const recordMeta = list.map(rec => {
         const answeredOnRaw = rec['Answered On'] || rec['Ordered On'] || '';
         const eligDate = DateHandler.parse(answeredOnRaw);
-        const formattedEligDate = eligDate ? DateHandler.format(eligDate) : answeredOnRaw;
-        let trClass = '';
-        
-        // Calculate match reasons with detailed information
         const reasons = [];
-        
-        // Date mismatch
-        if (claimDate && eligDate) {
-          if (DateHandler.isSameDay(claimDate, eligDate)) {
-            trClass = 'table-warning';
-          } else {
-            trClass = 'table-danger';
-            const claimDateFormatted = DateHandler.format(claimDate);
-            reasons.push(`Date: Claim ${escapeHtml(claimDateFormatted)} ≠ Elig ${escapeHtml(formattedEligDate)}`);
-          }
-        }
-        
-        // Clinician mismatch
+        if (claimDate && eligDate && !DateHandler.isSameDay(claimDate, eligDate)) reasons.push('date');
         const eligClinician = (rec['Clinician'] || '').trim();
-        if (eligClinician && claimClinician && eligClinician !== claimClinician) {
-          reasons.push(`Clinician: Claim "${escapeHtml(claimClinician)}" ≠ Elig "${escapeHtml(eligClinician)}"`);
-        }
-        
-        // Package mismatch
+        if (eligClinician && claimClinician && eligClinician !== claimClinician) reasons.push('clinician');
         const eligPackage = (rec['Package Name'] || '').trim();
-        if (eligPackage && claimPackage && !packageNamesMatch(claimPackage, eligPackage)) {
-          reasons.push(`Package: Claim "${escapeHtml(claimPackage)}" ≠ Elig "${escapeHtml(eligPackage)}"`);
-        }
-        
-        // Status check
+        if (eligPackage && claimPackage && !packageNamesMatch(claimPackage, eligPackage)) reasons.push('package');
         const status = rec['Status'] || '';
-        if (status.toLowerCase() !== 'eligible') {
-          reasons.push(`Status: "${escapeHtml(status)}" (not Eligible)`);
-        }
-        
-        // Display match status with detailed reasons
-        // Note: Each dynamic value is escaped individually before building the reason string,
-        // then safe strings are joined with <br> tags for multi-line display
-        const matchStatus = reasons.length > 0 
-          ? `<span class="text-danger" style="font-size: 0.85em;">❌ ${reasons.join('<br>')}</span>`
-          : '<span class="text-success">✅ Match</span>';
-        
-        html += `<tr class="${trClass}">
-          <td>${idx + 1}</td>
-          <td>${escapeHtml(rec['Eligibility Request Number'] || '')}</td>
-          <td>${escapeHtml(formattedEligDate || '')}</td>
-          <td>${escapeHtml(rec['Status'] || '')}</td>
-          <td>${escapeHtml(rec['Clinician'] || '')}</td>
-          <td>${escapeHtml(rec['Service Category'] || '')}</td>
-          <td>${escapeHtml(rec['Package Name'] || '')}</td>
-          <td>${matchStatus}</td>
-        </tr>`;
+        if (status.toLowerCase() !== 'eligible') reasons.push('status');
+        return { isMatch: reasons.length === 0 };
       });
 
-      html += `</tbody></table></div>`;
-      modalTable.innerHTML = html;
+      // Default tab: first record that fully matches, else first
+      let defaultTabIdx = recordMeta.findIndex(m => m.isMatch);
+      if (defaultTabIdx < 0) defaultTabIdx = 0;
+
+      // Build Chrome-style tabbed interface
+      let tabsHtml = `<div class="elig-modal-tabs-wrapper">`;
+
+      tabsHtml += `<ul class="nav elig-modal-tab-bar" role="tablist">`;
+      list.forEach((rec, idx) => {
+        const isActive = idx === defaultTabIdx;
+        const reqNum = rec['Eligibility Request Number'] || '';
+        const tabLabel = reqNum ? escapeHtml(reqNum) : `Elig #${idx + 1}`;
+        const matchBadge = recordMeta[idx].isMatch
+          ? ` <span class="badge bg-success ms-1 elig-tab-match-badge">✓</span>`
+          : ` <span class="badge bg-danger ms-1 elig-tab-mismatch-badge">✗</span>`;
+        tabsHtml += `<li class="nav-item" role="presentation">
+          <button class="nav-link elig-tab-btn${isActive ? ' active' : ''}" id="elig-tab-${idx}" data-elig-tab="${idx}" type="button" role="tab" aria-selected="${isActive ? 'true' : 'false'}" aria-controls="elig-tabpanel-${idx}">
+            ${tabLabel}${matchBadge}
+          </button>
+        </li>`;
+      });
+      tabsHtml += `</ul>`;
+
+      tabsHtml += `<div class="elig-modal-tab-content">`;
+      list.forEach((rec, idx) => {
+        const isActive = idx === defaultTabIdx;
+        tabsHtml += `<div class="elig-tab-pane${isActive ? ' active' : ''}" id="elig-tabpanel-${idx}" role="tabpanel" aria-labelledby="elig-tab-${idx}">`;
+        tabsHtml += formatEligibilityDetails(rec, member, claimDate, claimInfo);
+        tabsHtml += `</div>`;
+      });
+      tabsHtml += `</div></div>`;
+
+      modalTable.innerHTML = tabsHtml;
+
+      // Wire up tab switching
+      modalTable.querySelectorAll('.elig-tab-btn').forEach(tabBtn => {
+        tabBtn.addEventListener('click', function () {
+          const tabIdx = parseInt(this.dataset.eligTab, 10);
+          modalTable.querySelectorAll('.elig-tab-btn').forEach(btn => {
+            btn.classList.remove('active');
+            btn.setAttribute('aria-selected', 'false');
+          });
+          modalTable.querySelectorAll('.elig-tab-pane').forEach(pane => {
+            pane.classList.remove('active');
+          });
+          this.classList.add('active');
+          this.setAttribute('aria-selected', 'true');
+          const pane = modalTable.querySelector(`#elig-tabpanel-${tabIdx}`);
+          if (pane) pane.classList.add('active');
+        });
+      });
+
       showModal();
     });
   });

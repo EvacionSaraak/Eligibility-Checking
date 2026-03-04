@@ -800,6 +800,14 @@ html.dragging, html.dragging * { cursor: col-resize !important; }
   flex-shrink: 0;
 }
 
+/* Badge inside tab (✓ match / ✗ mismatch) — used by the denied-eligs modal */
+.elig-tab-match-badge,
+.elig-tab-mismatch-badge {
+  font-size: 0.72em;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+
 /* Tab content area */
 .elig-modal-tab-content {
   padding: 0;
