@@ -1069,8 +1069,8 @@ function detectReportType(rawData) {
     const detection = findHeaderRowFromArrays(rawData, 50);
     if (detection.rows && detection.rows.length > 0) {
       const sample = detection.rows[0];
-      // Check for Combined report first (has Pri. Claim No + Visit Id or Total Amount)
-      if (sample.hasOwnProperty('Pri. Claim No') && (sample.hasOwnProperty('Visit Id') || sample.hasOwnProperty('Total Amount'))) return 'Combined';
+      // Check for Combined report first (has Pri. Claim No + Total Amount; 'Visit Id' alone is not enough since Insta reports also have it)
+      if (sample.hasOwnProperty('Pri. Claim No') && sample.hasOwnProperty('Total Amount')) return 'Combined';
       if (sample.hasOwnProperty('Pri. Claim No')) return 'Insta';
       if (sample.hasOwnProperty('Pri. Claim ID')) return 'Odoo';
     }
@@ -1080,8 +1080,8 @@ function detectReportType(rawData) {
   // If it's already an array of objects
   if (Array.isArray(rawData) && rawData.length > 0 && typeof rawData[0] === 'object' && !Array.isArray(rawData[0])) {
     const sample = rawData[0];
-    // Check for Combined report first (has Pri. Claim No + Visit Id or Total Amount)
-    if (sample.hasOwnProperty('Pri. Claim No') && (sample.hasOwnProperty('Visit Id') || sample.hasOwnProperty('Total Amount'))) return 'Combined';
+    // Check for Combined report first (has Pri. Claim No + Total Amount; 'Visit Id' alone is not enough since Insta reports also have it)
+    if (sample.hasOwnProperty('Pri. Claim No') && sample.hasOwnProperty('Total Amount')) return 'Combined';
     if (sample.hasOwnProperty('Pri. Claim No')) return 'Insta';
     if (sample.hasOwnProperty('Pri. Claim ID')) return 'Odoo';
     return 'Generic';
@@ -1090,8 +1090,8 @@ function detectReportType(rawData) {
   // If it has a {headers, rows} shape
   if (rawData.rows && Array.isArray(rawData.rows) && rawData.rows.length > 0) {
     const sample = rawData.rows[0];
-    // Check for Combined report first (has Pri. Claim No + Visit Id or Total Amount)
-    if (sample.hasOwnProperty('Pri. Claim No') && (sample.hasOwnProperty('Visit Id') || sample.hasOwnProperty('Total Amount'))) return 'Combined';
+    // Check for Combined report first (has Pri. Claim No + Total Amount; 'Visit Id' alone is not enough since Insta reports also have it)
+    if (sample.hasOwnProperty('Pri. Claim No') && sample.hasOwnProperty('Total Amount')) return 'Combined';
     if (sample.hasOwnProperty('Pri. Claim No')) return 'Insta';
     if (sample.hasOwnProperty('Pri. Claim ID')) return 'Odoo';
     return 'Generic';
@@ -1117,7 +1117,7 @@ function normalizeReportData(rawData) {
   // If rawData is an array of plain objects (not the {headers, rows} shape), handle that too.
   if (Array.isArray(rawData) && rawData.length > 0 && !rawData.headers && typeof rawData[0] === 'object' && !Array.isArray(rawData[0])) {
     const sample = rawData[0];
-    const isCombined = sample.hasOwnProperty('Pri. Claim No') && (sample.hasOwnProperty('Visit Id') || sample.hasOwnProperty('Total Amount'));
+    const isCombined = sample.hasOwnProperty('Pri. Claim No') && sample.hasOwnProperty('Total Amount');
     const isInsta = sample.hasOwnProperty('Pri. Claim No') && !isCombined;
     const isOdoo = sample.hasOwnProperty('Pri. Claim ID');
     return rawData.map(row => {
@@ -1209,7 +1209,7 @@ function normalizeReportData(rawData) {
   }
 
   return rows.map(r => {
-    const isCombined = !!(r['Pri. Claim No'] && (r['Visit Id'] || r['Total Amount']));
+    const isCombined = !!(r['Pri. Claim No'] && r['Total Amount']);
     const isInsta = !!(r['Pri. Claim No']) && !isCombined;
     const isOdoo = !!r['Pri. Claim ID'];
 
@@ -2271,7 +2271,7 @@ async function handleProcessClick() {
                        `Expected original columns in file:\n` +
                        `  • Insta report must have: "Pri. Claim No"\n` +
                        `  • Odoo report must have: "Pri. Claim ID"\n` +
-                       `  • Combined report must have: "Pri. Claim No" and "Visit Id" (or "Total Amount")\n\n` +
+                       `  • Combined report must have: "Pri. Claim No" and "Total Amount"\n\n` +
                        `These columns were not found in your file.\n` +
                        `Please verify you're uploading a valid Insta, Odoo, or Combined export.`;
       console.error(errorMsg);
@@ -2281,7 +2281,7 @@ async function handleProcessClick() {
             `Expected columns in original file:\n` +
             `  • Insta reports must have: "Pri. Claim No"\n` +
             `  • Odoo reports must have: "Pri. Claim ID"\n` +
-            `  • Combined reports must have: "Pri. Claim No" and "Visit Id" (or "Total Amount")\n\n` +
+            `  • Combined reports must have: "Pri. Claim No" and "Total Amount"\n\n` +
             `Please check your file and try again.`);
       return; // Stop processing
     }
