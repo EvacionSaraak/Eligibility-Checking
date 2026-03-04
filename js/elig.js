@@ -1600,7 +1600,7 @@ function renderResults(results, eligMap, totalResults = null) {
         data-member="${escapeHtml(result.memberID)}" 
         data-claimdate="${escapeHtml(result.encounterStart)}"
         data-claimclinician="${escapeHtml(result.clinician || '')}"
-        data-claimpackage="${escapeHtml(result.packageName || '')}">View eligibilities</button>`;
+        data-claimpackage="${escapeHtml(result.packageName || '')}" aria-label="View Eligibilities">View Eligs</button>`;
       // Conditionally add diagnostics button based on toggle state
       if (showDiagnosticsButtons) {
         detailsCellHtml += ` <button class="btn btn-sm btn-outline-info show-diagnostics" data-index="${index}" title="Show diagnostic logging for this claim">
