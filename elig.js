@@ -2075,6 +2075,12 @@ function formatEligibilityDetails(record, memberID, claimDate, claimInfo = {}) {
           if (DateHandler.isSameDay(claimDate, parsed)) rowClass = 'table-warning';
           else rowClass = 'table-danger';
         }
+      } else if (key === 'Status' && status.toLowerCase() !== 'eligible') {
+        rowClass = 'table-danger';
+      } else if (key === 'Clinician' && eligClinician && claimClinician && eligClinician !== claimClinician) {
+        rowClass = 'table-danger';
+      } else if (key === 'Package Name' && eligPackage && claimPackage && !packageNamesMatch(claimPackage, eligPackage)) {
+        rowClass = 'table-danger';
       }
       html += `<tr class="${rowClass}"><th>${escapeHtml(key)}</th><td>${escapeHtml(String(disp))}</td></tr>`;
     }
