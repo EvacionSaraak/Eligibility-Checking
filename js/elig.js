@@ -1136,7 +1136,7 @@ function normalizeReportData(rawData) {
           fileNo: row['Patient Code'] || '',
           admittingDoctor: '',
           openedBy: row['Opened by'] || '',
-          price: row['Total Amount'] || '',
+          price: row['Total Amount'] ?? '',
           facilityID: row['Facility ID'] || '',
           sourceFile: row['Source File'] || ''
         };
@@ -1155,7 +1155,7 @@ function normalizeReportData(rawData) {
           fileNo: row['Patient Code'] || '',
           admittingDoctor: '',  // Insta reports don't have a separate Admitting Doctor column
           openedBy: row['Opened by'] || '',
-          price: row['Net Amount'] || row['Gross Amount'] || '',
+          price: row['Net Amount'] ?? row['Gross Amount'] ?? '',
           facilityID: row['Facility ID'] || ''
         };
       } else if (isOdoo) {
@@ -1173,7 +1173,7 @@ function normalizeReportData(rawData) {
           fileNo: row['MR No.'] || row['MR No'] || '',
           admittingDoctor: row['Admitting Doctor'] || '',
           openedBy: row['Opened by'] || '',
-          price: row['Total Sponsor Amt'] || '',
+          price: row['Total Sponsor Amt'] ?? '',
           facilityID: row['Center Name'] || ''
         };
       } else {
@@ -1191,7 +1191,7 @@ function normalizeReportData(rawData) {
           fileNo: row['MR No'] || row['Patient Code'] || row['File No'] || row['FileNo'] || '',
           admittingDoctor: row['Admitting Doctor'] || row['Doctor'] || row['Physician'] || '',
           openedBy: row['Opened by'] || '',
-          price: row['Total Amount'] || '',
+          price: row['Total Amount'] ?? '',
           facilityID: row['Facility ID'] || ''
         };
       }
@@ -1209,9 +1209,9 @@ function normalizeReportData(rawData) {
   }
 
   return rows.map(r => {
-    const isCombined = !!(r['Pri. Claim No'] && r['Total Amount']);
-    const isInsta = !!(r['Pri. Claim No']) && !isCombined;
-    const isOdoo = !!r['Pri. Claim ID'];
+    const isCombined = Object.prototype.hasOwnProperty.call(r, 'Pri. Claim No') && Object.prototype.hasOwnProperty.call(r, 'Total Amount');
+    const isInsta = Object.prototype.hasOwnProperty.call(r, 'Pri. Claim No') && !isCombined;
+    const isOdoo = Object.prototype.hasOwnProperty.call(r, 'Pri. Claim ID');
 
     if (isCombined) {
       return {
@@ -1228,7 +1228,7 @@ function normalizeReportData(rawData) {
         fileNo: r['Patient Code'] || '',
         admittingDoctor: '',
         openedBy: r['Opened by'] || '',
-        price: r['Total Amount'] || '',
+        price: getField(r, ['Total Amount']),  // getField preserves 0 values, unlike || ''
         facilityID: r['Facility ID'] || '',
         sourceFile: r['Source File'] || ''
       };
@@ -1247,7 +1247,7 @@ function normalizeReportData(rawData) {
         fileNo: r['Patient Code'] || '',
         admittingDoctor: '',  // Insta reports don't have a separate Admitting Doctor column
         openedBy: r['Opened by'] || '',
-        price: r['Net Amount'] || r['Gross Amount'] || '',
+        price: getField(r, ['Net Amount', 'Gross Amount']),
         facilityID: r['Facility ID'] || ''
       };
     } else if (isOdoo) {
@@ -1265,7 +1265,7 @@ function normalizeReportData(rawData) {
         fileNo: r['MR No.'] || r['MR No'] || '',
         admittingDoctor: r['Admitting Doctor'] || '',
         openedBy: r['Opened by'] || '',
-        price: r['Total Sponsor Amt'] || '',
+        price: getField(r, ['Total Sponsor Amt']),
         facilityID: r['Center Name'] || ''
       };
     } else {
@@ -1283,7 +1283,7 @@ function normalizeReportData(rawData) {
         fileNo: r['MR No.'] || r['MR No'] || r['Patient Code'] || getField(r, ['MR No.','MR No','Patient Code','File No','FileNo']) || '',
         admittingDoctor: r['Admitting Doctor'] || getField(r, ['Admitting Doctor','Doctor','Physician']) || '',
         openedBy: r['Opened by'] || '',
-        price: r['Net Amount'] || r['Gross Amount'] || r['Total Sponsor Amt'] || r['Total Amount'] || '',
+        price: getField(r, ['Net Amount', 'Gross Amount', 'Total Sponsor Amt', 'Total Amount']),
         facilityID: r['Facility ID'] || r['Center Name'] || ''
       };
 
@@ -1463,7 +1463,7 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
       fileNo: row.fileNo || '',
       admittingDoctor: row.admittingDoctor || '',
       openedBy: row.openedBy || '',
-      price: row.price || '',
+      price: row.price ?? '',
       facilityID: row.facilityID || '',
       sourceFile: row.sourceFile || ''
     });
@@ -2164,7 +2164,7 @@ function exportInvalidEntries(results) {
       'Clinician Name': entry.clinicianName || '',
       'Verdict': (entry.remarks || []).join('; '),
       'Opened By': entry.openedBy || '',
-      'Price': entry.price || '',
+      'Price': entry.price ?? '',
       'Admitting DEPT': entry.department || '',
       'Pri. Plan Type': entry.packageName || entry.provider || '',
       'Facility ID': entry.facilityID || '',
