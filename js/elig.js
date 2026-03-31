@@ -145,7 +145,7 @@ function packageNamesMatch(claimPackage, eligPackage) {
   // Match patterns: "DAMAN...", "_DAMAN...", "-DAMAN..."
   // This covers: "DAMAN Premium", "DAMAN Royal", "TrueLife_DAMAN", "Premium-DAMAN", etc.
   // Note: DAMAN BASIC, DAMAN Enhanced, and DAMAN Low-End are handled above with more specific rules
-  if (DAMAN_PATTERN.test(claimPackage) && !claimLower.includes('basic') && !claimLower.includes('enhanced') && !claimLower.includes('low-end')) {
+  if (DAMAN_PATTERN.test(claimPackage) && !claimLower.includes('basic') && !claimLower.includes('enhanced') && !claimLower.includes('low-end') && !claimLower.includes('high-end')) {
     if (containsDAMANClassification(eligLower)) {
       return true;
     }
@@ -1413,8 +1413,13 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
     const eligibility = selectedEligibility;
     let finalStatus = 'invalid', remarks = [];
     
+    // Daman High-End claims cannot be determined as valid or invalid; mark as unknown
+    const packageLower = (row.packageName || '').toLowerCase();
+    if (packageLower.includes('daman') && packageLower.includes('high-end')) {
+      finalStatus = 'unknown';
+      remarks.push('Daman High-End claims are marked as unknown.');
     // Only treat leading zeroes as invalid if the option to remove them is OFF
-    if (hasLeadingZero && !removeLeadingZeroes) {
+    } else if (hasLeadingZero && !removeLeadingZeroes) {
       finalStatus = 'invalid';
       remarks.push('Member ID has a leading zero; claim marked as invalid.');
     } else if (!eligibility) {
