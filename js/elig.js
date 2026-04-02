@@ -145,7 +145,7 @@ function packageNamesMatch(claimPackage, eligPackage) {
   // Match patterns: "DAMAN...", "_DAMAN...", "-DAMAN..."
   // This covers: "DAMAN Premium", "DAMAN Royal", "TrueLife_DAMAN", "Premium-DAMAN", etc.
   // Note: DAMAN BASIC, DAMAN Enhanced, and DAMAN Low-End are handled above with more specific rules
-  if (DAMAN_PATTERN.test(claimPackage) && !claimLower.includes('basic') && !claimLower.includes('enhanced') && !claimLower.includes('low-end')) {
+  if (DAMAN_PATTERN.test(claimPackage) && !claimLower.includes('basic') && !claimLower.includes('enhanced') && !claimLower.includes('low-end') && !claimLower.includes('high-end')) {
     if (containsDAMANClassification(eligLower)) {
       return true;
     }
@@ -1100,6 +1100,20 @@ function detectReportType(rawData) {
   return 'Generic';
 }
 
+/**
+ * Read a clinician license value from a raw spreadsheet cell.
+ * Preserves Excel boolean FALSE (and the text "FALSE") as the sentinel
+ * string 'FALSE' so validation can detect it and mark the claim as unknown.
+ * Without this, boolean false is silently dropped by the || '' fallback.
+ * @param {*} val - Raw cell value
+ * @returns {string}
+ */
+function readClinicianLicense(val) {
+  if (val === false || (typeof val === 'string' && val.trim().toUpperCase() === 'FALSE')) return 'FALSE';
+  if (val == null || val === '') return '';
+  return String(val);
+}
+
 function normalizeReportData(rawData) {
   if (!rawData) return [];
 
@@ -1127,7 +1141,7 @@ function normalizeReportData(rawData) {
           visitID: row['Visit Id'] || '',
           memberID: row['Pri. Patient Insurance Card No'] || '',
           claimDate: row['Encounter Date'] || '',
-          clinician: row['Clinician License'] || '',
+          clinician: readClinicianLicense(row['Clinician License']),
           clinicianName: row['Clinician Name'] || '',
           department: row['Department'] || '',
           packageName: row['Pri. Plan Type'] || '',
@@ -1136,7 +1150,7 @@ function normalizeReportData(rawData) {
           fileNo: row['Patient Code'] || '',
           admittingDoctor: '',
           openedBy: row['Opened by'] || '',
-          price: row['Total Amount'] || '',
+          price: row['Total Amount'] ?? '',
           facilityID: row['Facility ID'] || '',
           sourceFile: row['Source File'] || ''
         };
@@ -1146,7 +1160,7 @@ function normalizeReportData(rawData) {
           visitID: row['Visit Id'] || '',
           memberID: row['Pri. Patient Insurance Card No'] || '',
           claimDate: row['Encounter Date'] || '',
-          clinician: row['Clinician License'] || '',
+          clinician: readClinicianLicense(row['Clinician License']),
           clinicianName: row['Clinician Name'] || '',
           department: row['Department'] || '',
           packageName: row['Pri. Plan Type'] || row['Pri. Plan Name'] || row['Pri. Payer Name'] || '',
@@ -1155,7 +1169,7 @@ function normalizeReportData(rawData) {
           fileNo: row['Patient Code'] || '',
           admittingDoctor: '',  // Insta reports don't have a separate Admitting Doctor column
           openedBy: row['Opened by'] || '',
-          price: row['Net Amount'] || row['Gross Amount'] || '',
+          price: row['Net Amount'] ?? row['Gross Amount'] ?? '',
           facilityID: row['Facility ID'] || ''
         };
       } else if (isOdoo) {
@@ -1164,16 +1178,14 @@ function normalizeReportData(rawData) {
           visitID: row['Visit Id'] || '',
           memberID: row['Pri. Member ID'] || '',
           claimDate: row['Adm/Reg. Date'] || '',
-          clinician: row['Admitting License'] || '',
-          clinicianName: row['Admitting Doctor'] || '',
-          department: row['Admitting Department'] || '',
+          clinician: readClinicianLicense(row['Admitting License']),
           insuranceCompany: row['Pri. Plan Type'] || row['Pri. Sponsor'] || '',
           packageName: row['Pri. Plan Type'] || row['Pri. Sponsor'] || '',
           claimStatus: row['Codification Status'] || '',
           fileNo: row['MR No.'] || row['MR No'] || '',
           admittingDoctor: row['Admitting Doctor'] || '',
           openedBy: row['Opened by'] || '',
-          price: row['Total Sponsor Amt'] || '',
+          price: row['Total Sponsor Amt'] ?? '',
           facilityID: row['Center Name'] || ''
         };
       } else {
@@ -1182,16 +1194,14 @@ function normalizeReportData(rawData) {
           visitID: row['Visit Id'] || '',
           memberID: row['PatientCardID'] || '',
           claimDate: row['ClaimDate'] || '',
-          clinician: row['Clinician License'] || '',
-          clinicianName: row['Clinician Name'] || '',
-          packageName: row['Insurance Company'] || '',
+          clinician: readClinicianLicense(row['Clinician License']),
           insuranceCompany: row['Insurance Company'] || '',
           department: row['Clinic'] || '',
           claimStatus: row['VisitStatus'] || '',
           fileNo: row['MR No'] || row['Patient Code'] || row['File No'] || row['FileNo'] || '',
           admittingDoctor: row['Admitting Doctor'] || row['Doctor'] || row['Physician'] || '',
           openedBy: row['Opened by'] || '',
-          price: row['Total Amount'] || '',
+          price: row['Total Amount'] ?? '',
           facilityID: row['Facility ID'] || ''
         };
       }
@@ -1209,9 +1219,9 @@ function normalizeReportData(rawData) {
   }
 
   return rows.map(r => {
-    const isCombined = !!(r['Pri. Claim No'] && r['Total Amount']);
-    const isInsta = !!(r['Pri. Claim No']) && !isCombined;
-    const isOdoo = !!r['Pri. Claim ID'];
+    const isCombined = Object.prototype.hasOwnProperty.call(r, 'Pri. Claim No') && Object.prototype.hasOwnProperty.call(r, 'Total Amount');
+    const isInsta = Object.prototype.hasOwnProperty.call(r, 'Pri. Claim No') && !isCombined;
+    const isOdoo = Object.prototype.hasOwnProperty.call(r, 'Pri. Claim ID');
 
     if (isCombined) {
       return {
@@ -1219,7 +1229,7 @@ function normalizeReportData(rawData) {
         visitID: r['Visit Id'] || '',
         memberID: r['Pri. Patient Insurance Card No'] || '',
         claimDate: r['Encounter Date'] || '',
-        clinician: r['Clinician License'] || '',
+        clinician: readClinicianLicense(r['Clinician License']),
         clinicianName: r['Clinician Name'] || '',
         department: r['Department'] || '',
         packageName: r['Pri. Plan Type'] || '',
@@ -1228,7 +1238,7 @@ function normalizeReportData(rawData) {
         fileNo: r['Patient Code'] || '',
         admittingDoctor: '',
         openedBy: r['Opened by'] || '',
-        price: r['Total Amount'] || '',
+        price: getField(r, ['Total Amount']),  // getField preserves 0 values, unlike || ''
         facilityID: r['Facility ID'] || '',
         sourceFile: r['Source File'] || ''
       };
@@ -1238,7 +1248,7 @@ function normalizeReportData(rawData) {
         visitID: r['Visit Id'] || '',
         memberID: r['Pri. Patient Insurance Card No'] || '',
         claimDate: r['Encounter Date'] || '',
-        clinician: r['Clinician License'] || '',
+        clinician: readClinicianLicense(r['Clinician License']),
         clinicianName: r['Clinician Name'] || '',
         department: r['Department'] || '',
         packageName: r['Pri. Plan Type'] || r['Pri. Plan Name'] || r['Pri. Payer Name'] || '',
@@ -1247,7 +1257,7 @@ function normalizeReportData(rawData) {
         fileNo: r['Patient Code'] || '',
         admittingDoctor: '',  // Insta reports don't have a separate Admitting Doctor column
         openedBy: r['Opened by'] || '',
-        price: r['Net Amount'] || r['Gross Amount'] || '',
+        price: getField(r, ['Net Amount', 'Gross Amount']),
         facilityID: r['Facility ID'] || ''
       };
     } else if (isOdoo) {
@@ -1256,16 +1266,14 @@ function normalizeReportData(rawData) {
         visitID: r['Visit Id'] || '',
         memberID: r['Pri. Member ID'] || '',
         claimDate: r['Adm/Reg. Date'] || '',
-        clinician: r['Admitting License'] || '',
-        clinicianName: r['Admitting Doctor'] || '',
-        department: r['Admitting Department'] || '',
+        clinician: readClinicianLicense(r['Admitting License']),
         insuranceCompany: r['Pri. Plan Type'] || r['Pri. Sponsor'] || '',
         packageName: r['Pri. Plan Type'] || r['Pri. Sponsor'] || '',
         claimStatus: r['Codification Status'] || '',
         fileNo: r['MR No.'] || r['MR No'] || '',
         admittingDoctor: r['Admitting Doctor'] || '',
         openedBy: r['Opened by'] || '',
-        price: r['Total Sponsor Amt'] || '',
+        price: getField(r, ['Total Sponsor Amt']),
         facilityID: r['Center Name'] || ''
       };
     } else {
@@ -1274,7 +1282,10 @@ function normalizeReportData(rawData) {
         visitID: r['Visit Id'] || '',
         memberID: r['Pri. Member ID'] || r['Pri. Patient Insurance Card No'] || r['PatientCardID'] || getField(r, ['PatientCardID','Patient Insurance Card No','Card Number / DHA Member ID']) || '',
         claimDate: r['Encounter Date'] || r['Adm/Reg. Date'] || r['ClaimDate'] || getField(r, ['Encounter Date','ClaimDate','Adm/Reg. Date','Date']) || '',
-        clinician: r['Clinician License'] || r['Admitting License'] || r['OrderDoctor'] || getField(r, ['Clinician License','Clinician','Admitting License','OrderDoctor']) || '',
+        clinician: readClinicianLicense(
+          r['Clinician License'] != null && r['Clinician License'] !== ''
+            ? r['Clinician License']
+            : r['Admitting License'] || r['OrderDoctor'] || getField(r, ['Clinician','Admitting License','OrderDoctor'])),
         clinicianName: r['Clinician Name'] || '',
         department: r['Department'] || r['Clinic'] || r['Admitting Department'] || getField(r, ['Department','Clinic','Admitting Department']) || '',
         packageName: r['Pri. Plan Type'] || r['Pri. Plan Name'] || r['Pri. Payer Name'] || r['Insurance Company'] || r['Pri. Sponsor'] || getField(r, ['Pri. Plan Type','Pri. Plan Name','Pri. Payer Name','Insurance Company','Package','Pri. Sponsor']) || '',
@@ -1283,7 +1294,7 @@ function normalizeReportData(rawData) {
         fileNo: r['MR No.'] || r['MR No'] || r['Patient Code'] || getField(r, ['MR No.','MR No','Patient Code','File No','FileNo']) || '',
         admittingDoctor: r['Admitting Doctor'] || getField(r, ['Admitting Doctor','Doctor','Physician']) || '',
         openedBy: r['Opened by'] || '',
-        price: r['Net Amount'] || r['Gross Amount'] || r['Total Sponsor Amt'] || r['Total Amount'] || '',
+        price: getField(r, ['Net Amount', 'Gross Amount', 'Total Sponsor Amt', 'Total Amount']),
         facilityID: r['Facility ID'] || r['Center Name'] || ''
       };
 
@@ -1412,9 +1423,18 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
     // Use selected eligibility for validation
     const eligibility = selectedEligibility;
     let finalStatus = 'invalid', remarks = [];
-    
+    const packageLower = (row.packageName || '').toLowerCase();
+
+    // Clinician license is 'FALSE' — not found in our database
+    if (row.clinician === 'FALSE') {
+      finalStatus = 'unknown';
+      remarks.push("This clinician hasn't been added to our database yet.");
+    // Daman High-End claims cannot be determined as valid or invalid; mark as unknown
+    } else if (packageLower.includes('daman') && packageLower.includes('high-end')) {
+      finalStatus = 'unknown';
+      remarks.push('Daman High-End claims are marked as unknown.');
     // Only treat leading zeroes as invalid if the option to remove them is OFF
-    if (hasLeadingZero && !removeLeadingZeroes) {
+    } else if (hasLeadingZero && !removeLeadingZeroes) {
       finalStatus = 'invalid';
       remarks.push('Member ID has a leading zero; claim marked as invalid.');
     } else if (!eligibility) {
@@ -1463,7 +1483,7 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
       fileNo: row.fileNo || '',
       admittingDoctor: row.admittingDoctor || '',
       openedBy: row.openedBy || '',
-      price: row.price || '',
+      price: row.price ?? '',
       facilityID: row.facilityID || '',
       sourceFile: row.sourceFile || ''
     });
@@ -2164,7 +2184,7 @@ function exportInvalidEntries(results) {
       'Clinician Name': entry.clinicianName || '',
       'Verdict': (entry.remarks || []).join('; '),
       'Opened By': entry.openedBy || '',
-      'Price': entry.price || '',
+      'Price': entry.price ?? '',
       'Admitting DEPT': entry.department || '',
       'Pri. Plan Type': entry.packageName || entry.provider || '',
       'Facility ID': entry.facilityID || '',
