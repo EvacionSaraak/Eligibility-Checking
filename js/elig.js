@@ -1100,6 +1100,20 @@ function detectReportType(rawData) {
   return 'Generic';
 }
 
+/**
+ * Read a clinician license value from a raw spreadsheet cell.
+ * Preserves Excel boolean FALSE (and the text "FALSE") as the sentinel
+ * string 'FALSE' so validation can detect it and mark the claim as unknown.
+ * Without this, boolean false is silently dropped by the || '' fallback.
+ * @param {*} val - Raw cell value
+ * @returns {string}
+ */
+function readClinicianLicense(val) {
+  if (val === false || (typeof val === 'string' && val.trim().toUpperCase() === 'FALSE')) return 'FALSE';
+  if (val == null || val === '') return '';
+  return String(val);
+}
+
 function normalizeReportData(rawData) {
   if (!rawData) return [];
 
@@ -1127,7 +1141,7 @@ function normalizeReportData(rawData) {
           visitID: row['Visit Id'] || '',
           memberID: row['Pri. Patient Insurance Card No'] || '',
           claimDate: row['Encounter Date'] || '',
-          clinician: row['Clinician License'] || '',
+          clinician: readClinicianLicense(row['Clinician License']),
           clinicianName: row['Clinician Name'] || '',
           department: row['Department'] || '',
           packageName: row['Pri. Plan Type'] || '',
@@ -1146,7 +1160,7 @@ function normalizeReportData(rawData) {
           visitID: row['Visit Id'] || '',
           memberID: row['Pri. Patient Insurance Card No'] || '',
           claimDate: row['Encounter Date'] || '',
-          clinician: row['Clinician License'] || '',
+          clinician: readClinicianLicense(row['Clinician License']),
           clinicianName: row['Clinician Name'] || '',
           department: row['Department'] || '',
           packageName: row['Pri. Plan Type'] || row['Pri. Plan Name'] || row['Pri. Payer Name'] || '',
@@ -1164,9 +1178,7 @@ function normalizeReportData(rawData) {
           visitID: row['Visit Id'] || '',
           memberID: row['Pri. Member ID'] || '',
           claimDate: row['Adm/Reg. Date'] || '',
-          clinician: row['Admitting License'] || '',
-          clinicianName: row['Admitting Doctor'] || '',
-          department: row['Admitting Department'] || '',
+          clinician: readClinicianLicense(row['Admitting License']),
           insuranceCompany: row['Pri. Plan Type'] || row['Pri. Sponsor'] || '',
           packageName: row['Pri. Plan Type'] || row['Pri. Sponsor'] || '',
           claimStatus: row['Codification Status'] || '',
@@ -1182,9 +1194,7 @@ function normalizeReportData(rawData) {
           visitID: row['Visit Id'] || '',
           memberID: row['PatientCardID'] || '',
           claimDate: row['ClaimDate'] || '',
-          clinician: row['Clinician License'] || '',
-          clinicianName: row['Clinician Name'] || '',
-          packageName: row['Insurance Company'] || '',
+          clinician: readClinicianLicense(row['Clinician License']),
           insuranceCompany: row['Insurance Company'] || '',
           department: row['Clinic'] || '',
           claimStatus: row['VisitStatus'] || '',
@@ -1219,7 +1229,7 @@ function normalizeReportData(rawData) {
         visitID: r['Visit Id'] || '',
         memberID: r['Pri. Patient Insurance Card No'] || '',
         claimDate: r['Encounter Date'] || '',
-        clinician: r['Clinician License'] || '',
+        clinician: readClinicianLicense(r['Clinician License']),
         clinicianName: r['Clinician Name'] || '',
         department: r['Department'] || '',
         packageName: r['Pri. Plan Type'] || '',
@@ -1238,7 +1248,7 @@ function normalizeReportData(rawData) {
         visitID: r['Visit Id'] || '',
         memberID: r['Pri. Patient Insurance Card No'] || '',
         claimDate: r['Encounter Date'] || '',
-        clinician: r['Clinician License'] || '',
+        clinician: readClinicianLicense(r['Clinician License']),
         clinicianName: r['Clinician Name'] || '',
         department: r['Department'] || '',
         packageName: r['Pri. Plan Type'] || r['Pri. Plan Name'] || r['Pri. Payer Name'] || '',
@@ -1256,9 +1266,7 @@ function normalizeReportData(rawData) {
         visitID: r['Visit Id'] || '',
         memberID: r['Pri. Member ID'] || '',
         claimDate: r['Adm/Reg. Date'] || '',
-        clinician: r['Admitting License'] || '',
-        clinicianName: r['Admitting Doctor'] || '',
-        department: r['Admitting Department'] || '',
+        clinician: readClinicianLicense(r['Admitting License']),
         insuranceCompany: r['Pri. Plan Type'] || r['Pri. Sponsor'] || '',
         packageName: r['Pri. Plan Type'] || r['Pri. Sponsor'] || '',
         claimStatus: r['Codification Status'] || '',
@@ -1274,7 +1282,10 @@ function normalizeReportData(rawData) {
         visitID: r['Visit Id'] || '',
         memberID: r['Pri. Member ID'] || r['Pri. Patient Insurance Card No'] || r['PatientCardID'] || getField(r, ['PatientCardID','Patient Insurance Card No','Card Number / DHA Member ID']) || '',
         claimDate: r['Encounter Date'] || r['Adm/Reg. Date'] || r['ClaimDate'] || getField(r, ['Encounter Date','ClaimDate','Adm/Reg. Date','Date']) || '',
-        clinician: r['Clinician License'] || r['Admitting License'] || r['OrderDoctor'] || getField(r, ['Clinician License','Clinician','Admitting License','OrderDoctor']) || '',
+        clinician: readClinicianLicense(
+          r['Clinician License'] != null && r['Clinician License'] !== ''
+            ? r['Clinician License']
+            : r['Admitting License'] || r['OrderDoctor'] || getField(r, ['Clinician','Admitting License','OrderDoctor'])),
         clinicianName: r['Clinician Name'] || '',
         department: r['Department'] || r['Clinic'] || r['Admitting Department'] || getField(r, ['Department','Clinic','Admitting Department']) || '',
         packageName: r['Pri. Plan Type'] || r['Pri. Plan Name'] || r['Pri. Payer Name'] || r['Insurance Company'] || r['Pri. Sponsor'] || getField(r, ['Pri. Plan Type','Pri. Plan Name','Pri. Payer Name','Insurance Company','Package','Pri. Sponsor']) || '',
@@ -1412,10 +1423,14 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
     // Use selected eligibility for validation
     const eligibility = selectedEligibility;
     let finalStatus = 'invalid', remarks = [];
-    
-    // Daman High-End claims cannot be determined as valid or invalid; mark as unknown
     const packageLower = (row.packageName || '').toLowerCase();
-    if (packageLower.includes('daman') && packageLower.includes('high-end')) {
+
+    // Clinician license is 'FALSE' — not found in our database
+    if (row.clinician === 'FALSE') {
+      finalStatus = 'unknown';
+      remarks.push("This clinician hasn't been added to our database yet.");
+    // Daman High-End claims cannot be determined as valid or invalid; mark as unknown
+    } else if (packageLower.includes('daman') && packageLower.includes('high-end')) {
       finalStatus = 'unknown';
       remarks.push('Daman High-End claims are marked as unknown.');
     // Only treat leading zeroes as invalid if the option to remove them is OFF
