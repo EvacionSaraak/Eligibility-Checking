@@ -125,7 +125,7 @@ function packageNamesMatch(claimPackage, eligPackage) {
   // DAMAN Enhanced variant matching: "Daman Enhanced" should match "Sahtak" or Silver/Gold/Bronze variants
   // Check this BEFORE the general DAMAN classification matching to include Sahtak
   if (claimLower.includes('daman') && claimLower.includes('enhanced')) {
-    if (eligLower === 'sahtak' || containsDAMANClassification(eligLower)) {
+    if (eligLower.includes('sahtak') || containsDAMANClassification(eligLower)) {
       return true;
     }
   }
@@ -135,7 +135,7 @@ function packageNamesMatch(claimPackage, eligPackage) {
   if (claimLower.includes('daman') && claimLower.includes('low-end')) {
     // Match with specific DAMAN plan names OR classification variants (Silver/Gold/Bronze + variants)
     if (eligLower.includes('enhanced-auh') || eligLower.includes('abu dhabi') || 
-        eligLower === 'sahtak' || containsDAMANClassification(eligLower)) {
+        eligLower.includes('sahtak') || containsDAMANClassification(eligLower)) {
       return true;
     }
   }
