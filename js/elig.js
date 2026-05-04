@@ -758,11 +758,11 @@ function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians =
   
   for (const elig of eligList) {
     eligIndex++;
-    const eligDate = DateHandler.parse(elig["Answered On"], { preferMDY: false });
+    const eligDate = DateHandler.parse(elig["Answered On"] || elig["Ordered On"], { preferMDY: false });
     
     if (shouldLog) {
       const eligNum = elig["Eligibility Request Number"] || "(unknown)";
-      const eligDateStr = elig["Answered On"] || '(empty)';
+      const eligDateStr = elig["Answered On"] || elig["Ordered On"] || '(empty)';
       const status = elig.Status || '(empty)';
       const clinician = elig.Clinician || '(none)';
       
@@ -785,7 +785,8 @@ function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians =
     }
     
     const eligClinician = (elig.Clinician || '').trim();
-    if (eligClinician && claimClinicians.length && !claimClinicians.includes(eligClinician)) {
+    const hasClaimClinician = claimClinicians.some(c => c && c.trim());
+    if (eligClinician && hasClaimClinician && !claimClinicians.includes(eligClinician)) {
       if (shouldLog) {
         console.log(`      ❌ Clinician mismatch: has "${eligClinician}" but need: ${claimClinicians.join(', ')}`);
       }
@@ -1083,7 +1084,7 @@ function diagnoseEligibilityFailure(eligMap, claimDate, normalizedMemberID, clai
 
   // Collect all eligibilities that match the date and have 'eligible' status
   const dateMatches = eligList.filter(e => {
-    const eligDate = DateHandler.parse(e['Answered On'], { preferMDY: false });
+    const eligDate = DateHandler.parse(e['Answered On'] || e['Ordered On'], { preferMDY: false });
     return DateHandler.isSameDay(claimDate, eligDate) && (e.Status || '').toLowerCase() === 'eligible';
   });
 
