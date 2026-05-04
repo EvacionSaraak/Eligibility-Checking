@@ -1545,6 +1545,15 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
       if (eidResult) {
         eligibility = eidResult.eligibility;
         eidMatchedMemberID = eidResult.matchedMemberID;
+        // Repopulate matchingEligibilities from the EID-resolved member ID so the
+        // details modal has records to display (the original lookup returned empty).
+        if (eidMatchedMemberID) {
+          const eidMatches = findEligibilityForClaim(eligMap, claimDate, eidMatchedMemberID, [row.clinician], insurance, false, claimIndex);
+          if (eidMatches && eidMatches.length > 0) {
+            matchingEligibilities.length = 0;
+            eidMatches.forEach(r => matchingEligibilities.push(r));
+          }
+        }
       }
     }
     const packageLower = (row.packageName || '').toLowerCase();
