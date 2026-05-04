@@ -1072,7 +1072,7 @@ function levenshteinDistance(a, b) {
   const m = a.length, n = b.length;
   if (m === 0) return n;
   if (n === 0) return m;
-  if (Math.abs(m - n) > 3) return 999; // early exit: length difference alone guarantees distance > 2
+  if (Math.abs(m - n) > 3) return Infinity; // early exit: length difference alone guarantees distance > 2
   const dp = [];
   for (let i = 0; i <= m; i++) {
     dp[i] = new Array(n + 1);
@@ -1166,12 +1166,14 @@ function findPotentialMemberIDMismatches(eligMap, normalizedMemberID) {
       ? [normalizedMemberID, mapID]
       : [mapID, normalizedMemberID];
     // Substring: one ID contains the other and lengths differ by at most MAX_LENGTH_DIFF_FOR_SUBSTRING_MATCH
+    // (threshold avoids flagging very short IDs as matches for much longer ones)
     if (longer.includes(shorter) && longer.length - shorter.length <= MAX_LENGTH_DIFF_FOR_SUBSTRING_MATCH) {
       candidates.push(mapID);
       if (candidates.length === 3) return candidates;
       continue;
     }
-    // Prefix match: share the same first PREFIX_MATCH_LENGTH characters (for sufficiently long IDs)
+    // Prefix match: share the same first PREFIX_MATCH_LENGTH characters (requires IDs ≥ PREFIX_MATCH_LENGTH
+    // digits to avoid false positives on short IDs that happen to share a short common prefix)
     if (normalizedMemberID.length >= PREFIX_MATCH_LENGTH && mapID.length >= PREFIX_MATCH_LENGTH &&
         normalizedMemberID.substring(0, PREFIX_MATCH_LENGTH) === mapID.substring(0, PREFIX_MATCH_LENGTH)) {
       candidates.push(mapID);
@@ -1179,9 +1181,10 @@ function findPotentialMemberIDMismatches(eligMap, normalizedMemberID) {
       continue;
     }
     // Edit distance: catch single-character typos not covered by prefix/substring
+    // Only compute for IDs whose lengths are within MAX_LENGTH_DIFF_FOR_EDIT_DISTANCE of each other (reduces computation)
     if (Math.abs(mapID.length - normalizedMemberID.length) <= MAX_LENGTH_DIFF_FOR_EDIT_DISTANCE) {
       const dist = levenshteinDistance(normalizedMemberID, mapID);
-      if (dist > 0 && dist <= MAX_EDIT_DISTANCE) {
+      if (dist > 0 && dist <= MAX_EDIT_DISTANCE) { // at most MAX_EDIT_DISTANCE character insertions/deletions/substitutions
         candidates.push(mapID);
         if (candidates.length === 3) return candidates;
       }
