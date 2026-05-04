@@ -122,10 +122,19 @@ function packageNamesMatch(claimPackage, eligPackage) {
     return true;
   }
   
-  // DAMAN Enhanced variant matching: "Daman Enhanced" should match "Sahtak" or Silver/Gold/Bronze variants
+  // DAMAN Enhanced variant matching: "Daman Enhanced" should match "Sahtak", "Enhanced-*" plan names,
+  // or Silver/Gold/Bronze variants.
   // Check this BEFORE the general DAMAN classification matching to include Sahtak
   if (claimLower.includes('daman') && claimLower.includes('enhanced')) {
-    if (eligLower.includes('sahtak') || containsDAMANClassification(eligLower)) {
+    if (eligLower.includes('sahtak') || eligLower.includes('enhanced') || containsDAMANClassification(eligLower)) {
+      return true;
+    }
+  }
+
+  // DAMAN Mid variant matching: "Daman Mid" sits in the same Enhanced tier and should match
+  // "Sahtak", "Enhanced-*" plan names, or Silver/Gold/Bronze classification variants
+  if (claimLower.includes('daman') && claimLower.includes('mid')) {
+    if (eligLower.includes('enhanced') || eligLower.includes('sahtak') || containsDAMANClassification(eligLower)) {
       return true;
     }
   }
