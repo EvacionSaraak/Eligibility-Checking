@@ -1108,6 +1108,54 @@ function diagnoseEligibilityFailure(eligMap, claimDate, normalizedMemberID, clai
   return Array.from(reasons).join(', ');
 }
 
+/**
+ * Scan all eligibility records for one whose EID matches rawEID.
+ * Used as a fallback when member ID lookup yields no results.
+ * Dashes are stripped from both values before comparison.
+ *
+ * @param {Map} eligMap - Map of normalised member IDs to eligibility records
+ * @param {string} rawEID - Emirates ID from the claim row (may include dashes)
+ * @param {Date} claimDate - Parsed claim date
+ * @param {string[]} claimClinicians - Clinician values from the claim row
+ * @param {string} insurance - Insurance/provider name
+ * @param {string} claimDepartment - Department from the claim row
+ * @param {string} claimPackage - Package name from the claim row
+ * @returns {{ eligibility: Object|null, matchedMemberID: string }|null}
+ */
+function findEligibilityByEID(eligMap, rawEID, claimDate, claimClinicians, insurance, claimDepartment, claimPackage) {
+  if (!rawEID) return null;
+  const strippedEID = String(rawEID).replace(/-/g, '').trim();
+  if (!strippedEID) return null;
+
+  // Collect all map keys whose records contain a matching EID
+  const matchedMemberIDs = [];
+  for (const [mappedMemberID, records] of eligMap) {
+    for (const record of records) {
+      const recordEID = String(record['EID'] || '').replace(/-/g, '').trim();
+      if (recordEID && recordEID === strippedEID) {
+        matchedMemberIDs.push(mappedMemberID);
+        break;
+      }
+    }
+  }
+
+  if (matchedMemberIDs.length === 0) return null;
+
+  const firstMatchedMemberID = matchedMemberIDs[0];
+
+  // Try to find a usable eligibility via the EID-matched member ID(s)
+  for (const matchedMemberID of matchedMemberIDs) {
+    const matches = findEligibilityForClaim(eligMap, claimDate, matchedMemberID, claimClinicians, insurance, false, 0);
+    const best = selectBestEligibility(matches, claimDepartment, claimPackage);
+    if (best) {
+      return { eligibility: best, matchedMemberID };
+    }
+  }
+
+  // EID matched a record but no valid eligibility for this claim date/clinician
+  return { eligibility: null, matchedMemberID: firstMatchedMemberID };
+}
+
 /* ===========================
    Report normalization & validation
    =========================== */
@@ -1208,7 +1256,8 @@ function normalizeReportData(rawData) {
           openedBy: row['Opened by'] || '',
           price: row['Total Amount'] ?? '',
           facilityID: row['Facility ID'] || '',
-          sourceFile: row['Source File'] || ''
+          sourceFile: row['Source File'] || '',
+          emiratesID: row['Emirates ID No'] || ''
         };
       } else if (isInsta) {
         return {
@@ -1226,7 +1275,8 @@ function normalizeReportData(rawData) {
           admittingDoctor: '',  // Insta reports don't have a separate Admitting Doctor column
           openedBy: row['Opened by'] || '',
           price: row['Net Amount'] ?? row['Gross Amount'] ?? '',
-          facilityID: row['Facility ID'] || ''
+          facilityID: row['Facility ID'] || '',
+          emiratesID: row['Emirates ID No'] || ''
         };
       } else if (isOdoo) {
         return {
@@ -1242,7 +1292,8 @@ function normalizeReportData(rawData) {
           admittingDoctor: row['Admitting Doctor'] || '',
           openedBy: row['Opened by'] || '',
           price: row['Total Sponsor Amt'] ?? '',
-          facilityID: row['Center Name'] || ''
+          facilityID: row['Center Name'] || '',
+          emiratesID: row['Emirates ID No'] || ''
         };
       } else {
         return {
@@ -1258,7 +1309,8 @@ function normalizeReportData(rawData) {
           admittingDoctor: row['Admitting Doctor'] || row['Doctor'] || row['Physician'] || '',
           openedBy: row['Opened by'] || '',
           price: row['Total Amount'] ?? '',
-          facilityID: row['Facility ID'] || ''
+          facilityID: row['Facility ID'] || '',
+          emiratesID: row['Emirates ID No'] || ''
         };
       }
     });
@@ -1296,7 +1348,8 @@ function normalizeReportData(rawData) {
         openedBy: r['Opened by'] || '',
         price: getField(r, ['Total Amount']),  // getField preserves 0 values, unlike || ''
         facilityID: r['Facility ID'] || '',
-        sourceFile: r['Source File'] || ''
+        sourceFile: r['Source File'] || '',
+        emiratesID: r['Emirates ID No'] || ''
       };
     } else if (isInsta) {
       return {
@@ -1314,7 +1367,8 @@ function normalizeReportData(rawData) {
         admittingDoctor: '',  // Insta reports don't have a separate Admitting Doctor column
         openedBy: r['Opened by'] || '',
         price: getField(r, ['Net Amount', 'Gross Amount']),
-        facilityID: r['Facility ID'] || ''
+        facilityID: r['Facility ID'] || '',
+        emiratesID: r['Emirates ID No'] || ''
       };
     } else if (isOdoo) {
       return {
@@ -1330,7 +1384,8 @@ function normalizeReportData(rawData) {
         admittingDoctor: r['Admitting Doctor'] || '',
         openedBy: r['Opened by'] || '',
         price: getField(r, ['Total Sponsor Amt']),
-        facilityID: r['Center Name'] || ''
+        facilityID: r['Center Name'] || '',
+        emiratesID: r['Emirates ID No'] || ''
       };
     } else {
       const out = {
@@ -1351,7 +1406,8 @@ function normalizeReportData(rawData) {
         admittingDoctor: r['Admitting Doctor'] || getField(r, ['Admitting Doctor','Doctor','Physician']) || '',
         openedBy: r['Opened by'] || '',
         price: getField(r, ['Net Amount', 'Gross Amount', 'Total Sponsor Amt', 'Total Amount']),
-        facilityID: r['Facility ID'] || r['Center Name'] || ''
+        facilityID: r['Facility ID'] || r['Center Name'] || '',
+        emiratesID: r['Emirates ID No'] || ''
       };
 
       if (!out.memberID) {
@@ -1477,8 +1533,20 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
     }
     
     // Use selected eligibility for validation
-    const eligibility = selectedEligibility;
+    let eligibility = selectedEligibility;
+    let eidMatchedMemberID = null;
     let finalStatus = 'invalid', remarks = [];
+
+    // EID fallback — only when member ID was not found at all and Emirates ID is available
+    if (!eligibility && row.emiratesID && !eligMap.has(memberID)) {
+      const eidResult = findEligibilityByEID(
+        eligMap, row.emiratesID, claimDate, [row.clinician], insurance, row.department, row.packageName
+      );
+      if (eidResult) {
+        eligibility = eidResult.eligibility;
+        eidMatchedMemberID = eidResult.matchedMemberID;
+      }
+    }
     const packageLower = (row.packageName || '').toLowerCase();
 
     // Clinician license is 'FALSE' — not found in our database
@@ -1494,11 +1562,15 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
       finalStatus = 'invalid';
       remarks.push('Member ID has a leading zero; claim marked as invalid.');
     } else if (!eligibility) {
-      const rawEligList = eligMap.get(memberID) || [];
+      if (eidMatchedMemberID && eidMatchedMemberID !== memberID) {
+        remarks.push(`Wrong Member ID — correct Member ID found via Emirates ID: ${eidMatchedMemberID}`);
+      }
+      const lookupMemberID = eidMatchedMemberID || memberID;
+      const rawEligList = eligMap.get(lookupMemberID) || [];
       if (rawEligList.length > 0) {
         // Member found in map but no eligibility passed all filters —
         // attempt to surface the specific single-field failure reason.
-        const failureReason = diagnoseEligibilityFailure(eligMap, claimDate, memberID, row.clinician, row.department);
+        const failureReason = diagnoseEligibilityFailure(eligMap, claimDate, lookupMemberID, row.clinician, row.department);
         remarks.push(failureReason || 'Eligibility Not Taken');
       } else {
         remarks.push('Eligibility Not Taken');
