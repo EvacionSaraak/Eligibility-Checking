@@ -1062,6 +1062,34 @@ function logNoEligibilityMatch(sourceType, claimSummary, memberID, parsedClaimDa
 }
 
 /**
+ * Compute the Levenshtein (edit) distance between two strings.
+ * Used by findPotentialMemberIDMismatches to catch single-character typos.
+ * @param {string} a
+ * @param {string} b
+ * @returns {number}
+ */
+function levenshteinDistance(a, b) {
+  const m = a.length, n = b.length;
+  if (m === 0) return n;
+  if (n === 0) return m;
+  if (Math.abs(m - n) > 3) return 999; // early exit: length difference alone guarantees distance > 2
+  const dp = [];
+  for (let i = 0; i <= m; i++) {
+    dp[i] = new Array(n + 1);
+    dp[i][0] = i;
+  }
+  for (let j = 0; j <= n; j++) dp[0][j] = j;
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      dp[i][j] = a[i - 1] === b[j - 1]
+        ? dp[i - 1][j - 1]
+        : 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
+    }
+  }
+  return dp[m][n];
+}
+
+/**
  * When no eligibility match was found for a claim, diagnose the specific reason
  * to provide a more targeted error message.
  * Returns 'Wrong Clinician', 'Wrong Service Category', or null (no specific diagnosis).
@@ -1089,7 +1117,7 @@ function diagnoseEligibilityFailure(eligMap, claimDate, normalizedMemberID, clai
 
   const elig = dateMatches[0];
   const eligClinician = (elig.Clinician || '').trim();
-  const clinicianFailed = !!(eligClinician && claimClinician && ![claimClinician].includes(eligClinician));
+  const clinicianFailed = !!(eligClinician && claimClinician && eligClinician !== claimClinician);
   const categoryCheck = isServiceCategoryValid(
     elig['Service Category'],
     elig['Consultation Status'],
@@ -1105,14 +1133,14 @@ function diagnoseEligibilityFailure(eligMap, claimDate, normalizedMemberID, clai
 /**
  * When a member ID is not found in the eligibility map, scan for similar IDs
  * that may indicate the Member ID on the claim was entered incorrectly.
- * Uses substring containment and shared-prefix heuristics.
+ * Uses substring containment, shared-prefix, and edit-distance heuristics.
  *
  * @param {Map} eligMap - Map of normalised member IDs to eligibility records
  * @param {string} normalizedMemberID - Already-normalized member ID to search for
  * @returns {string[]} Up to 3 similar member IDs found in the map
  */
 function findPotentialMemberIDMismatches(eligMap, normalizedMemberID) {
-  if (!normalizedMemberID || eligMap.has(normalizedMemberID)) return [];
+  if (!normalizedMemberID || normalizedMemberID.length < 3 || eligMap.has(normalizedMemberID)) return [];
 
   const candidates = [];
   for (const mapID of eligMap.keys()) {
@@ -1131,6 +1159,15 @@ function findPotentialMemberIDMismatches(eligMap, normalizedMemberID) {
         normalizedMemberID.substring(0, 5) === mapID.substring(0, 5)) {
       candidates.push(mapID);
       if (candidates.length === 3) return candidates;
+      continue;
+    }
+    // Edit distance: catch single-character typos not covered by prefix/substring
+    if (Math.abs(mapID.length - normalizedMemberID.length) <= 2) {
+      const dist = levenshteinDistance(normalizedMemberID, mapID);
+      if (dist > 0 && dist <= 2) {
+        candidates.push(mapID);
+        if (candidates.length === 3) return candidates;
+      }
     }
   }
   return candidates;
