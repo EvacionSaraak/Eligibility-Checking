@@ -1563,7 +1563,7 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
       remarks.push('Member ID has a leading zero; claim marked as invalid.');
     } else if (!eligibility) {
       if (eidMatchedMemberID && eidMatchedMemberID !== memberID) {
-        remarks.push(`Wrong Member ID — correct Member ID found via Emirates ID: ${eidMatchedMemberID}`);
+        remarks.push('Wrong Member ID');
       }
       const lookupMemberID = eidMatchedMemberID || memberID;
       const rawEligList = eligMap.get(lookupMemberID) || [];
@@ -1596,6 +1596,12 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
       }
     } else {
       remarks.push(`Eligibility status: ${eligibility.Status}`);
+    }
+
+    // If EID fallback resolved a different member ID and the claim turned out valid,
+    // note that the member ID on the claim was wrong.
+    if (eidMatchedMemberID && eidMatchedMemberID !== memberID && finalStatus === 'valid') {
+      remarks.push('Wrong Member ID');
     }
 
     results.push({
