@@ -1062,34 +1062,6 @@ function logNoEligibilityMatch(sourceType, claimSummary, memberID, parsedClaimDa
 }
 
 /**
- * Compute the Levenshtein (edit) distance between two strings.
- * Used by findPotentialMemberIDMismatches to catch single-character typos.
- * @param {string} a
- * @param {string} b
- * @returns {number}
- */
-function levenshteinDistance(a, b) {
-  const m = a.length, n = b.length;
-  if (m === 0) return n;
-  if (n === 0) return m;
-  if (Math.abs(m - n) > 3) return Infinity; // early exit: length difference alone guarantees distance > 2
-  const dp = [];
-  for (let i = 0; i <= m; i++) {
-    dp[i] = new Array(n + 1);
-    dp[i][0] = i;
-  }
-  for (let j = 0; j <= n; j++) dp[0][j] = j;
-  for (let i = 1; i <= m; i++) {
-    for (let j = 1; j <= n; j++) {
-      dp[i][j] = a[i - 1] === b[j - 1]
-        ? dp[i - 1][j - 1]
-        : 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
-    }
-  }
-  return dp[m][n];
-}
-
-/**
  * When no eligibility match was found for a claim, diagnose the specific reasons
  * to provide a more targeted error message.
  * Iterates over all date-matching eligible records and collects every failure
@@ -1134,63 +1106,6 @@ function diagnoseEligibilityFailure(eligMap, claimDate, normalizedMemberID, clai
 
   if (!reasons.size) return null;
   return Array.from(reasons).join(', ');
-}
-
-/**
- * When a member ID is not found in the eligibility map, scan for similar IDs
- * that may indicate the Member ID on the claim was entered incorrectly.
- * Uses substring containment, shared-prefix, and edit-distance heuristics.
- *
- * @param {Map} eligMap - Map of normalised member IDs to eligibility records
- * @param {string} normalizedMemberID - Already-normalized member ID to search for
- * @returns {string[]} Up to 3 similar member IDs found in the map
- */
-function findPotentialMemberIDMismatches(eligMap, normalizedMemberID) {
-  // Minimum ID length required before attempting fuzzy matching (very short IDs produce too many false positives)
-  const MIN_MEMBER_ID_LENGTH_FOR_FUZZY_MATCH = 3;
-  // Substring match: tolerate up to this many extra characters in the longer ID
-  const MAX_LENGTH_DIFF_FOR_SUBSTRING_MATCH = 4;
-  // Prefix match: require this many leading characters to be identical
-  const PREFIX_MATCH_LENGTH = 5;
-  // Edit-distance match: skip pairs whose length difference alone exceeds the budget
-  const MAX_LENGTH_DIFF_FOR_EDIT_DISTANCE = 2;
-  // Edit-distance match: maximum number of single-character edits allowed
-  const MAX_EDIT_DISTANCE = 2;
-
-  if (!normalizedMemberID || normalizedMemberID.length < MIN_MEMBER_ID_LENGTH_FOR_FUZZY_MATCH || eligMap.has(normalizedMemberID)) return [];
-
-  const candidates = [];
-  for (const mapID of eligMap.keys()) {
-    if (!mapID) continue;
-    const [shorter, longer] = normalizedMemberID.length <= mapID.length
-      ? [normalizedMemberID, mapID]
-      : [mapID, normalizedMemberID];
-    // Substring: one ID contains the other and lengths differ by at most MAX_LENGTH_DIFF_FOR_SUBSTRING_MATCH
-    // (threshold avoids flagging very short IDs as matches for much longer ones)
-    if (longer.includes(shorter) && longer.length - shorter.length <= MAX_LENGTH_DIFF_FOR_SUBSTRING_MATCH) {
-      candidates.push(mapID);
-      if (candidates.length === 3) return candidates;
-      continue;
-    }
-    // Prefix match: share the same first PREFIX_MATCH_LENGTH characters (requires IDs ≥ PREFIX_MATCH_LENGTH
-    // digits to avoid false positives on short IDs that happen to share a short common prefix)
-    if (normalizedMemberID.length >= PREFIX_MATCH_LENGTH && mapID.length >= PREFIX_MATCH_LENGTH &&
-        normalizedMemberID.substring(0, PREFIX_MATCH_LENGTH) === mapID.substring(0, PREFIX_MATCH_LENGTH)) {
-      candidates.push(mapID);
-      if (candidates.length === 3) return candidates;
-      continue;
-    }
-    // Edit distance: catch single-character typos not covered by prefix/substring
-    // Only compute for IDs whose lengths are within MAX_LENGTH_DIFF_FOR_EDIT_DISTANCE of each other (reduces computation)
-    if (Math.abs(mapID.length - normalizedMemberID.length) <= MAX_LENGTH_DIFF_FOR_EDIT_DISTANCE) {
-      const dist = levenshteinDistance(normalizedMemberID, mapID);
-      if (dist > 0 && dist <= MAX_EDIT_DISTANCE) { // at most MAX_EDIT_DISTANCE character insertions/deletions/substitutions
-        candidates.push(mapID);
-        if (candidates.length === 3) return candidates;
-      }
-    }
-  }
-  return candidates;
 }
 
 /* ===========================
@@ -1586,13 +1501,7 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
         const failureReason = diagnoseEligibilityFailure(eligMap, claimDate, memberID, row.clinician, row.department);
         remarks.push(failureReason || 'Eligibility Not Taken');
       } else {
-        // Member not found in map at all — look for potential member ID mismatches.
-        const potentialMatches = findPotentialMemberIDMismatches(eligMap, memberID);
-        if (potentialMatches.length > 0) {
-          remarks.push(`Eligibility Not Taken (possible wrong Member ID — similar IDs found: ${potentialMatches.join(', ')})`);
-        } else {
-          remarks.push('Eligibility Not Taken');
-        }
+        remarks.push('Eligibility Not Taken');
       }
     } else if (eligibility.Status?.toLowerCase() === 'eligible') {
       const categoryCheck = isServiceCategoryValid(eligibility['Service Category'], eligibility['Consultation Status'], (row.department || '').toLowerCase());
