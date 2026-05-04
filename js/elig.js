@@ -1611,7 +1611,7 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
           finalStatus = 'valid';
         }
       } else {
-        remarks.push(categoryCheck.reason || 'Service category mismatch');
+        remarks.push('Wrong Service Category');
       }
     } else {
       remarks.push(`Eligibility status: ${eligibility.Status}`);
