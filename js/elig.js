@@ -1619,7 +1619,8 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
       consultationStatus: eligibility?.['Consultation Status'] || '',
       status: eligibility?.Status || '',
       claimStatus: row.claimStatus || '',
-      remarks, finalStatus, 
+      remarks, finalStatus,
+      wrongMemberID: !!(eidMatchedMemberID && eidMatchedMemberID !== memberID),
       fullEligibilityRecord: eligibility,
       allEligibilityRecords: matchingEligibilities, // Store ALL matches
       fileNo: row.fileNo || '',
@@ -1879,7 +1880,9 @@ function initEligibilityModal(results, eligMap) {
       const claimDate = result.encounterDate || null;
       const claimInfo = {
         claimClinician: result.clinician || '',
-        claimPackage: result.packageName || ''
+        claimPackage: result.packageName || '',
+        wrongMemberID: result.wrongMemberID || false,
+        claimMemberID: result.memberID || ''
       };
       
       const modalTable = document.getElementById("modalTable");
@@ -2175,7 +2178,15 @@ function formatEligibilityDetails(record, memberID, claimDate, claimInfo = {}) {
 
   const status = (record.Status || '').toString();
   const statusClass = status.toLowerCase() === 'eligible' ? 'status-badge eligible' : 'status-badge ineligible';
-  let html = `<div class="mb-2"><strong>Member:</strong> ${escapeHtml(memberID)} <span class="${statusClass}" style="margin-left:8px;">${escapeHtml(status)}</span></div>`;
+  const wrongMemberID = claimInfo.wrongMemberID || false;
+  const claimMemberID = claimInfo.claimMemberID || memberID;
+  let memberDisplay = escapeHtml(claimMemberID);
+  if (wrongMemberID) {
+    const correctID = record['Card Number / DHA Member ID'] || '';
+    memberDisplay = `<span style="color:#dc3545;font-weight:bold;">${escapeHtml(claimMemberID)}</span>`
+      + (correctID ? ` <span style="color:#6c757d;font-size:0.875em;">→ correct ID: <strong>${escapeHtml(correctID)}</strong></span>` : '');
+  }
+  let html = `<div class="mb-2"><strong>Member:</strong> ${memberDisplay} <span class="${statusClass}" style="margin-left:8px;">${escapeHtml(status)}</span></div>`;
 
   // Generate mismatch reasons
   const mismatches = [];
@@ -2242,6 +2253,9 @@ function formatEligibilityDetails(record, memberID, claimDate, claimInfo = {}) {
             if (!DateHandler.isSameDay(claimDate, parsed)) rowClass = 'table-danger';
           }
         }
+      } else if (key === 'Card Number / DHA Member ID') {
+        // Always mark red when the claim had a wrong member ID (EID fallback resolved it)
+        if (wrongMemberID) rowClass = 'table-danger';
       } else if (key === 'Status') {
         if (isAccepted) rowClass = 'table-success';
         else if (status.toLowerCase() !== 'eligible') rowClass = 'table-danger';
