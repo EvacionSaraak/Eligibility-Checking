@@ -1553,6 +1553,15 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
           if (eidMatches && eidMatches.length > 0) {
             matchingEligibilities.length = 0;
             eidMatches.forEach(r => matchingEligibilities.push(r));
+          } else {
+            // Filtered search returned nothing (date/status mismatch, etc.) —
+            // fall back to ALL raw records for this member so the details button
+            // is always shown whenever "Wrong Member ID" appears in remarks.
+            const allEidRecords = eligMap.get(eidMatchedMemberID) || [];
+            if (allEidRecords.length > 0) {
+              matchingEligibilities.length = 0;
+              allEidRecords.forEach(r => matchingEligibilities.push({...r, _isUsed: usedEligibilities.has(r['Eligibility Request Number'])}));
+            }
           }
         }
       }
