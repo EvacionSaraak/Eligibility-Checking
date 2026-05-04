@@ -1072,7 +1072,7 @@ function levenshteinDistance(a, b) {
   const m = a.length, n = b.length;
   if (m === 0) return n;
   if (n === 0) return m;
-  if (Math.abs(m - n) > 3) return 999; // early exit: length difference alone guarantees distance > 2
+  if (Math.abs(m - n) > 3) return Infinity; // early exit: length difference alone guarantees distance > 2
   const dp = [];
   for (let i = 0; i <= m; i++) {
     dp[i] = new Array(n + 1);
@@ -1117,7 +1117,7 @@ function diagnoseEligibilityFailure(eligMap, claimDate, normalizedMemberID, clai
 
   const elig = dateMatches[0];
   const eligClinician = (elig.Clinician || '').trim();
-  const clinicianFailed = !!(eligClinician && claimClinician && eligClinician !== claimClinician);
+  const clinicianFailed = eligClinician && claimClinician && eligClinician !== claimClinician;
   const categoryCheck = isServiceCategoryValid(
     elig['Service Category'],
     elig['Consultation Status'],
@@ -1149,12 +1149,14 @@ function findPotentialMemberIDMismatches(eligMap, normalizedMemberID) {
       ? [normalizedMemberID, mapID]
       : [mapID, normalizedMemberID];
     // Substring: one ID contains the other and lengths differ by at most 4 characters
+    // (threshold of 4 avoids flagging very short IDs as matches for much longer ones)
     if (longer.includes(shorter) && longer.length - shorter.length <= 4) {
       candidates.push(mapID);
       if (candidates.length === 3) return candidates;
       continue;
     }
-    // Prefix match: share the same first 5 characters (for sufficiently long IDs)
+    // Prefix match: share the same first 5 characters (requires IDs ≥ 5 digits to avoid
+    // false positives on short IDs that happen to share a short common prefix)
     if (normalizedMemberID.length >= 5 && mapID.length >= 5 &&
         normalizedMemberID.substring(0, 5) === mapID.substring(0, 5)) {
       candidates.push(mapID);
@@ -1162,9 +1164,10 @@ function findPotentialMemberIDMismatches(eligMap, normalizedMemberID) {
       continue;
     }
     // Edit distance: catch single-character typos not covered by prefix/substring
+    // Only compute for IDs whose lengths are within 2 of each other (reduces computation)
     if (Math.abs(mapID.length - normalizedMemberID.length) <= 2) {
       const dist = levenshteinDistance(normalizedMemberID, mapID);
-      if (dist > 0 && dist <= 2) {
+      if (dist > 0 && dist <= 2) { // ≤ 2 edits = at most 2 character insertions/deletions/substitutions
         candidates.push(mapID);
         if (candidates.length === 3) return candidates;
       }
