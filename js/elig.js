@@ -1589,7 +1589,10 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
       if (rawEligList.length > 0) {
         // Member found in map but no eligibility passed all filters —
         // attempt to surface the specific single-field failure reason.
-        const failureReason = diagnoseEligibilityFailure(eligMap, claimDate, lookupMemberID, row.clinician, row.department);
+        // When the root cause is already "Wrong Member ID", suppress clinician
+        // diagnosis (clinician mismatch is irrelevant on the wrong member's records).
+        const effectiveDiagnoseClinician = (eidMatchedMemberID && eidMatchedMemberID !== memberID) ? '' : row.clinician;
+        const failureReason = diagnoseEligibilityFailure(eligMap, claimDate, lookupMemberID, effectiveDiagnoseClinician, row.department);
         remarks.push(failureReason || 'Eligibility Not Taken');
       } else {
         remarks.push('Eligibility Not Taken');
@@ -2216,10 +2219,10 @@ function formatEligibilityDetails(record, memberID, claimDate, claimInfo = {}) {
     mismatches.push(`Date mismatch: Claim date is ${escapeHtml(DateHandler.format(claimDate))}, but eligibility date is ${escapeHtml(DateHandler.format(eligDate))}`);
   }
   
-  // Check clinician mismatch
+  // Check clinician mismatch — skip when Wrong Member ID is the root cause
   const eligClinician = (record.Clinician || '').trim();
   const claimClinician = claimInfo.claimClinician || '';
-  if (eligClinician && claimClinician && eligClinician !== claimClinician) {
+  if (eligClinician && claimClinician && eligClinician !== claimClinician && !wrongMemberID) {
     mismatches.push(`Different clinician: Claim has "${escapeHtml(claimClinician)}", but eligibility is for "${escapeHtml(eligClinician)}"`);
   }
   
@@ -2280,7 +2283,7 @@ function formatEligibilityDetails(record, memberID, claimDate, claimInfo = {}) {
         else if (status.toLowerCase() !== 'eligible') rowClass = 'table-danger';
       } else if (key === 'Clinician') {
         if (isAccepted && eligClinician && claimClinician) rowClass = 'table-success';
-        else if (!isAccepted && eligClinician && claimClinician && eligClinician !== claimClinician) rowClass = 'table-danger';
+        else if (!isAccepted && eligClinician && claimClinician && eligClinician !== claimClinician && !wrongMemberID) rowClass = 'table-danger';
       } else if (key === 'Package Name') {
         if (isAccepted && eligPackage && claimPackage) rowClass = 'table-success';
         else if (!isAccepted && eligPackage && claimPackage && !packageNamesMatch(claimPackage, eligPackage)) rowClass = 'table-danger';
