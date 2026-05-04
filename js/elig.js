@@ -1620,10 +1620,11 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
       remarks.push(`Eligibility status: ${eligibility.Status}`);
     }
 
-    // If EID fallback resolved a different member ID and the claim turned out valid,
-    // note that the member ID on the claim was wrong.
+    // If EID fallback resolved a different member ID, the claim had the wrong member ID.
+    // Mark it invalid regardless of whether eligibility would otherwise have passed.
     if (eidMatchedMemberID && eidMatchedMemberID !== memberID && finalStatus === 'valid') {
       remarks.push('Wrong Member ID');
+      finalStatus = 'invalid';
     }
 
     results.push({
