@@ -1061,6 +1061,81 @@ function logNoEligibilityMatch(sourceType, claimSummary, memberID, parsedClaimDa
   }
 }
 
+/**
+ * When no eligibility match was found for a claim, diagnose the specific reason
+ * to provide a more targeted error message.
+ * Returns 'Wrong Clinician', 'Wrong Service Category', or null (no specific diagnosis).
+ * A specific reason is only returned when exactly 1 date-matching eligible record
+ * fails due to exactly one check (clinician OR service category, but not both).
+ *
+ * @param {Map} eligMap - Map of normalised member IDs to eligibility records
+ * @param {Date} claimDate - Parsed claim date
+ * @param {string} normalizedMemberID - Already-normalized member ID
+ * @param {string} claimClinician - Clinician value from the claim row
+ * @param {string} claimDepartment - Department/service category from the claim row
+ * @returns {string|null}
+ */
+function diagnoseEligibilityFailure(eligMap, claimDate, normalizedMemberID, claimClinician, claimDepartment) {
+  const eligList = eligMap.get(normalizedMemberID) || [];
+  if (!eligList.length) return null;
+
+  // Find eligibilities that match the date and have 'eligible' status
+  const dateMatches = eligList.filter(e => {
+    const eligDate = DateHandler.parse(e['Answered On'], { preferMDY: false });
+    return DateHandler.isSameDay(claimDate, eligDate) && (e.Status || '').toLowerCase() === 'eligible';
+  });
+
+  if (dateMatches.length !== 1) return null; // Only diagnose when exactly one candidate exists
+
+  const elig = dateMatches[0];
+  const eligClinician = (elig.Clinician || '').trim();
+  const clinicianFailed = !!(eligClinician && claimClinician && ![claimClinician].includes(eligClinician));
+  const categoryCheck = isServiceCategoryValid(
+    elig['Service Category'],
+    elig['Consultation Status'],
+    (claimDepartment || '').toLowerCase()
+  );
+  const serviceFailed = !categoryCheck.valid;
+
+  if (clinicianFailed && !serviceFailed) return 'Wrong Clinician';
+  if (serviceFailed && !clinicianFailed) return 'Wrong Service Category';
+  return null;
+}
+
+/**
+ * When a member ID is not found in the eligibility map, scan for similar IDs
+ * that may indicate the Member ID on the claim was entered incorrectly.
+ * Uses substring containment and shared-prefix heuristics.
+ *
+ * @param {Map} eligMap - Map of normalised member IDs to eligibility records
+ * @param {string} normalizedMemberID - Already-normalized member ID to search for
+ * @returns {string[]} Up to 3 similar member IDs found in the map
+ */
+function findPotentialMemberIDMismatches(eligMap, normalizedMemberID) {
+  if (!normalizedMemberID || eligMap.has(normalizedMemberID)) return [];
+
+  const candidates = [];
+  for (const mapID of eligMap.keys()) {
+    if (!mapID) continue;
+    const [shorter, longer] = normalizedMemberID.length <= mapID.length
+      ? [normalizedMemberID, mapID]
+      : [mapID, normalizedMemberID];
+    // Substring: one ID contains the other and lengths differ by at most 4 characters
+    if (longer.includes(shorter) && longer.length - shorter.length <= 4) {
+      candidates.push(mapID);
+      if (candidates.length === 3) return candidates;
+      continue;
+    }
+    // Prefix match: share the same first 5 characters (for sufficiently long IDs)
+    if (normalizedMemberID.length >= 5 && mapID.length >= 5 &&
+        normalizedMemberID.substring(0, 5) === mapID.substring(0, 5)) {
+      candidates.push(mapID);
+      if (candidates.length === 3) return candidates;
+    }
+  }
+  return candidates;
+}
+
 /* ===========================
    Report normalization & validation
    =========================== */
@@ -1447,7 +1522,21 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
       finalStatus = 'invalid';
       remarks.push('Member ID has a leading zero; claim marked as invalid.');
     } else if (!eligibility) {
-      remarks.push('Eligibility Not Taken');
+      const rawEligList = eligMap.get(memberID) || [];
+      if (rawEligList.length > 0) {
+        // Member found in map but no eligibility passed all filters —
+        // attempt to surface the specific single-field failure reason.
+        const failureReason = diagnoseEligibilityFailure(eligMap, claimDate, memberID, row.clinician, row.department);
+        remarks.push(failureReason || 'Eligibility Not Taken');
+      } else {
+        // Member not found in map at all — look for potential member ID mismatches.
+        const potentialMatches = findPotentialMemberIDMismatches(eligMap, memberID);
+        if (potentialMatches.length > 0) {
+          remarks.push(`Eligibility Not Taken (possible wrong Member ID — similar IDs found: ${potentialMatches.join(', ')})`);
+        } else {
+          remarks.push('Eligibility Not Taken');
+        }
+      }
     } else if (eligibility.Status?.toLowerCase() === 'eligible') {
       const categoryCheck = isServiceCategoryValid(eligibility['Service Category'], eligibility['Consultation Status'], (row.department || '').toLowerCase());
       if (categoryCheck.valid) {
