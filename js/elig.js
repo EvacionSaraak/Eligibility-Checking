@@ -1634,9 +1634,12 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
     }
 
     // If EID fallback resolved a different member ID, the claim had the wrong member ID.
-    // Mark it invalid regardless of whether eligibility would otherwise have passed.
-    if (eidMatchedMemberID && eidMatchedMemberID !== memberID && finalStatus === 'valid') {
-      remarks.push('Wrong Member ID');
+    // Mark it invalid and surface "Wrong Member ID" regardless of which branch above ran
+    // (e.g. the leading-zero branch sets finalStatus = 'invalid' without adding this remark).
+    if (eidMatchedMemberID && eidMatchedMemberID !== memberID) {
+      if (!remarks.includes('Wrong Member ID')) {
+        remarks.push('Wrong Member ID');
+      }
       finalStatus = 'invalid';
     }
 
