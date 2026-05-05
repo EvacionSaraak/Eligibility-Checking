@@ -1095,9 +1095,15 @@ function diagnoseEligibilityFailure(eligMap, claimDate, normalizedMemberID, clai
   const dept = (claimDepartment || '').toLowerCase();
 
   for (const elig of dateMatches) {
-    const eligClinician = (elig.Clinician || '').trim();
-    if (eligClinician && claimClinician && eligClinician !== claimClinician.trim()) {
-      reasons.add('Wrong Clinician');
+    // Only flag Wrong Clinician when there is exactly 1 matched eligibility.
+    // With multiple matches the patient may have visited different doctors and the
+    // eligibility for the current clinician could simply be missing — flagging
+    // Wrong Clinician in that case would incorrectly invalidate valid records.
+    if (dateMatches.length === 1) {
+      const eligClinician = (elig.Clinician || '').trim();
+      if (eligClinician && claimClinician && eligClinician !== claimClinician.trim()) {
+        reasons.add('Wrong Clinician');
+      }
     }
     const categoryCheck = isServiceCategoryValid(elig['Service Category'], elig['Consultation Status'], dept);
     if (!categoryCheck.valid) {
