@@ -551,7 +551,14 @@ function prepareEligibilityMap(rawSheetArray) {
       if (!Array.isArray(row)) continue;
 
       const record = {};
-      headers.forEach((h, idx) => record[h] = row[idx] !== undefined ? row[idx] : '');
+      // For duplicate headers (e.g. "Package Name" repeating across policy blocks),
+      // the first non-empty occurrence takes precedence over later ones.
+      headers.forEach((h, idx) => {
+        const val = row[idx] !== undefined ? row[idx] : '';
+        if (!Object.prototype.hasOwnProperty.call(record, h) || record[h] === '' || record[h] === null || record[h] === undefined) {
+          record[h] = val;
+        }
+      });
 
       let rawMemberID = '';
       for (const k of idCandidates) {
