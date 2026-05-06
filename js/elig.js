@@ -1596,6 +1596,10 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
     } else if (packageLower.includes('daman') && packageLower.includes('high-end')) {
       finalStatus = 'unknown';
       remarks.push('Daman High-End claims are marked as unknown.');
+    // Leading zero + matched eligibility → unknown so the record can still be used
+    } else if (hasLeadingZero && eligibility) {
+      finalStatus = 'unknown';
+      remarks.push('Member ID has a leading zero; marked as unknown.');
     // Only treat leading zeroes as invalid if the option to remove them is OFF
     } else if (hasLeadingZero && !removeLeadingZeroes) {
       finalStatus = 'invalid';
