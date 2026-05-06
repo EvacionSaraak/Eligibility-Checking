@@ -1530,6 +1530,9 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
       continue;
     }
 
+    // Detect garbage / multi-field paste: real member IDs never contain whitespace
+    const hasWhitespaceMemberID = /\s/.test(rawMemberID);
+
     // Check for leading zeroes in original memberID
     // Only mark as invalid if the removeLeadingZeroes option is OFF
     // Use /^0/ to detect any ID starting with zero (including all-zeroes like "0000")
@@ -1590,7 +1593,10 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
     const packageLower = (row.packageName || '').toLowerCase();
 
     // Clinician license is 'FALSE' — not found in our database
-    if (row.clinician === 'FALSE') {
+    if (hasWhitespaceMemberID) {
+      finalStatus = 'unknown';
+      remarks.push('Member ID appears to contain extra data; please recheck this claim.');
+    } else if (row.clinician === 'FALSE') {
       finalStatus = 'unknown';
       remarks.push("This clinician hasn't been added to our database yet.");
     // Daman High-End claims cannot be determined as valid or invalid; mark as unknown
