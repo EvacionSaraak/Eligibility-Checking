@@ -39,15 +39,11 @@ let sourceFileName = '';   // Track the source report filename for export
 // Keep last eligibility map so UI filters can re-render without rebuilding the map
 let lastEligMap = null;
 
-// Option to remove leading zeroes from member IDs and claim IDs
-let removeLeadingZeroes = true;
-
 // Option to show/hide diagnostics buttons
 let showDiagnosticsButtons = false;
 
 // DOM Elements (lookups performed in initializeEventListeners)
 let reportInput, eligInput, processBtn, exportInvalidBtn, statusEl, resultsContainer, filterCheckbox, filterStatus, pasteTextarea, pasteBtn;
-let removeZeroesCheckbox, removeZeroesStatus;
 let diagnosticsCheckbox, diagnosticsStatus;
 
 /* ===========================
@@ -62,10 +58,8 @@ function normalizeMemberID(id) {
   if (!id) return "";
   let normalized = String(id).replace(/\D/g, "").trim();
   
-  // Optionally remove leading zeroes if the option is enabled
-  // Note: If input is all zeroes (e.g., "0000"), we keep at least one "0" 
-  // to maintain a valid ID rather than returning an empty string
-  if (removeLeadingZeroes && normalized.length > 0) {
+  // Remove leading zeroes; if input is all zeroes (e.g., "0000"), keep at least one "0"
+  if (normalized.length > 0) {
     normalized = normalized.replace(/^0+/, '') || '0';
   }
   
@@ -1534,7 +1528,6 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
     const hasWhitespaceMemberID = /\s/.test(rawMemberID);
 
     // Check for leading zeroes in original memberID
-    // Only mark as invalid if the removeLeadingZeroes option is OFF
     // Use /^0/ to detect any ID starting with zero (including all-zeroes like "0000")
     const hasLeadingZero = /^0/.test(rawMemberID);
     
@@ -1607,10 +1600,6 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
     } else if (hasLeadingZero && eligibility) {
       finalStatus = 'unknown';
       remarks.push('Member ID has a leading zero; marked as unknown.');
-    // Only treat leading zeroes as invalid if the option to remove them is OFF
-    } else if (hasLeadingZero && !removeLeadingZeroes) {
-      finalStatus = 'invalid';
-      remarks.push('Member ID has a leading zero; claim marked as invalid.');
     } else if (!eligibility) {
       if (eidMatchedMemberID && eidMatchedMemberID !== memberID) {
         remarks.push('Wrong Member ID');
@@ -2582,22 +2571,6 @@ function onFilterToggle() {
   renderResults(displayed, eligMap, base);
 }
 
-function onRemoveZeroesToggle() {
-  if (!removeZeroesStatus) return;
-  const on = removeZeroesCheckbox && removeZeroesCheckbox.checked;
-  removeZeroesStatus.textContent = on ? 'ON' : 'OFF';
-  removeZeroesStatus.classList.toggle('active', on);
-  
-  // Update the global state
-  removeLeadingZeroes = on;
-  
-  // If we have data, we need to rebuild the eligibility map and re-process
-  if (eligData && xlsData) {
-    updateStatus('Leading zeroes option changed. Click Process to re-check with new settings.');
-    console.log(`🔧 Leading zeroes removal ${on ? 'ENABLED' : 'DISABLED'}. Re-processing required.`);
-  }
-}
-
 function onDiagnosticsToggle() {
   if (!diagnosticsStatus) return;
   const on = diagnosticsCheckbox && diagnosticsCheckbox.checked;
@@ -2627,8 +2600,6 @@ function initializeEventListeners() {
   resultsContainer = document.getElementById('results');
   filterCheckbox = document.getElementById('filterDamanThiqa');
   filterStatus = document.getElementById('filterStatus');
-  removeZeroesCheckbox = document.getElementById('removeLeadingZeroes');
-  removeZeroesStatus = document.getElementById('removeZeroesStatus');
   diagnosticsCheckbox = document.getElementById('showDiagnosticsButtons');
   diagnosticsStatus = document.getElementById('diagnosticsStatus');
   pasteTextarea = document.getElementById('pasteCsvTextarea');
@@ -2641,11 +2612,6 @@ function initializeEventListeners() {
   if (filterCheckbox) {
     filterCheckbox.checked = true;
     filterCheckbox.addEventListener('change', onFilterToggle);
-  }
-  if (removeZeroesCheckbox) {
-    // Default to true (checked) to enable leading zeroes removal by default
-    removeZeroesCheckbox.checked = true;
-    removeZeroesCheckbox.addEventListener('change', onRemoveZeroesToggle);
   }
   if (diagnosticsCheckbox) {
     // Default to false (unchecked) to hide diagnostics buttons by default
@@ -2689,7 +2655,6 @@ function initializeEventListeners() {
 
   if (pasteBtn) pasteBtn.addEventListener('click', handlePasteCsvClick);
   if (filterStatus) onFilterToggle();
-  if (removeZeroesStatus) onRemoveZeroesToggle();
   if (diagnosticsStatus) onDiagnosticsToggle();
 }
 
