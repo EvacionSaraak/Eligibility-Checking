@@ -139,6 +139,13 @@ function packageNamesMatch(claimPackage, eligPackage) {
     }
   }
   
+  // DAMAN Key variant matching: "Daman-Key" should match "Sahtak" plan names or Silver/Gold/Bronze classification variants
+  if (claimLower.includes('daman') && claimLower.includes('key')) {
+    if (eligLower.includes('sahtak') || containsDAMANClassification(eligLower)) {
+      return true;
+    }
+  }
+
   // DAMAN Low-End variant matching: "TrueLife_DAMAN Low-End" should match various DAMAN plan names and classifications
   // These include specific plan names within DAMAN's network and also Silver/Gold/Bronze classification variants
   if (claimLower.includes('daman') && claimLower.includes('low-end')) {
