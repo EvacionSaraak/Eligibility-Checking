@@ -1075,8 +1075,7 @@ function logNoEligibilityMatch(sourceType, claimSummary, memberID, parsedClaimDa
  * to provide a more targeted error message.
  * Iterates over all date-matching eligible records and collects every failure
  * reason encountered (clinician mismatch and/or service category mismatch).
- * Returns a combined string such as 'Wrong Clinician', 'Wrong Service Category',
- * or 'Wrong Clinician, Wrong Service Category', or null when no specific
+ * Returns a combined string such as 'Wrong Service Category', or null when no specific
  * diagnosis can be made.
  *
  * @param {Map} eligMap - Map of normalised member IDs to eligibility records
@@ -1103,16 +1102,6 @@ function diagnoseEligibilityFailure(eligMap, claimDate, normalizedMemberID, clai
   const dept = (claimDepartment || '').toLowerCase();
 
   for (const elig of dateMatches) {
-    // Only flag Wrong Clinician when there is exactly 1 matched eligibility.
-    // With multiple matches the patient may have visited different doctors and the
-    // eligibility for the current clinician could simply be missing — flagging
-    // Wrong Clinician in that case would incorrectly invalidate valid records.
-    if (dateMatches.length === 1) {
-      const eligClinician = (elig.Clinician || '').trim();
-      if (eligClinician && claimClinician && eligClinician !== claimClinician.trim()) {
-        reasons.add('Wrong Clinician');
-      }
-    }
     const categoryCheck = isServiceCategoryValid(elig['Service Category'], elig['Consultation Status'], dept);
     if (!categoryCheck.valid) {
       reasons.add('Wrong Service Category');
