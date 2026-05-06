@@ -1508,7 +1508,8 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
       results.push({ 
         claimID, 
         visitID: row.visitID || '',
-        memberID, 
+        memberID,
+        rawMemberID,
         encounterStart: formattedDate,
         encounterDate: claimDate, // Store original Date object to avoid re-parsing issues
         status: 'VVIP', finalStatus: 'valid', 
@@ -1657,7 +1658,8 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
     results.push({
       claimID, 
       visitID: row.visitID || '',
-      memberID, 
+      memberID,
+      rawMemberID,
       encounterStart: formattedDate,
       encounterDate: claimDate, // Store original Date object to avoid re-parsing issues
       packageName: eligibility?.['Package Name'] || row.packageName || '',
@@ -1831,7 +1833,7 @@ function renderResults(results, eligMap, totalResults = null) {
 
     row.innerHTML = `
       <td>${escapeHtml(result.claimID)}</td>
-      <td>${escapeHtml(result.memberID)}</td>
+      <td>${escapeHtml(result.rawMemberID || result.memberID)}</td>
       <td>${escapeHtml(result.encounterStart)}</td>
       <td class="description-col">${escapeHtml(result.packageName)}</td>
       <td class="description-col">${escapeHtml(result.provider)}</td>
@@ -2386,7 +2388,7 @@ function exportInvalidEntries(results) {
       'Visit ID': entry.visitID || '',
       'Phy Lic': entry.clinician || '',
       'Date': exportDate,
-      'Member ID': entry.memberID || '',
+      'Member ID': entry.rawMemberID || entry.memberID || '',
       'Clinician Name': entry.clinicianName || '',
       'Verdict': (entry.remarks || []).join('; '),
       'Opened By': entry.openedBy || '',
