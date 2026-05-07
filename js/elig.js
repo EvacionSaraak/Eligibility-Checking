@@ -110,10 +110,13 @@ function packageNamesMatch(claimPackage, eligPackage) {
     return true;
   }
   
-  // DAMAN BASIC variant matching: "DAMAN BASIC" should match any package with "Basic" in it
+  // DAMAN BASIC variant matching: "DAMAN BASIC" should match "Basic" packages and
+  // Abu Dhabi I/O style package names used by DAMAN.
   // Check this BEFORE the general DAMAN classification matching to be more specific
-  if (claimLower.includes('daman') && claimLower.includes('basic') && eligLower.includes('basic')) {
-    return true;
+  if (claimLower.includes('daman') && claimLower.includes('basic')) {
+    if (eligLower.includes('basic') || eligLower.includes('abu dhabi')) {
+      return true;
+    }
   }
   
   // DAMAN Enhanced variant matching: "Daman Enhanced" should match "Sahtak", "Enhanced-*" plan names,
@@ -144,7 +147,7 @@ function packageNamesMatch(claimPackage, eligPackage) {
   // These include specific plan names within DAMAN's network and also Silver/Gold/Bronze classification variants
   if (claimLower.includes('daman') && claimLower.includes('low-end')) {
     // Match with specific DAMAN plan names OR classification variants (Silver/Gold/Bronze + variants)
-    if (eligLower.includes('enhanced-auh') || eligLower.includes('abu dhabi') || 
+    if (eligLower.includes('enhanced-auh') || eligLower.includes('core-auh') || eligLower.includes('abu dhabi') || 
         eligLower.includes('sahtak') || containsDAMANClassification(eligLower)) {
       return true;
     }
