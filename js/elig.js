@@ -363,7 +363,9 @@ function findHeaderRowFromArrays(allRows, maxScan = 10) {
   const tokens = [
     'pri. claim no', 'pri claim no', 'claimid', 'claim id', 'pri. claim id', 'pri claim id',
     'center name', 'card number', 'card number / dha member id', 'member id', 'patientcardid',
-    'pri. patient insurance card no', 'institution', 'facility id', 'mr no.', 'pri. claim id'
+    'pri. patient insurance card no', 'institution', 'facility id', 'mr no.', 'pri. claim id',
+    'clinician license', 'encounter date', 'visit id', 'total amount', 'source file',
+    'emirates id no', 'emirates id no.'
   ];
 
   const scanLimit = Math.min(maxScan, allRows.length);
@@ -1309,7 +1311,7 @@ function normalizeReportData(rawData) {
           price: row['Total Amount'] ?? '',
           facilityID: row['Facility ID'] || '',
           sourceFile: row['Source File'] || '',
-          emiratesID: row['Emirates ID No'] || ''
+          emiratesID: row['Emirates ID No'] || row['Emirates ID No.'] || ''
         };
       } else if (isInsta) {
         return {
@@ -1328,7 +1330,7 @@ function normalizeReportData(rawData) {
           openedBy: row['Opened by'] || '',
           price: row['Net Amount'] ?? row['Gross Amount'] ?? '',
           facilityID: row['Facility ID'] || '',
-          emiratesID: row['Emirates ID No'] || ''
+          emiratesID: row['Emirates ID No'] || row['Emirates ID No.'] || ''
         };
       } else if (isOdoo) {
         return {
@@ -1345,7 +1347,7 @@ function normalizeReportData(rawData) {
           openedBy: row['Opened by'] || '',
           price: row['Total Sponsor Amt'] ?? '',
           facilityID: row['Center Name'] || '',
-          emiratesID: row['Emirates ID No'] || ''
+          emiratesID: row['Emirates ID No'] || row['Emirates ID No.'] || ''
         };
       } else {
         return {
@@ -1362,7 +1364,7 @@ function normalizeReportData(rawData) {
           openedBy: row['Opened by'] || '',
           price: row['Total Amount'] ?? '',
           facilityID: row['Facility ID'] || '',
-          emiratesID: row['Emirates ID No'] || ''
+          emiratesID: row['Emirates ID No'] || row['Emirates ID No.'] || ''
         };
       }
     });
@@ -1401,7 +1403,7 @@ function normalizeReportData(rawData) {
         price: getField(r, ['Total Amount']),  // getField preserves 0 values, unlike || ''
         facilityID: r['Facility ID'] || '',
         sourceFile: r['Source File'] || '',
-        emiratesID: r['Emirates ID No'] || ''
+        emiratesID: r['Emirates ID No'] || r['Emirates ID No.'] || ''
       };
     } else if (isInsta) {
       return {
@@ -1420,7 +1422,7 @@ function normalizeReportData(rawData) {
         openedBy: r['Opened by'] || '',
         price: getField(r, ['Net Amount', 'Gross Amount']),
         facilityID: r['Facility ID'] || '',
-        emiratesID: r['Emirates ID No'] || ''
+        emiratesID: r['Emirates ID No'] || r['Emirates ID No.'] || ''
       };
     } else if (isOdoo) {
       return {
@@ -1437,7 +1439,7 @@ function normalizeReportData(rawData) {
         openedBy: r['Opened by'] || '',
         price: getField(r, ['Total Sponsor Amt']),
         facilityID: r['Center Name'] || '',
-        emiratesID: r['Emirates ID No'] || ''
+        emiratesID: r['Emirates ID No'] || r['Emirates ID No.'] || ''
       };
     } else {
       const out = {
@@ -1459,7 +1461,7 @@ function normalizeReportData(rawData) {
         openedBy: r['Opened by'] || '',
         price: getField(r, ['Net Amount', 'Gross Amount', 'Total Sponsor Amt', 'Total Amount']),
         facilityID: r['Facility ID'] || r['Center Name'] || '',
-        emiratesID: r['Emirates ID No'] || ''
+        emiratesID: getField(r, ['Emirates ID No', 'Emirates ID No.']) || ''
       };
 
       if (!out.memberID) {
