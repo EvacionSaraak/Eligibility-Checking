@@ -852,7 +852,7 @@ function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians =
     
     // Add this eligibility to matches with usage status and clinician-match flags
     // _clinicianMatch: true  = elig has a non-empty clinician AND it positively matched the claim's clinician
-    // _clinicianMatch: false = either a neutral pass (elig or claim clinician is blank) OR a mismatch
+    // _clinicianMatch: false = not a positive clinician match
     //                         NOTE: when _clinicianMismatch is true, _clinicianMatch is always false
     const clinicianPositivelyMatched = eligClinician && hasClaimClinician && claimClinicians.includes(eligClinician);
     matchingEligs.push({...elig, _isUsed: isUsed, _clinicianMismatch: clinicianMismatch, _clinicianMatch: clinicianPositivelyMatched});
