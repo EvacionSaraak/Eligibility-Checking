@@ -39,15 +39,11 @@ let sourceFileName = '';   // Track the source report filename for export
 // Keep last eligibility map so UI filters can re-render without rebuilding the map
 let lastEligMap = null;
 
-// Option to remove leading zeroes from member IDs and claim IDs
-let removeLeadingZeroes = true;
-
 // Option to show/hide diagnostics buttons
 let showDiagnosticsButtons = false;
 
 // DOM Elements (lookups performed in initializeEventListeners)
 let reportInput, eligInput, processBtn, exportInvalidBtn, statusEl, resultsContainer, filterCheckbox, filterStatus, pasteTextarea, pasteBtn;
-let removeZeroesCheckbox, removeZeroesStatus;
 let diagnosticsCheckbox, diagnosticsStatus;
 
 /* ===========================
@@ -62,10 +58,8 @@ function normalizeMemberID(id) {
   if (!id) return "";
   let normalized = String(id).replace(/\D/g, "").trim();
   
-  // Optionally remove leading zeroes if the option is enabled
-  // Note: If input is all zeroes (e.g., "0000"), we keep at least one "0" 
-  // to maintain a valid ID rather than returning an empty string
-  if (removeLeadingZeroes && normalized.length > 0) {
+  // Remove leading zeroes; if input is all zeroes (e.g., "0000"), keep at least one "0"
+  if (normalized.length > 0) {
     normalized = normalized.replace(/^0+/, '') || '0';
   }
   
@@ -116,26 +110,45 @@ function packageNamesMatch(claimPackage, eligPackage) {
     return true;
   }
   
-  // DAMAN BASIC variant matching: "DAMAN BASIC" should match any package with "Basic" in it
+  // DAMAN BASIC variant matching: "DAMAN BASIC" should match "Basic" packages and
+  // Abu Dhabi I/O style package names used by DAMAN.
   // Check this BEFORE the general DAMAN classification matching to be more specific
-  if (claimLower.includes('daman') && claimLower.includes('basic') && eligLower.includes('basic')) {
-    return true;
-  }
-  
-  // DAMAN Enhanced variant matching: "Daman Enhanced" should match "Sahtak" or Silver/Gold/Bronze variants
-  // Check this BEFORE the general DAMAN classification matching to include Sahtak
-  if (claimLower.includes('daman') && claimLower.includes('enhanced')) {
-    if (eligLower === 'sahtak' || containsDAMANClassification(eligLower)) {
+  if (claimLower.includes('daman') && claimLower.includes('basic')) {
+    if (eligLower.includes('basic') || eligLower.includes('abu dhabi')) {
       return true;
     }
   }
   
+  // DAMAN Enhanced variant matching: "Daman Enhanced" should match "Sahtak", "Enhanced-*" plan names,
+  // or Silver/Gold/Bronze variants.
+  // Check this BEFORE the general DAMAN classification matching to include Sahtak
+  if (claimLower.includes('daman') && claimLower.includes('enhanced')) {
+    if (eligLower.includes('sahtak') || eligLower.includes('enhanced') || containsDAMANClassification(eligLower)) {
+      return true;
+    }
+  }
+
+  // DAMAN Mid variant matching: "Daman Mid" sits in the same Enhanced tier and should match
+  // "Sahtak", "Enhanced-*" plan names, or Silver/Gold/Bronze classification variants
+  if (claimLower.includes('daman') && claimLower.includes('mid')) {
+    if (eligLower.includes('enhanced') || eligLower.includes('sahtak') || containsDAMANClassification(eligLower)) {
+      return true;
+    }
+  }
+  
+  // DAMAN Key variant matching: "Daman-Key" should match "Sahtak" plan names or Silver/Gold/Bronze classification variants
+  if (claimLower.includes('daman') && claimLower.includes('key')) {
+    if (eligLower.includes('sahtak') || containsDAMANClassification(eligLower)) {
+      return true;
+    }
+  }
+
   // DAMAN Low-End variant matching: "TrueLife_DAMAN Low-End" should match various DAMAN plan names and classifications
   // These include specific plan names within DAMAN's network and also Silver/Gold/Bronze classification variants
   if (claimLower.includes('daman') && claimLower.includes('low-end')) {
     // Match with specific DAMAN plan names OR classification variants (Silver/Gold/Bronze + variants)
-    if (eligLower.includes('enhanced-auh') || eligLower.includes('abu dhabi') || 
-        eligLower === 'sahtak' || containsDAMANClassification(eligLower)) {
+    if (eligLower.includes('enhanced-auh') || eligLower.includes('core-auh') || eligLower.includes('abu dhabi') || 
+        eligLower.includes('sahtak') || containsDAMANClassification(eligLower)) {
       return true;
     }
   }
@@ -542,7 +555,14 @@ function prepareEligibilityMap(rawSheetArray) {
       if (!Array.isArray(row)) continue;
 
       const record = {};
-      headers.forEach((h, idx) => record[h] = row[idx] !== undefined ? row[idx] : '');
+      // For duplicate headers (e.g. "Package Name" repeating across policy blocks),
+      // the first non-empty occurrence takes precedence over later ones.
+      headers.forEach((h, idx) => {
+        const val = row[idx] !== undefined ? row[idx] : '';
+        if (!Object.prototype.hasOwnProperty.call(record, h) || record[h] === '' || record[h] === null || record[h] === undefined) {
+          record[h] = val;
+        }
+      });
 
       let rawMemberID = '';
       for (const k of idCandidates) {
@@ -749,11 +769,11 @@ function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians =
   
   for (const elig of eligList) {
     eligIndex++;
-    const eligDate = DateHandler.parse(elig["Answered On"], { preferMDY: false });
+    const eligDate = DateHandler.parse(elig["Answered On"] || elig["Ordered On"], { preferMDY: false });
     
     if (shouldLog) {
       const eligNum = elig["Eligibility Request Number"] || "(unknown)";
-      const eligDateStr = elig["Answered On"] || '(empty)';
+      const eligDateStr = elig["Answered On"] || elig["Ordered On"] || '(empty)';
       const status = elig.Status || '(empty)';
       const clinician = elig.Clinician || '(none)';
       
@@ -776,7 +796,8 @@ function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians =
     }
     
     const eligClinician = (elig.Clinician || '').trim();
-    if (eligClinician && claimClinicians.length && !claimClinicians.includes(eligClinician)) {
+    const hasClaimClinician = claimClinicians.some(c => c && c.trim());
+    if (eligClinician && hasClaimClinician && !claimClinicians.includes(eligClinician)) {
       if (shouldLog) {
         console.log(`      ❌ Clinician mismatch: has "${eligClinician}" but need: ${claimClinicians.join(', ')}`);
       }
@@ -1052,6 +1073,96 @@ function logNoEligibilityMatch(sourceType, claimSummary, memberID, parsedClaimDa
   }
 }
 
+/**
+ * When no eligibility match was found for a claim, diagnose the specific reasons
+ * to provide a more targeted error message.
+ * Iterates over all date-matching eligible records and collects every failure
+ * reason encountered (clinician mismatch and/or service category mismatch).
+ * Returns a combined string such as 'Wrong Service Category', or null when no specific
+ * diagnosis can be made.
+ *
+ * @param {Map} eligMap - Map of normalised member IDs to eligibility records
+ * @param {Date} claimDate - Parsed claim date
+ * @param {string} normalizedMemberID - Already-normalized member ID
+ * @param {string} claimClinician - Clinician value from the claim row
+ * @param {string} claimDepartment - Department/service category from the claim row
+ * @returns {string|null}
+ */
+function diagnoseEligibilityFailure(eligMap, claimDate, normalizedMemberID, claimClinician, claimDepartment) {
+  const eligList = eligMap.get(normalizedMemberID) || [];
+  if (!eligList.length) return null;
+
+  // Collect all eligibilities that match the date and have 'eligible' status
+  const dateMatches = eligList.filter(e => {
+    const eligDate = DateHandler.parse(e['Answered On'] || e['Ordered On'], { preferMDY: false });
+    return DateHandler.isSameDay(claimDate, eligDate) && (e.Status || '').toLowerCase() === 'eligible';
+  });
+
+  if (!dateMatches.length) return null;
+
+  // Gather every failure reason across all date-matching records
+  const reasons = new Set();
+  const dept = (claimDepartment || '').toLowerCase();
+
+  for (const elig of dateMatches) {
+    const categoryCheck = isServiceCategoryValid(elig['Service Category'], elig['Consultation Status'], dept);
+    if (!categoryCheck.valid) {
+      reasons.add('Wrong Service Category');
+    }
+  }
+
+  if (!reasons.size) return null;
+  return Array.from(reasons).join(', ');
+}
+
+/**
+ * Scan all eligibility records for one whose EID matches rawEID.
+ * Used as a fallback when member ID lookup yields no results.
+ * Dashes are stripped from both values before comparison.
+ *
+ * @param {Map} eligMap - Map of normalised member IDs to eligibility records
+ * @param {string} rawEID - Emirates ID from the claim row (may include dashes)
+ * @param {Date} claimDate - Parsed claim date
+ * @param {string[]} claimClinicians - Clinician values from the claim row
+ * @param {string} insurance - Insurance/provider name
+ * @param {string} claimDepartment - Department from the claim row
+ * @param {string} claimPackage - Package name from the claim row
+ * @returns {{ eligibility: Object|null, matchedMemberID: string }|null}
+ */
+function findEligibilityByEID(eligMap, rawEID, claimDate, claimClinicians, insurance, claimDepartment, claimPackage) {
+  if (!rawEID) return null;
+  const strippedEID = String(rawEID).replace(/-/g, '').trim();
+  if (!strippedEID) return null;
+
+  // Collect all map keys whose records contain a matching EID
+  const matchedMemberIDs = [];
+  for (const [mappedMemberID, records] of eligMap) {
+    for (const record of records) {
+      const recordEID = String(record['EID'] || '').replace(/-/g, '').trim();
+      if (recordEID && recordEID === strippedEID) {
+        matchedMemberIDs.push(mappedMemberID);
+        break;
+      }
+    }
+  }
+
+  if (matchedMemberIDs.length === 0) return null;
+
+  const firstMatchedMemberID = matchedMemberIDs[0];
+
+  // Try to find a usable eligibility via the EID-matched member ID(s)
+  for (const matchedMemberID of matchedMemberIDs) {
+    const matches = findEligibilityForClaim(eligMap, claimDate, matchedMemberID, claimClinicians, insurance, false, 0);
+    const best = selectBestEligibility(matches, claimDepartment, claimPackage);
+    if (best) {
+      return { eligibility: best, matchedMemberID };
+    }
+  }
+
+  // EID matched a record but no valid eligibility for this claim date/clinician
+  return { eligibility: null, matchedMemberID: firstMatchedMemberID };
+}
+
 /* ===========================
    Report normalization & validation
    =========================== */
@@ -1152,7 +1263,8 @@ function normalizeReportData(rawData) {
           openedBy: row['Opened by'] || '',
           price: row['Total Amount'] ?? '',
           facilityID: row['Facility ID'] || '',
-          sourceFile: row['Source File'] || ''
+          sourceFile: row['Source File'] || '',
+          emiratesID: row['Emirates ID No'] || ''
         };
       } else if (isInsta) {
         return {
@@ -1170,7 +1282,8 @@ function normalizeReportData(rawData) {
           admittingDoctor: '',  // Insta reports don't have a separate Admitting Doctor column
           openedBy: row['Opened by'] || '',
           price: row['Net Amount'] ?? row['Gross Amount'] ?? '',
-          facilityID: row['Facility ID'] || ''
+          facilityID: row['Facility ID'] || '',
+          emiratesID: row['Emirates ID No'] || ''
         };
       } else if (isOdoo) {
         return {
@@ -1186,7 +1299,8 @@ function normalizeReportData(rawData) {
           admittingDoctor: row['Admitting Doctor'] || '',
           openedBy: row['Opened by'] || '',
           price: row['Total Sponsor Amt'] ?? '',
-          facilityID: row['Center Name'] || ''
+          facilityID: row['Center Name'] || '',
+          emiratesID: row['Emirates ID No'] || ''
         };
       } else {
         return {
@@ -1202,7 +1316,8 @@ function normalizeReportData(rawData) {
           admittingDoctor: row['Admitting Doctor'] || row['Doctor'] || row['Physician'] || '',
           openedBy: row['Opened by'] || '',
           price: row['Total Amount'] ?? '',
-          facilityID: row['Facility ID'] || ''
+          facilityID: row['Facility ID'] || '',
+          emiratesID: row['Emirates ID No'] || ''
         };
       }
     });
@@ -1240,7 +1355,8 @@ function normalizeReportData(rawData) {
         openedBy: r['Opened by'] || '',
         price: getField(r, ['Total Amount']),  // getField preserves 0 values, unlike || ''
         facilityID: r['Facility ID'] || '',
-        sourceFile: r['Source File'] || ''
+        sourceFile: r['Source File'] || '',
+        emiratesID: r['Emirates ID No'] || ''
       };
     } else if (isInsta) {
       return {
@@ -1258,7 +1374,8 @@ function normalizeReportData(rawData) {
         admittingDoctor: '',  // Insta reports don't have a separate Admitting Doctor column
         openedBy: r['Opened by'] || '',
         price: getField(r, ['Net Amount', 'Gross Amount']),
-        facilityID: r['Facility ID'] || ''
+        facilityID: r['Facility ID'] || '',
+        emiratesID: r['Emirates ID No'] || ''
       };
     } else if (isOdoo) {
       return {
@@ -1274,7 +1391,8 @@ function normalizeReportData(rawData) {
         admittingDoctor: r['Admitting Doctor'] || '',
         openedBy: r['Opened by'] || '',
         price: getField(r, ['Total Sponsor Amt']),
-        facilityID: r['Center Name'] || ''
+        facilityID: r['Center Name'] || '',
+        emiratesID: r['Emirates ID No'] || ''
       };
     } else {
       const out = {
@@ -1295,7 +1413,8 @@ function normalizeReportData(rawData) {
         admittingDoctor: r['Admitting Doctor'] || getField(r, ['Admitting Doctor','Doctor','Physician']) || '',
         openedBy: r['Opened by'] || '',
         price: getField(r, ['Net Amount', 'Gross Amount', 'Total Sponsor Amt', 'Total Amount']),
-        facilityID: r['Facility ID'] || r['Center Name'] || ''
+        facilityID: r['Facility ID'] || r['Center Name'] || '',
+        emiratesID: r['Emirates ID No'] || ''
       };
 
       if (!out.memberID) {
@@ -1375,7 +1494,8 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
       results.push({ 
         claimID, 
         visitID: row.visitID || '',
-        memberID, 
+        memberID,
+        rawMemberID,
         encounterStart: formattedDate,
         encounterDate: claimDate, // Store original Date object to avoid re-parsing issues
         status: 'VVIP', finalStatus: 'valid', 
@@ -1396,8 +1516,10 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
       continue;
     }
 
+    // Detect garbage / multi-field paste: real member IDs never contain whitespace
+    const hasWhitespaceMemberID = /\s/.test(rawMemberID);
+
     // Check for leading zeroes in original memberID
-    // Only mark as invalid if the removeLeadingZeroes option is OFF
     // Use /^0/ to detect any ID starting with zero (including all-zeroes like "0000")
     const hasLeadingZero = /^0/.test(rawMemberID);
     
@@ -1421,24 +1543,72 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
     }
     
     // Use selected eligibility for validation
-    const eligibility = selectedEligibility;
+    let eligibility = selectedEligibility;
+    let eidMatchedMemberID = null;
     let finalStatus = 'invalid', remarks = [];
+
+    // EID fallback — only when member ID was not found at all and Emirates ID is available
+    if (!eligibility && row.emiratesID && !eligMap.has(memberID)) {
+      const eidResult = findEligibilityByEID(
+        eligMap, row.emiratesID, claimDate, [row.clinician], insurance, row.department, row.packageName
+      );
+      if (eidResult) {
+        eligibility = eidResult.eligibility;
+        eidMatchedMemberID = eidResult.matchedMemberID;
+        // Repopulate matchingEligibilities from the EID-resolved member ID so the
+        // details modal has records to display (the original lookup returned empty).
+        if (eidMatchedMemberID) {
+          const eidMatches = findEligibilityForClaim(eligMap, claimDate, eidMatchedMemberID, [row.clinician], insurance, false, claimIndex);
+          if (eidMatches && eidMatches.length > 0) {
+            matchingEligibilities.length = 0;
+            eidMatches.forEach(r => matchingEligibilities.push(r));
+          } else {
+            // Filtered search returned nothing (date/status mismatch, etc.) —
+            // fall back to ALL raw records for this member so the details button
+            // is always shown whenever "Wrong Member ID" appears in remarks.
+            const allEidRecords = eligMap.get(eidMatchedMemberID) || [];
+            if (allEidRecords.length > 0) {
+              matchingEligibilities.length = 0;
+              allEidRecords.forEach(r => matchingEligibilities.push({...r, _isUsed: usedEligibilities.has(r['Eligibility Request Number'])}));
+            }
+          }
+        }
+      }
+    }
     const packageLower = (row.packageName || '').toLowerCase();
 
     // Clinician license is 'FALSE' — not found in our database
-    if (row.clinician === 'FALSE') {
+    if (hasWhitespaceMemberID) {
+      finalStatus = 'unknown';
+      remarks.push('Member ID appears to contain extra data; please recheck this claim.');
+    } else if (row.clinician === 'FALSE') {
       finalStatus = 'unknown';
       remarks.push("This clinician hasn't been added to our database yet.");
     // Daman High-End claims cannot be determined as valid or invalid; mark as unknown
     } else if (packageLower.includes('daman') && packageLower.includes('high-end')) {
       finalStatus = 'unknown';
       remarks.push('Daman High-End claims are marked as unknown.');
-    // Only treat leading zeroes as invalid if the option to remove them is OFF
-    } else if (hasLeadingZero && !removeLeadingZeroes) {
-      finalStatus = 'invalid';
-      remarks.push('Member ID has a leading zero; claim marked as invalid.');
+    // Leading zero + matched eligibility → unknown so the record can still be used
+    } else if (hasLeadingZero && eligibility) {
+      finalStatus = 'unknown';
+      remarks.push('Member ID has a leading zero; marked as unknown.');
     } else if (!eligibility) {
-      remarks.push('Eligibility Not Taken');
+      if (eidMatchedMemberID && eidMatchedMemberID !== memberID) {
+        remarks.push('Wrong Member ID');
+      }
+      const lookupMemberID = eidMatchedMemberID || memberID;
+      const rawEligList = eligMap.get(lookupMemberID) || [];
+      if (rawEligList.length > 0) {
+        // Member found in map but no eligibility passed all filters —
+        // attempt to surface the specific single-field failure reason.
+        // When the root cause is already "Wrong Member ID", suppress clinician
+        // diagnosis (clinician mismatch is irrelevant on the wrong member's records).
+        const effectiveDiagnoseClinician = (eidMatchedMemberID && eidMatchedMemberID !== memberID) ? '' : row.clinician;
+        const failureReason = diagnoseEligibilityFailure(eligMap, claimDate, lookupMemberID, effectiveDiagnoseClinician, row.department);
+        remarks.push(failureReason || 'Eligibility Not Taken');
+      } else {
+        remarks.push('Eligibility Not Taken');
+      }
     } else if (eligibility.Status?.toLowerCase() === 'eligible') {
       const categoryCheck = isServiceCategoryValid(eligibility['Service Category'], eligibility['Consultation Status'], (row.department || '').toLowerCase());
       if (categoryCheck.valid) {
@@ -1456,16 +1626,27 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
           finalStatus = 'valid';
         }
       } else {
-        remarks.push(categoryCheck.reason || 'Service category mismatch');
+        remarks.push('Wrong Service Category');
       }
     } else {
       remarks.push(`Eligibility status: ${eligibility.Status}`);
     }
 
+    // If EID fallback resolved a different member ID, the claim had the wrong member ID.
+    // Mark it invalid and surface "Wrong Member ID" regardless of which branch above ran
+    // (e.g. the leading-zero branch sets finalStatus = 'invalid' without adding this remark).
+    if (eidMatchedMemberID && eidMatchedMemberID !== memberID) {
+      if (!remarks.includes('Wrong Member ID')) {
+        remarks.push('Wrong Member ID');
+      }
+      finalStatus = 'invalid';
+    }
+
     results.push({
       claimID, 
       visitID: row.visitID || '',
-      memberID, 
+      memberID,
+      rawMemberID,
       encounterStart: formattedDate,
       encounterDate: claimDate, // Store original Date object to avoid re-parsing issues
       packageName: eligibility?.['Package Name'] || row.packageName || '',
@@ -1477,7 +1658,8 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
       consultationStatus: eligibility?.['Consultation Status'] || '',
       status: eligibility?.Status || '',
       claimStatus: row.claimStatus || '',
-      remarks, finalStatus, 
+      remarks, finalStatus,
+      wrongMemberID: !!(eidMatchedMemberID && eidMatchedMemberID !== memberID),
       fullEligibilityRecord: eligibility,
       allEligibilityRecords: matchingEligibilities, // Store ALL matches
       fileNo: row.fileNo || '',
@@ -1638,7 +1820,7 @@ function renderResults(results, eligMap, totalResults = null) {
 
     row.innerHTML = `
       <td>${escapeHtml(result.claimID)}</td>
-      <td>${escapeHtml(result.memberID)}</td>
+      <td>${escapeHtml(result.rawMemberID || result.memberID)}</td>
       <td>${escapeHtml(result.encounterStart)}</td>
       <td class="description-col">${escapeHtml(result.packageName)}</td>
       <td class="description-col">${escapeHtml(result.provider)}</td>
@@ -1737,7 +1919,9 @@ function initEligibilityModal(results, eligMap) {
       const claimDate = result.encounterDate || null;
       const claimInfo = {
         claimClinician: result.clinician || '',
-        claimPackage: result.packageName || ''
+        claimPackage: result.packageName || '',
+        wrongMemberID: result.wrongMemberID || false,
+        claimMemberID: result.memberID || ''
       };
       
       const modalTable = document.getElementById("modalTable");
@@ -2033,7 +2217,15 @@ function formatEligibilityDetails(record, memberID, claimDate, claimInfo = {}) {
 
   const status = (record.Status || '').toString();
   const statusClass = status.toLowerCase() === 'eligible' ? 'status-badge eligible' : 'status-badge ineligible';
-  let html = `<div class="mb-2"><strong>Member:</strong> ${escapeHtml(memberID)} <span class="${statusClass}" style="margin-left:8px;">${escapeHtml(status)}</span></div>`;
+  const wrongMemberID = claimInfo.wrongMemberID || false;
+  const claimMemberID = claimInfo.claimMemberID || memberID;
+  let memberDisplay = escapeHtml(claimMemberID);
+  if (wrongMemberID) {
+    const correctID = record['Card Number / DHA Member ID'] || '';
+    memberDisplay = `<span style="color:#dc3545;font-weight:bold;">${escapeHtml(claimMemberID)}</span>`
+      + (correctID ? ` <span style="color:#6c757d;font-size:0.875em;">→ correct ID: <strong>${escapeHtml(correctID)}</strong></span>` : '');
+  }
+  let html = `<div class="mb-2"><strong>Member:</strong> ${memberDisplay} <span class="${statusClass}" style="margin-left:8px;">${escapeHtml(status)}</span></div>`;
 
   // Generate mismatch reasons
   const mismatches = [];
@@ -2044,10 +2236,10 @@ function formatEligibilityDetails(record, memberID, claimDate, claimInfo = {}) {
     mismatches.push(`Date mismatch: Claim date is ${escapeHtml(DateHandler.format(claimDate))}, but eligibility date is ${escapeHtml(DateHandler.format(eligDate))}`);
   }
   
-  // Check clinician mismatch
+  // Check clinician mismatch — skip when Wrong Member ID is the root cause
   const eligClinician = (record.Clinician || '').trim();
   const claimClinician = claimInfo.claimClinician || '';
-  if (eligClinician && claimClinician && eligClinician !== claimClinician) {
+  if (eligClinician && claimClinician && eligClinician !== claimClinician && !wrongMemberID) {
     mismatches.push(`Different clinician: Claim has "${escapeHtml(claimClinician)}", but eligibility is for "${escapeHtml(eligClinician)}"`);
   }
   
@@ -2100,12 +2292,15 @@ function formatEligibilityDetails(record, memberID, claimDate, claimInfo = {}) {
             if (!DateHandler.isSameDay(claimDate, parsed)) rowClass = 'table-danger';
           }
         }
+      } else if (key === 'Card Number / DHA Member ID') {
+        // Always mark red when the claim had a wrong member ID (EID fallback resolved it)
+        if (wrongMemberID) rowClass = 'table-danger';
       } else if (key === 'Status') {
         if (isAccepted) rowClass = 'table-success';
         else if (status.toLowerCase() !== 'eligible') rowClass = 'table-danger';
       } else if (key === 'Clinician') {
         if (isAccepted && eligClinician && claimClinician) rowClass = 'table-success';
-        else if (!isAccepted && eligClinician && claimClinician && eligClinician !== claimClinician) rowClass = 'table-danger';
+        else if (!isAccepted && eligClinician && claimClinician && eligClinician !== claimClinician && !wrongMemberID) rowClass = 'table-danger';
       } else if (key === 'Package Name') {
         if (isAccepted && eligPackage && claimPackage) rowClass = 'table-success';
         else if (!isAccepted && eligPackage && claimPackage && !packageNamesMatch(claimPackage, eligPackage)) rowClass = 'table-danger';
@@ -2180,7 +2375,7 @@ function exportInvalidEntries(results) {
       'Visit ID': entry.visitID || '',
       'Phy Lic': entry.clinician || '',
       'Date': exportDate,
-      'Member ID': entry.memberID || '',
+      'Member ID': entry.rawMemberID || entry.memberID || '',
       'Clinician Name': entry.clinicianName || '',
       'Verdict': (entry.remarks || []).join('; '),
       'Opened By': entry.openedBy || '',
@@ -2368,22 +2563,6 @@ function onFilterToggle() {
   renderResults(displayed, eligMap, base);
 }
 
-function onRemoveZeroesToggle() {
-  if (!removeZeroesStatus) return;
-  const on = removeZeroesCheckbox && removeZeroesCheckbox.checked;
-  removeZeroesStatus.textContent = on ? 'ON' : 'OFF';
-  removeZeroesStatus.classList.toggle('active', on);
-  
-  // Update the global state
-  removeLeadingZeroes = on;
-  
-  // If we have data, we need to rebuild the eligibility map and re-process
-  if (eligData && xlsData) {
-    updateStatus('Leading zeroes option changed. Click Process to re-check with new settings.');
-    console.log(`🔧 Leading zeroes removal ${on ? 'ENABLED' : 'DISABLED'}. Re-processing required.`);
-  }
-}
-
 function onDiagnosticsToggle() {
   if (!diagnosticsStatus) return;
   const on = diagnosticsCheckbox && diagnosticsCheckbox.checked;
@@ -2413,8 +2592,6 @@ function initializeEventListeners() {
   resultsContainer = document.getElementById('results');
   filterCheckbox = document.getElementById('filterDamanThiqa');
   filterStatus = document.getElementById('filterStatus');
-  removeZeroesCheckbox = document.getElementById('removeLeadingZeroes');
-  removeZeroesStatus = document.getElementById('removeZeroesStatus');
   diagnosticsCheckbox = document.getElementById('showDiagnosticsButtons');
   diagnosticsStatus = document.getElementById('diagnosticsStatus');
   pasteTextarea = document.getElementById('pasteCsvTextarea');
@@ -2427,11 +2604,6 @@ function initializeEventListeners() {
   if (filterCheckbox) {
     filterCheckbox.checked = true;
     filterCheckbox.addEventListener('change', onFilterToggle);
-  }
-  if (removeZeroesCheckbox) {
-    // Default to true (checked) to enable leading zeroes removal by default
-    removeZeroesCheckbox.checked = true;
-    removeZeroesCheckbox.addEventListener('change', onRemoveZeroesToggle);
   }
   if (diagnosticsCheckbox) {
     // Default to false (unchecked) to hide diagnostics buttons by default
@@ -2475,7 +2647,6 @@ function initializeEventListeners() {
 
   if (pasteBtn) pasteBtn.addEventListener('click', handlePasteCsvClick);
   if (filterStatus) onFilterToggle();
-  if (removeZeroesStatus) onRemoveZeroesToggle();
   if (diagnosticsStatus) onDiagnosticsToggle();
 }
 
