@@ -795,15 +795,29 @@ function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians =
       }
     }
     
+    const eligStatus = (elig.Status || '').toLowerCase();
+    const isBlockedOrCancelled = eligStatus === 'blocked' || eligStatus === 'cancelled';
+
     const eligClinician = (elig.Clinician || '').trim();
     const hasClaimClinician = claimClinicians.some(c => c && c.trim());
-    if (eligClinician && hasClaimClinician && !claimClinicians.includes(eligClinician)) {
+    const clinicianMismatch = eligClinician && hasClaimClinician && !claimClinicians.includes(eligClinician);
+
+    // Eligible eligibilities require a clinician match.
+    // Blocked/Cancelled eligibilities are included even when the clinician doesn't match —
+    // they take priority over Eligible eligibilities when both exist for the same date
+    // (the scenario where the wrong clinician was entered on the claim but the
+    // Blocked/Cancelled eligibility is the correct one for that visit).
+    if (clinicianMismatch && !isBlockedOrCancelled) {
       if (shouldLog) {
         console.log(`      ❌ Clinician mismatch: has "${eligClinician}" but need: ${claimClinicians.join(', ')}`);
       }
       continue;
     }
-    
+
+    if (clinicianMismatch && shouldLog) {
+      console.log(`      ⚠️ Clinician mismatch for Blocked/Cancelled eligibility (including anyway — takes priority): has "${eligClinician}" but need: ${claimClinicians.join(', ')}`);
+    }
+
     const serviceCategory = (elig['Service Category'] || '').trim();
     const consultationStatus = (elig['Consultation Status'] || '').trim();
     const department = (elig.Department || elig.Clinic || '').toLowerCase();
@@ -816,9 +830,10 @@ function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians =
       continue;
     }
     
-    if ((elig.Status || '').toLowerCase() !== 'eligible') {
+    // Include Eligible, Blocked, and Cancelled statuses; skip all others
+    if (eligStatus !== 'eligible' && !isBlockedOrCancelled) {
       if (shouldLog) {
-        console.log(`      ❌ Status "${elig.Status}" (must be "eligible")`);
+        console.log(`      ❌ Status "${elig.Status}" (must be eligible, blocked, or cancelled)`);
       }
       continue;
     }
@@ -833,8 +848,8 @@ function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians =
       console.log(`      ⚠️ Note: Already used for another claim`);
     }
     
-    // Add this eligibility to matches with usage status and continue checking for more
-    matchingEligs.push({...elig, _isUsed: isUsed});
+    // Add this eligibility to matches with usage status and clinician-mismatch flag
+    matchingEligs.push({...elig, _isUsed: isUsed, _clinicianMismatch: clinicianMismatch});
   }
   
   if (shouldLog) {
@@ -857,12 +872,15 @@ function checkClinicianMatch(claimClinicians, eligClinician) {
 /**
  * Select the best matching eligibility from multiple options
  * Ranks by:
- * 1. Valid (passes all validation checks) over invalid
- * 2. Not already used (prefer unused over used)
- * 3. Service category/consultation status match specificity
- * 4. Date (most recent first)
- * 5. Request number (highest/most recent first)
- * 
+ * 1. Blocked/Cancelled status over Eligible — when a Blocked/Cancelled eligibility
+ *    exists for the same date it is the "correct" one for that visit; an Eligible
+ *    eligibility matched only because the wrong clinician name was entered on the claim.
+ * 2. Valid (passes all validation checks) over invalid
+ * 3. Not already used (prefer unused over used)
+ * 4. Service category/consultation status match specificity
+ * 5. Date (most recent first)
+ * 6. Request number (highest/most recent first)
+ *
  * @param {Array} eligibilities - Array of matching eligibilities with _isUsed flag
  * @param {string} claimDepartment - The claim's department/service category
  * @param {string} claimPackage - The claim's package name for validation
@@ -874,8 +892,11 @@ function selectBestEligibility(eligibilities, claimDepartment = '', claimPackage
   // PRE-FILTER: Remove eligibilities that fail validation
   // This ensures we always pick a valid eligibility if one exists
   const validEligibilities = eligibilities.filter(elig => {
-    // Must have 'eligible' status
-    if (elig.Status?.toLowerCase() !== 'eligible') return false;
+    const statusLower = (elig.Status || '').toLowerCase();
+    const isBlockedOrCancelled = statusLower === 'blocked' || statusLower === 'cancelled';
+
+    // Must have 'eligible', 'blocked', or 'cancelled' status
+    if (statusLower !== 'eligible' && !isBlockedOrCancelled) return false;
     
     // Check service category validity
     const categoryCheck = isServiceCategoryValid(
@@ -900,17 +921,27 @@ function selectBestEligibility(eligibilities, claimDepartment = '', claimPackage
   if (eligsToConsider.length === 1) return eligsToConsider[0];
   
   const dept = (claimDepartment || '').toLowerCase().trim();
-  
-  // PRIORITY 1: Always prefer unused eligibilities over used ones
+
+  // PRIORITY: Prefer Blocked/Cancelled eligibilities over Eligible ones.
+  // When a Blocked/Cancelled eligibility exists for the same date it is the "correct"
+  // one for that visit; an Eligible eligibility may have been picked only because the
+  // wrong clinician name was entered on the claim (see findEligibilityForClaim).
+  const blockedCancelledEligs = eligsToConsider.filter(e => {
+    const s = (e.Status || '').toLowerCase();
+    return s === 'blocked' || s === 'cancelled';
+  });
+  const statusPrioritizedEligs = blockedCancelledEligs.length > 0 ? blockedCancelledEligs : eligsToConsider;
+
+  // PRIORITY 2: Always prefer unused eligibilities over used ones
   // Separate unused and used eligibilities
-  const unusedEligibilities = eligsToConsider.filter(e => !e._isUsed);
-  const usedEligibilities = eligsToConsider.filter(e => e._isUsed);
+  const unusedEligibilities = statusPrioritizedEligs.filter(e => !e._isUsed);
+  const usedEligibilities = statusPrioritizedEligs.filter(e => e._isUsed);
   
   // If there are ANY unused eligibilities, only consider those
   // Otherwise, fall back to used eligibilities
   const eligibilitiesToScore = unusedEligibilities.length > 0 ? unusedEligibilities : usedEligibilities;
   
-  console.log(`   🎯 Best eligibility selection (${eligibilities.length} total: ${validEligibilities.length} valid, ${eligsToConsider.length - validEligibilities.length} invalid, ${unusedEligibilities.length} unused, ${usedEligibilities.length} used):`);
+  console.log(`   🎯 Best eligibility selection (${eligibilities.length} total: ${validEligibilities.length} valid, ${eligsToConsider.length - validEligibilities.length} invalid, ${blockedCancelledEligs.length} blocked/cancelled, ${unusedEligibilities.length} unused, ${usedEligibilities.length} used):`);
   
   // Score each eligibility
   const scored = eligibilitiesToScore.map(elig => {
