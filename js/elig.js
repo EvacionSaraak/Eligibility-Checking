@@ -852,7 +852,7 @@ function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians =
     
     // Add this eligibility to matches with usage status and clinician-match flags
     // _clinicianMatch: true  = elig has a non-empty clinician AND it positively matched the claim's clinician
-    // _clinicianMatch: false = elig has no clinician, OR claim has no clinician (neutral pass)
+    // _clinicianMatch: false = either a neutral pass (elig or claim clinician is blank) OR a mismatch
     //                         NOTE: when _clinicianMismatch is true, _clinicianMatch is always false
     const clinicianPositivelyMatched = eligClinician && hasClaimClinician && claimClinicians.includes(eligClinician);
     matchingEligs.push({...elig, _isUsed: isUsed, _clinicianMismatch: clinicianMismatch, _clinicianMatch: clinicianPositivelyMatched});
@@ -1311,7 +1311,7 @@ function normalizeReportData(rawData) {
           price: row['Total Amount'] ?? '',
           facilityID: row['Facility ID'] || '',
           sourceFile: row['Source File'] || '',
-          emiratesID: row['Emirates ID No'] || row['Emirates ID No.'] || ''
+          emiratesID: getField(row, ['Emirates ID No', 'Emirates ID No.']) || ''
         };
       } else if (isInsta) {
         return {
@@ -1330,7 +1330,7 @@ function normalizeReportData(rawData) {
           openedBy: row['Opened by'] || '',
           price: row['Net Amount'] ?? row['Gross Amount'] ?? '',
           facilityID: row['Facility ID'] || '',
-          emiratesID: row['Emirates ID No'] || row['Emirates ID No.'] || ''
+          emiratesID: getField(row, ['Emirates ID No', 'Emirates ID No.']) || ''
         };
       } else if (isOdoo) {
         return {
@@ -1347,7 +1347,7 @@ function normalizeReportData(rawData) {
           openedBy: row['Opened by'] || '',
           price: row['Total Sponsor Amt'] ?? '',
           facilityID: row['Center Name'] || '',
-          emiratesID: row['Emirates ID No'] || row['Emirates ID No.'] || ''
+          emiratesID: getField(row, ['Emirates ID No', 'Emirates ID No.']) || ''
         };
       } else {
         return {
@@ -1364,7 +1364,7 @@ function normalizeReportData(rawData) {
           openedBy: row['Opened by'] || '',
           price: row['Total Amount'] ?? '',
           facilityID: row['Facility ID'] || '',
-          emiratesID: row['Emirates ID No'] || row['Emirates ID No.'] || ''
+          emiratesID: getField(row, ['Emirates ID No', 'Emirates ID No.']) || ''
         };
       }
     });
@@ -1403,7 +1403,7 @@ function normalizeReportData(rawData) {
         price: getField(r, ['Total Amount']),  // getField preserves 0 values, unlike || ''
         facilityID: r['Facility ID'] || '',
         sourceFile: r['Source File'] || '',
-        emiratesID: r['Emirates ID No'] || r['Emirates ID No.'] || ''
+        emiratesID: getField(r, ['Emirates ID No', 'Emirates ID No.']) || ''
       };
     } else if (isInsta) {
       return {
@@ -1422,7 +1422,7 @@ function normalizeReportData(rawData) {
         openedBy: r['Opened by'] || '',
         price: getField(r, ['Net Amount', 'Gross Amount']),
         facilityID: r['Facility ID'] || '',
-        emiratesID: r['Emirates ID No'] || r['Emirates ID No.'] || ''
+        emiratesID: getField(r, ['Emirates ID No', 'Emirates ID No.']) || ''
       };
     } else if (isOdoo) {
       return {
@@ -1439,7 +1439,7 @@ function normalizeReportData(rawData) {
         openedBy: r['Opened by'] || '',
         price: getField(r, ['Total Sponsor Amt']),
         facilityID: r['Center Name'] || '',
-        emiratesID: r['Emirates ID No'] || r['Emirates ID No.'] || ''
+        emiratesID: getField(r, ['Emirates ID No', 'Emirates ID No.']) || ''
       };
     } else {
       const out = {
