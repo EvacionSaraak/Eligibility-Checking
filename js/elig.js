@@ -128,6 +128,17 @@ function packageNamesMatch(claimPackage, eligPackage) {
     }
   }
 
+  // Reverse mapping: claim has an Enhanced-tier Daman plan name (Sahtak-AUH-LG, Enhanced-AUH-IND,
+  // Enhanced-AUH-LG, Bronze, Gold, Silver, DGE-Sports) and eligibility says "Daman Enhanced".
+  if (eligLower.includes('daman') && eligLower.includes('enhanced')) {
+    if (claimLower.includes('sahtak') ||
+        claimLower.includes('dge') ||
+        (claimLower.includes('enhanced') && !claimLower.includes('daman')) ||
+        containsDAMANClassification(claimLower)) {
+      return true;
+    }
+  }
+
   // DAMAN Mid variant matching: "Daman Mid" sits in the same Enhanced tier and should match
   // "Sahtak", "Enhanced-*" plan names, or Silver/Gold/Bronze classification variants
   if (claimLower.includes('daman') && claimLower.includes('mid')) {
