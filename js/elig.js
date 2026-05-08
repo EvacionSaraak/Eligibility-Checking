@@ -128,6 +128,17 @@ function packageNamesMatch(claimPackage, eligPackage) {
     }
   }
 
+  // Reverse mapping: claim has an Enhanced-tier Daman plan name (Sahtak-AUH-LG, Enhanced-AUH-IND,
+  // Enhanced-AUH-LG, Bronze, Gold, Silver, DGE-Sports) and eligibility says "Daman Enhanced".
+  if (eligLower.includes('daman') && eligLower.includes('enhanced')) {
+    if (claimLower.includes('sahtak') ||
+        claimLower.includes('dge') ||
+        (claimLower.includes('enhanced') && !claimLower.includes('daman')) ||
+        containsDAMANClassification(claimLower)) {
+      return true;
+    }
+  }
+
   // DAMAN Mid variant matching: "Daman Mid" sits in the same Enhanced tier and should match
   // "Sahtak", "Enhanced-*" plan names, or Silver/Gold/Bronze classification variants
   if (claimLower.includes('daman') && claimLower.includes('mid')) {
@@ -363,7 +374,9 @@ function findHeaderRowFromArrays(allRows, maxScan = 10) {
   const tokens = [
     'pri. claim no', 'pri claim no', 'claimid', 'claim id', 'pri. claim id', 'pri claim id',
     'center name', 'card number', 'card number / dha member id', 'member id', 'patientcardid',
-    'pri. patient insurance card no', 'institution', 'facility id', 'mr no.', 'pri. claim id'
+    'pri. patient insurance card no', 'institution', 'facility id', 'mr no.', 'pri. claim id',
+    'clinician license', 'encounter date', 'visit id', 'total amount', 'source file',
+    'emirates id no', 'emirates id no.'
   ];
 
   const scanLimit = Math.min(maxScan, allRows.length);
@@ -795,15 +808,29 @@ function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians =
       }
     }
     
+    const eligStatus = (elig.Status || '').toLowerCase();
+    const isBlockedOrCancelled = eligStatus === 'blocked' || eligStatus === 'cancelled';
+
     const eligClinician = (elig.Clinician || '').trim();
     const hasClaimClinician = claimClinicians.some(c => c && c.trim());
-    if (eligClinician && hasClaimClinician && !claimClinicians.includes(eligClinician)) {
+    const clinicianMismatch = eligClinician && hasClaimClinician && !claimClinicians.includes(eligClinician);
+
+    // Eligible eligibilities require a clinician match.
+    // Blocked/Cancelled eligibilities are included even when the clinician doesn't match —
+    // they take priority over Eligible eligibilities when both exist for the same date
+    // (the scenario where the wrong clinician was entered on the claim but the
+    // Blocked/Cancelled eligibility is the correct one for that visit).
+    if (clinicianMismatch && !isBlockedOrCancelled) {
       if (shouldLog) {
         console.log(`      ❌ Clinician mismatch: has "${eligClinician}" but need: ${claimClinicians.join(', ')}`);
       }
       continue;
     }
-    
+
+    if (clinicianMismatch && shouldLog) {
+      console.log(`      ⚠️ Clinician mismatch for Blocked/Cancelled eligibility (including anyway — takes priority): has "${eligClinician}" but need: ${claimClinicians.join(', ')}`);
+    }
+
     const serviceCategory = (elig['Service Category'] || '').trim();
     const consultationStatus = (elig['Consultation Status'] || '').trim();
     const department = (elig.Department || elig.Clinic || '').toLowerCase();
@@ -816,9 +843,10 @@ function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians =
       continue;
     }
     
-    if ((elig.Status || '').toLowerCase() !== 'eligible') {
+    // Include Eligible, Blocked, and Cancelled statuses; skip all others
+    if (eligStatus !== 'eligible' && !isBlockedOrCancelled) {
       if (shouldLog) {
-        console.log(`      ❌ Status "${elig.Status}" (must be "eligible")`);
+        console.log(`      ❌ Status "${elig.Status}" (must be eligible, blocked, or cancelled)`);
       }
       continue;
     }
@@ -833,8 +861,12 @@ function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians =
       console.log(`      ⚠️ Note: Already used for another claim`);
     }
     
-    // Add this eligibility to matches with usage status and continue checking for more
-    matchingEligs.push({...elig, _isUsed: isUsed});
+    // Add this eligibility to matches with usage status and clinician-match flags
+    // _clinicianMatch: true  = elig has a non-empty clinician AND it positively matched the claim's clinician
+    // _clinicianMatch: false = not a positive clinician match
+    //                         NOTE: when _clinicianMismatch is true, _clinicianMatch is always false
+    const clinicianPositivelyMatched = eligClinician && hasClaimClinician && claimClinicians.includes(eligClinician);
+    matchingEligs.push({...elig, _isUsed: isUsed, _clinicianMismatch: clinicianMismatch, _clinicianMatch: clinicianPositivelyMatched});
   }
   
   if (shouldLog) {
@@ -857,12 +889,17 @@ function checkClinicianMatch(claimClinicians, eligClinician) {
 /**
  * Select the best matching eligibility from multiple options
  * Ranks by:
- * 1. Valid (passes all validation checks) over invalid
- * 2. Not already used (prefer unused over used)
- * 3. Service category/consultation status match specificity
- * 4. Date (most recent first)
- * 5. Request number (highest/most recent first)
- * 
+ * 1. Eligible with a positive clinician match (elig clinician non-empty and equals claim
+ *    clinician) — always preferred over Blocked/Cancelled.
+ * 2. Blocked/Cancelled — preferred over Eligible when no Eligible has a positive clinician
+ *    match.  This handles the scenario where the correct eligibility was blocked/cancelled
+ *    and an unrelated Eligible (with a blank clinician field) was otherwise being selected.
+ * 3. Valid (passes all validation checks) over invalid
+ * 4. Not already used (prefer unused over used)
+ * 5. Service category/consultation status match specificity
+ * 6. Date (most recent first)
+ * 7. Request number (highest/most recent first)
+ *
  * @param {Array} eligibilities - Array of matching eligibilities with _isUsed flag
  * @param {string} claimDepartment - The claim's department/service category
  * @param {string} claimPackage - The claim's package name for validation
@@ -874,8 +911,11 @@ function selectBestEligibility(eligibilities, claimDepartment = '', claimPackage
   // PRE-FILTER: Remove eligibilities that fail validation
   // This ensures we always pick a valid eligibility if one exists
   const validEligibilities = eligibilities.filter(elig => {
-    // Must have 'eligible' status
-    if (elig.Status?.toLowerCase() !== 'eligible') return false;
+    const statusLower = (elig.Status || '').toLowerCase();
+    const isBlockedOrCancelled = statusLower === 'blocked' || statusLower === 'cancelled';
+
+    // Must have 'eligible', 'blocked', or 'cancelled' status
+    if (statusLower !== 'eligible' && !isBlockedOrCancelled) return false;
     
     // Check service category validity
     const categoryCheck = isServiceCategoryValid(
@@ -900,17 +940,35 @@ function selectBestEligibility(eligibilities, claimDepartment = '', claimPackage
   if (eligsToConsider.length === 1) return eligsToConsider[0];
   
   const dept = (claimDepartment || '').toLowerCase().trim();
-  
-  // PRIORITY 1: Always prefer unused eligibilities over used ones
+
+  // STATUS PRIORITY: Eligible eligibilities with a positive clinician match always win.
+  // B/C eligibilities are preferred over Eligible eligibilities that passed only through
+  // a neutral clinician check (blank eligibility clinician or blank claim clinician) —
+  // that is the scenario where the "correct" eligibility was blocked/cancelled and an
+  // unrelated Eligible (with no clinician on it) was otherwise being selected.
+  // If a genuine Eligible+clinician-match exists alongside a B/C, use the Eligible.
+  const eligiblesWithStrongClinician = eligsToConsider.filter(e =>
+    (e.Status || '').toLowerCase() === 'eligible' && e._clinicianMatch === true
+  );
+  const blockedCancelledEligs = eligsToConsider.filter(e => {
+    const s = (e.Status || '').toLowerCase();
+    return s === 'blocked' || s === 'cancelled';
+  });
+  const statusPrioritizedEligs =
+    eligiblesWithStrongClinician.length > 0 ? eligiblesWithStrongClinician :
+    blockedCancelledEligs.length > 0 ? blockedCancelledEligs :
+    eligsToConsider;
+
+  // PRIORITY 2: Always prefer unused eligibilities over used ones
   // Separate unused and used eligibilities
-  const unusedEligibilities = eligsToConsider.filter(e => !e._isUsed);
-  const usedEligibilities = eligsToConsider.filter(e => e._isUsed);
+  const unusedEligibilities = statusPrioritizedEligs.filter(e => !e._isUsed);
+  const usedEligibilities = statusPrioritizedEligs.filter(e => e._isUsed);
   
   // If there are ANY unused eligibilities, only consider those
   // Otherwise, fall back to used eligibilities
   const eligibilitiesToScore = unusedEligibilities.length > 0 ? unusedEligibilities : usedEligibilities;
   
-  console.log(`   🎯 Best eligibility selection (${eligibilities.length} total: ${validEligibilities.length} valid, ${eligsToConsider.length - validEligibilities.length} invalid, ${unusedEligibilities.length} unused, ${usedEligibilities.length} used):`);
+  console.log(`   🎯 Best eligibility selection (${eligibilities.length} total: ${validEligibilities.length} valid, ${eligsToConsider.length - validEligibilities.length} invalid, ${eligiblesWithStrongClinician.length} eligible+clinician-match, ${blockedCancelledEligs.length} blocked/cancelled, ${unusedEligibilities.length} unused, ${usedEligibilities.length} used):`);
   
   // Score each eligibility
   const scored = eligibilitiesToScore.map(elig => {
@@ -1264,7 +1322,7 @@ function normalizeReportData(rawData) {
           price: row['Total Amount'] ?? '',
           facilityID: row['Facility ID'] || '',
           sourceFile: row['Source File'] || '',
-          emiratesID: row['Emirates ID No'] || ''
+          emiratesID: getField(row, ['Emirates ID No', 'Emirates ID No.']) || ''
         };
       } else if (isInsta) {
         return {
@@ -1283,7 +1341,7 @@ function normalizeReportData(rawData) {
           openedBy: row['Opened by'] || '',
           price: row['Net Amount'] ?? row['Gross Amount'] ?? '',
           facilityID: row['Facility ID'] || '',
-          emiratesID: row['Emirates ID No'] || ''
+          emiratesID: getField(row, ['Emirates ID No', 'Emirates ID No.']) || ''
         };
       } else if (isOdoo) {
         return {
@@ -1300,7 +1358,7 @@ function normalizeReportData(rawData) {
           openedBy: row['Opened by'] || '',
           price: row['Total Sponsor Amt'] ?? '',
           facilityID: row['Center Name'] || '',
-          emiratesID: row['Emirates ID No'] || ''
+          emiratesID: getField(row, ['Emirates ID No', 'Emirates ID No.']) || ''
         };
       } else {
         return {
@@ -1317,7 +1375,7 @@ function normalizeReportData(rawData) {
           openedBy: row['Opened by'] || '',
           price: row['Total Amount'] ?? '',
           facilityID: row['Facility ID'] || '',
-          emiratesID: row['Emirates ID No'] || ''
+          emiratesID: getField(row, ['Emirates ID No', 'Emirates ID No.']) || ''
         };
       }
     });
@@ -1356,7 +1414,7 @@ function normalizeReportData(rawData) {
         price: getField(r, ['Total Amount']),  // getField preserves 0 values, unlike || ''
         facilityID: r['Facility ID'] || '',
         sourceFile: r['Source File'] || '',
-        emiratesID: r['Emirates ID No'] || ''
+        emiratesID: getField(r, ['Emirates ID No', 'Emirates ID No.']) || ''
       };
     } else if (isInsta) {
       return {
@@ -1375,7 +1433,7 @@ function normalizeReportData(rawData) {
         openedBy: r['Opened by'] || '',
         price: getField(r, ['Net Amount', 'Gross Amount']),
         facilityID: r['Facility ID'] || '',
-        emiratesID: r['Emirates ID No'] || ''
+        emiratesID: getField(r, ['Emirates ID No', 'Emirates ID No.']) || ''
       };
     } else if (isOdoo) {
       return {
@@ -1392,7 +1450,7 @@ function normalizeReportData(rawData) {
         openedBy: r['Opened by'] || '',
         price: getField(r, ['Total Sponsor Amt']),
         facilityID: r['Center Name'] || '',
-        emiratesID: r['Emirates ID No'] || ''
+        emiratesID: getField(r, ['Emirates ID No', 'Emirates ID No.']) || ''
       };
     } else {
       const out = {
@@ -1414,7 +1472,7 @@ function normalizeReportData(rawData) {
         openedBy: r['Opened by'] || '',
         price: getField(r, ['Net Amount', 'Gross Amount', 'Total Sponsor Amt', 'Total Amount']),
         facilityID: r['Facility ID'] || r['Center Name'] || '',
-        emiratesID: r['Emirates ID No'] || ''
+        emiratesID: getField(r, ['Emirates ID No', 'Emirates ID No.']) || ''
       };
 
       if (!out.memberID) {
