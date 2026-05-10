@@ -1191,19 +1191,35 @@ function diagnoseEligibilityFailure(eligMap, claimDate, normalizedMemberID, clai
   const eligList = eligMap.get(normalizedMemberID) || [];
   if (!eligList.length) return null;
 
-  // Collect all eligibilities that match the date and have 'eligible' status
+  // Collect all eligibilities that match the date, have 'eligible' status,
+  // and are not already consumed by a different claim.
   const dateMatches = eligList.filter(e => {
     const eligDate = DateHandler.parse(e['Answered On'] || e['Ordered On'], { preferMDY: false });
-    return DateHandler.isSameDay(claimDate, eligDate) && (e.Status || '').toLowerCase() === 'eligible';
+    const reqNo = e['Eligibility Request Number'];
+    return DateHandler.isSameDay(claimDate, eligDate) &&
+      (e.Status || '').toLowerCase() === 'eligible' &&
+      !usedEligibilities.has(reqNo);
   });
 
   if (!dateMatches.length) return null;
+
+  // Only diagnose against eligibilities that are clinician-relevant to this claim.
+  // This avoids reporting "Wrong Service Category" based solely on unrelated
+  // eligibilities that belong to other clinicians.
+  const normalizedClaimClinician = normalizeClinician(claimClinician || '');
+  const clinicianRelevantMatches = dateMatches.filter(elig => {
+    const eligClinician = (elig.Clinician || '').trim();
+    if (!eligClinician || !normalizedClaimClinician) return true;
+    return normalizeClinician(eligClinician) === normalizedClaimClinician;
+  });
+
+  if (!clinicianRelevantMatches.length) return null;
 
   // Gather every failure reason across all date-matching records
   const reasons = new Set();
   const dept = (claimDepartment || '').toLowerCase();
 
-  for (const elig of dateMatches) {
+  for (const elig of clinicianRelevantMatches) {
     const categoryCheck = isServiceCategoryValid(elig['Service Category'], elig['Consultation Status'], dept);
     if (!categoryCheck.valid) {
       reasons.add('Wrong Service Category');
