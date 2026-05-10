@@ -23,6 +23,8 @@ const SERVICE_PACKAGE_RULES = {
   'Other OP Services': ['physio', 'diet', 'occupational', 'speech', 'orthop', 'family'],
   'Consultation': []  // Special handling below
 };
+// Allowed departments for Consultation/Elective service category
+const ALLOWED_ENT_DEPARTMENTS = ['otolaryngology', 'ear nose throat', 'ear, nose & throat', 'ear, nose and throat'];
 const DATE_KEYS = ['Date', 'On'];
 const MONTHS = ["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"];
 const MONTH_NAMES = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
@@ -1069,8 +1071,9 @@ function isServiceCategoryValid(serviceCategory, consultationStatus, rawPackage)
   
   // Special handling for Consultation/Elective: ENT and Otolaryngology are always valid
   if (category === 'consultation' && consultationStatus?.toLowerCase() === 'elective') {
-    // ENT and Otolaryngology are explicitly allowed for Consultation/Elective
-    if (pkg.includes('ent') || pkg.includes('otolaryngology') || pkg.includes('ear nose throat')) {
+    // Check if department matches ENT/Otolaryngology using word boundary regex to avoid false matches
+    const isENTDepartment = /\bent\b/i.test(pkg) || ALLOWED_ENT_DEPARTMENTS.some(dept => pkg.includes(dept));
+    if (isENTDepartment) {
       return { valid: true };
     }
     
