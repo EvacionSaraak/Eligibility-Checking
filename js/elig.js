@@ -1687,7 +1687,11 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
         remarks.push('Wrong Service Category');
       }
     } else {
-      remarks.push(`Eligibility status: ${eligibility.Status}`);
+      if (eligibility.Status?.toLowerCase() === 'cancelled') {
+        remarks.push('Eligibility Not Taken');
+      } else {
+        remarks.push(`Eligibility status: ${eligibility.Status}`);
+      }
     }
 
     // If EID fallback resolved a different member ID, the claim had the wrong member ID.
