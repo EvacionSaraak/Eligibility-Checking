@@ -76,6 +76,10 @@ function escapeHtml(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#x27;');
 }
 
+function escapeRegex(str) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 function normalizeMemberID(id) {
   if (!id) return "";
   let normalized = String(id).replace(/\D/g, "").trim();
@@ -1102,7 +1106,7 @@ function isServiceCategoryValid(serviceCategory, consultationStatus, rawPackage)
       if (statusRule.wordBoundaryTerms && statusRule.wordBoundaryTerms.length > 0) {
         for (const term of statusRule.wordBoundaryTerms) {
           // Escape special regex characters to prevent regex injection
-          const escapedTerm = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const escapedTerm = escapeRegex(term);
           const regex = new RegExp(`\\b${escapedTerm}\\b`, 'i');
           if (regex.test(pkg)) {
             return { valid: true };
@@ -1118,8 +1122,7 @@ function isServiceCategoryValid(serviceCategory, consultationStatus, rawPackage)
         }
       }
       
-      // If status rules exist but department doesn't match, fall through to general keyword check
-      // This allows the general rules to still apply
+      // If no status-specific match found, continue to general keyword validation below
     }
   }
   
