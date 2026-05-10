@@ -1209,7 +1209,8 @@ function diagnoseEligibilityFailure(eligMap, claimDate, normalizedMemberID, clai
   const normalizedClaimClinician = normalizeClinician(claimClinician || '');
   const clinicianRelevantMatches = dateMatches.filter(elig => {
     const eligClinician = (elig.Clinician || '').trim();
-    if (!eligClinician || !normalizedClaimClinician) return true;
+    if (!normalizedClaimClinician) return true;
+    if (!eligClinician) return false;
     return normalizeClinician(eligClinician) === normalizedClaimClinician;
   });
 
