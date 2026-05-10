@@ -17,14 +17,32 @@ console.log(`✅ Eligibility Checker v${VERSION} loaded successfully`);
 /* ===========================
    Constants & Application State
    =========================== */
+// Service category validation rules
+// Each category can have:
+// - keywords: array of required keywords (department must contain at least one)
+// - statusRules: optional object with rules based on consultation status
+//   - Each status can have: allowedDepartments (array), wordBoundary (boolean for specific terms)
 const SERVICE_PACKAGE_RULES = {
-  'Dental Services': ['dental', 'orthodontic'],
-  'Physiotherapy': ['physio'],
-  'Other OP Services': ['physio', 'diet', 'occupational', 'speech', 'orthop', 'family'],
-  'Consultation': []  // Special handling below
+  'Dental Services': {
+    keywords: ['dental', 'orthodontic']
+  },
+  'Physiotherapy': {
+    keywords: ['physio']
+  },
+  'Other OP Services': {
+    keywords: ['physio', 'diet', 'occupational', 'speech', 'orthop', 'family']
+  },
+  'Consultation': {
+    keywords: [],  // No general keyword requirements
+    statusRules: {
+      'elective': {
+        // ENT/Otolaryngology are explicitly allowed for elective consultations
+        allowedDepartments: ['otolaryngology', 'ear nose throat', 'ear, nose & throat', 'ear, nose and throat'],
+        wordBoundaryTerms: ['ent']  // Match 'ent' only as a whole word to avoid false matches
+      }
+    }
+  }
 };
-// Allowed departments for Consultation/Elective service category
-const ALLOWED_ENT_DEPARTMENTS = ['otolaryngology', 'ear nose throat', 'ear, nose & throat', 'ear, nose and throat'];
 const DATE_KEYS = ['Date', 'On'];
 const MONTHS = ["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"];
 const MONTH_NAMES = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
@@ -1069,39 +1087,46 @@ function isServiceCategoryValid(serviceCategory, consultationStatus, rawPackage)
   const pkgRaw = rawPackage || '';
   const pkg = pkgRaw.toLowerCase();
   
-  // Special handling for Consultation/Elective: ENT and Otolaryngology are always valid
-  if (category === 'consultation' && consultationStatus?.toLowerCase() === 'elective') {
-    // Check if department matches ENT/Otolaryngology using word boundary regex to avoid false matches
-    const isENTDepartment = /\bent\b/i.test(pkg) || ALLOWED_ENT_DEPARTMENTS.some(dept => pkg.includes(dept));
-    if (isENTDepartment) {
-      return { valid: true };
-    }
+  const rules = SERVICE_PACKAGE_RULES[serviceCategory];
+  if (!rules) return { valid: true };  // No rules defined for this category
+  
+  // Check status-specific rules first if consultation status is provided
+  if (consultationStatus && rules.statusRules) {
+    const status = consultationStatus.toLowerCase();
+    const statusRule = rules.statusRules[status];
     
-    // TEMPORARILY DISABLED: Elective consultation restricted services check
-    // This check is being handled incorrectly and needs to be redesigned
-    /* 
-    const restrictedServices = {
-      'dental': 'dental',
-      'physio': 'physiotherapy',
-      'diet': 'dietitian',
-      'occupational': 'occupational therapy',
-      'speech': 'speech therapy'
-    };
-    const foundService = Object.keys(restrictedServices).find(term => pkg.includes(term));
-    if (foundService) {
-      const serviceList = Object.values(restrictedServices).join(', ');
-      return { valid: false, reason: `Elective consultations cannot include restricted services (${serviceList}). Package contains: "${pkgRaw}"` };
+    if (statusRule) {
+      // Check word boundary terms (e.g., 'ent' as whole word only)
+      if (statusRule.wordBoundaryTerms && statusRule.wordBoundaryTerms.length > 0) {
+        for (const term of statusRule.wordBoundaryTerms) {
+          const regex = new RegExp(`\\b${term}\\b`, 'i');
+          if (regex.test(pkg)) {
+            return { valid: true };
+          }
+        }
+      }
+      
+      // Check allowed departments (substring matching)
+      if (statusRule.allowedDepartments && statusRule.allowedDepartments.length > 0) {
+        const isAllowedDept = statusRule.allowedDepartments.some(dept => pkg.includes(dept));
+        if (isAllowedDept) {
+          return { valid: true };
+        }
+      }
+      
+      // If status rules exist but department doesn't match, fall through to general keyword check
+      // This allows the general rules to still apply
     }
-    */
-    return { valid: true };
   }
   
-  const allowedKeywords = SERVICE_PACKAGE_RULES[serviceCategory];
-  if (allowedKeywords && allowedKeywords.length > 0) {
-    if (pkg && !allowedKeywords.some(keyword => pkg.includes(keyword))) {
+  // Check general keyword requirements
+  const keywords = rules.keywords || [];
+  if (keywords.length > 0) {
+    if (pkg && !keywords.some(keyword => pkg.includes(keyword))) {
       return { valid: false, reason: `${serviceCategory} category requires related package. Found: "${pkgRaw}"` };
     }
   }
+  
   return { valid: true };
 }
 
