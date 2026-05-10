@@ -1067,10 +1067,16 @@ function isServiceCategoryValid(serviceCategory, consultationStatus, rawPackage)
   const pkgRaw = rawPackage || '';
   const pkg = pkgRaw.toLowerCase();
   
-  // TEMPORARILY DISABLED: Elective consultation restricted services check
-  // This check is being handled incorrectly and needs to be redesigned
-  /* 
+  // Special handling for Consultation/Elective: ENT and Otolaryngology are always valid
   if (category === 'consultation' && consultationStatus?.toLowerCase() === 'elective') {
+    // ENT and Otolaryngology are explicitly allowed for Consultation/Elective
+    if (pkg.includes('ent') || pkg.includes('otolaryngology') || pkg.includes('ear nose throat')) {
+      return { valid: true };
+    }
+    
+    // TEMPORARILY DISABLED: Elective consultation restricted services check
+    // This check is being handled incorrectly and needs to be redesigned
+    /* 
     const restrictedServices = {
       'dental': 'dental',
       'physio': 'physiotherapy',
@@ -1083,9 +1089,9 @@ function isServiceCategoryValid(serviceCategory, consultationStatus, rawPackage)
       const serviceList = Object.values(restrictedServices).join(', ');
       return { valid: false, reason: `Elective consultations cannot include restricted services (${serviceList}). Package contains: "${pkgRaw}"` };
     }
+    */
     return { valid: true };
   }
-  */
   
   const allowedKeywords = SERVICE_PACKAGE_RULES[serviceCategory];
   if (allowedKeywords && allowedKeywords.length > 0) {
