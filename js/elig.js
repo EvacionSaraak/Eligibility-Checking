@@ -21,7 +21,9 @@ console.log(`✅ Eligibility Checker v${VERSION} loaded successfully`);
 // Each category can have:
 // - keywords: array of required keywords (department must contain at least one)
 // - statusRules: optional object with rules based on consultation status
-//   - Each status can have: allowedDepartments (array), wordBoundary (boolean for specific terms)
+//   - Each status can have: 
+//     - allowedDepartments: array of department terms (substring matching)
+//     - wordBoundaryTerms: array of terms to match as whole words (regex boundary matching)
 const SERVICE_PACKAGE_RULES = {
   'Dental Services': {
     keywords: ['dental', 'orthodontic']
@@ -1099,7 +1101,9 @@ function isServiceCategoryValid(serviceCategory, consultationStatus, rawPackage)
       // Check word boundary terms (e.g., 'ent' as whole word only)
       if (statusRule.wordBoundaryTerms && statusRule.wordBoundaryTerms.length > 0) {
         for (const term of statusRule.wordBoundaryTerms) {
-          const regex = new RegExp(`\\b${term}\\b`, 'i');
+          // Escape special regex characters to prevent regex injection
+          const escapedTerm = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const regex = new RegExp(`\\b${escapedTerm}\\b`, 'i');
           if (regex.test(pkg)) {
             return { valid: true };
           }
