@@ -1734,7 +1734,7 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
           // Use special matching logic that handles Thiqa/TC packages
           if (!packageNamesMatch(row.packageName, eligibility['Package Name'])) {
             finalStatus = 'invalid';
-            remarks.push(`Package name mismatch: claim has "${row.packageName}", eligibility has "${eligibility['Package Name']}"`);
+            remarks.push(`Registered under ${row.packageName}, ${eligibility['Package Name']} as per Eligibility`);
           } else {
             finalStatus = 'valid';
           }
@@ -2368,7 +2368,7 @@ function formatEligibilityDetails(record, memberID, claimDate, claimInfo = {}) {
   const eligPackage = (record['Package Name'] || '').trim();
   const claimPackage = claimInfo.claimPackage || '';
   if (eligPackage && claimPackage && !packageNamesMatch(claimPackage, eligPackage)) {
-    mismatches.push(`Package mismatch: Claim has "${escapeHtml(claimPackage)}", but eligibility is for "${escapeHtml(eligPackage)}"`);
+    mismatches.push(`Registered under ${escapeHtml(claimPackage)}, ${escapeHtml(eligPackage)} as per Eligibility`);
   }
   
   // Check status mismatch
