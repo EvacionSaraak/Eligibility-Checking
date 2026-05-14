@@ -306,7 +306,8 @@ function normalizePackageNameForDisplay(packageName) {
   }
   
   // Check for NW UAE or Etihad NW (Low-End tier)
-  if (packageLower.includes('nw uae') || packageLower.includes('etihad nw') || packageLower.includes('etihad')) {
+  // Note: Only match "etihad nw" specifically to avoid false matches with general Etihad packages
+  if (packageLower.includes('nw uae') || packageLower.includes('etihad nw')) {
     return 'Daman Low-End';
   }
   
