@@ -257,6 +257,7 @@ function matchesRule(rule, claimLower, eligLower, claimPackage) {
 /**
  * Normalize package name to its tier level for display purposes
  * Converts specific plan names (e.g., "Sahtak", "Core-AUH-LG") to generic tier names (e.g., "Daman Enhanced")
+ * Uses the JSON configuration rules to determine tier mappings
  * @param {string} packageName - Original package name
  * @returns {string} - Normalized tier name or original name if no match
  */
@@ -265,12 +266,20 @@ function normalizePackageNameForDisplay(packageName) {
   
   const packageLower = packageName.trim().toLowerCase();
   
-  // THIQA packages - keep as is
+  // THIQA packages - keep as is (not in DAMAN tier system)
   if (packageLower.includes('thiqa') || packageLower.includes('tc')) {
     return packageName;
   }
   
-  // DAMAN packages - normalize to tier level
+  // If config not loaded, fall back to checking for explicit "daman" in package name
+  if (!eligibilityMatchingConfig || !eligibilityMatchingConfig.matchingRules) {
+    if (packageLower.includes('daman')) {
+      return packageName; // Keep original if we can't determine tier
+    }
+    return packageName;
+  }
+  
+  // Check if package name explicitly contains "daman" with a tier indicator
   if (packageLower.includes('daman')) {
     // Check for specific tier indicators in the package name
     if (packageLower.includes('basic')) {
@@ -293,32 +302,92 @@ function normalizePackageNameForDisplay(packageName) {
     }
   }
   
-  // For eligibility packages that don't have "daman" explicitly but are DAMAN plans
-  // Check for Sahtak, Enhanced-AUH, Core-AUH, DGE (these are Enhanced tier)
-  if (packageLower.includes('sahtak') || packageLower.includes('enhanced-auh') || 
-      packageLower.includes('core-auh') || packageLower.includes('dge')) {
-    return 'Daman Enhanced';
-  }
-  
-  // Check for Abu Dhabi packages (Basic tier)
-  if (packageLower.includes('abu dhabi') && !packageLower.includes('daman')) {
-    return 'Daman Basic';
-  }
-  
-  // Check for NW UAE or Etihad NW (Low-End tier)
-  // Note: Only match "etihad nw" specifically to avoid false matches with general Etihad packages
-  if (packageLower.includes('nw uae') || packageLower.includes('etihad nw')) {
-    return 'Daman Low-End';
-  }
-  
-  // Check for classification tiers (Silver, Gold, Bronze)
-  if (packageLower.includes('silver') || packageLower.includes('gold') || packageLower.includes('bronze')) {
-    // These are typically Enhanced tier classifications
-    return 'Daman Enhanced';
+  // For eligibility packages without explicit "daman", use JSON rules to determine tier
+  // Iterate through rules to find matches and derive tier from the claim package pattern
+  for (const rule of eligibilityMatchingConfig.matchingRules) {
+    // Skip non-DAMAN rules
+    if (!rule.id.startsWith('daman-')) {
+      continue;
+    }
+    
+    // Extract tier name from rule ID (e.g., "daman-basic" -> "Daman Basic")
+    const tierName = extractTierNameFromRuleId(rule.id);
+    if (!tierName) continue;
+    
+    // Check if this package matches the eligibility patterns in this rule
+    if (packageMatchesEligibilityPattern(packageLower, rule)) {
+      return tierName;
+    }
   }
   
   // If no specific tier identified, return original name
   return packageName;
+}
+
+/**
+ * Extract display tier name from rule ID
+ * @param {string} ruleId - Rule identifier (e.g., "daman-basic", "daman-enhanced-forward")
+ * @returns {string|null} - Tier name (e.g., "Daman Basic") or null if not applicable
+ */
+function extractTierNameFromRuleId(ruleId) {
+  // Map rule IDs to tier names
+  const tierMap = {
+    'daman-basic': 'Daman Basic',
+    'daman-enhanced-forward': 'Daman Enhanced',
+    'daman-enhanced-reverse': 'Daman Enhanced',
+    'daman-mid': 'Daman Mid',
+    'daman-key': 'Daman Key',
+    'daman-low-end': 'Daman Low-End',
+    'daman-high-end': 'Daman High-End'
+  };
+  
+  return tierMap[ruleId] || null;
+}
+
+/**
+ * Check if a package name matches the eligibility patterns in a rule
+ * @param {string} packageLower - Lowercase package name
+ * @param {Object} rule - Matching rule from configuration
+ * @returns {boolean} - True if package matches eligibility pattern
+ */
+function packageMatchesEligibilityPattern(packageLower, rule) {
+  // Check eligibilityContainsAny
+  if (rule.eligibilityContainsAny) {
+    if (rule.eligibilityContainsAny.some(term => packageLower.includes(term))) {
+      return true;
+    }
+  }
+  
+  // Check eligibilityContainsAll
+  if (rule.eligibilityContainsAll) {
+    if (rule.eligibilityContainsAll.every(term => packageLower.includes(term))) {
+      return true;
+    }
+  }
+  
+  // Check eligibilityContains (single check)
+  if (rule.eligibilityContains) {
+    if (rule.eligibilityContains.some(term => packageLower.includes(term))) {
+      return true;
+    }
+  }
+  
+  // Check classification match
+  if (rule.eligibilityContainsClassification) {
+    if (containsClassification(packageLower, rule.eligibilityContainsClassification)) {
+      return true;
+    }
+  }
+  
+  // Also check claimContainsAny for reverse rules (where claim patterns are in the package)
+  if (rule.claimContainsAny && rule.eligibilityContainsAll) {
+    // This handles reverse mappings where the package might have claim-side terms
+    if (rule.claimContainsAny.some(term => packageLower.includes(term))) {
+      return true;
+    }
+  }
+  
+  return false;
 }
 
 /* ===========================
