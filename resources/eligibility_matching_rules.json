@@ -56,16 +56,15 @@
       "id": "daman-mid",
       "description": "DAMAN Mid variant matching: 'Daman Mid' sits in the same Enhanced tier",
       "claimContainsAll": ["daman", "mid"],
-      "eligibilityContainsAny": ["enhanced", "sahtak"],
+      "eligibilityContainsAny": ["enhanced"],
       "eligibilityContainsClassification": "daman",
       "bidirectional": false,
       "displayTier": "Daman Mid"
     },
     {
       "id": "daman-key",
-      "description": "DAMAN Key variant matching: 'Daman-Key' should match 'Sahtak' or classifications",
+      "description": "DAMAN Key variant matching: 'Daman-Key' should match classifications",
       "claimContainsAll": ["daman", "key"],
-      "eligibilityContainsAny": ["sahtak"],
       "eligibilityContainsClassification": "daman",
       "bidirectional": false,
       "displayTier": "Daman Key"
@@ -74,7 +73,7 @@
       "id": "daman-low-end",
       "description": "DAMAN Low-End variant matching: 'DAMAN Low-End' should match specific plan names, networks, or classifications",
       "claimContainsAll": ["daman", "low-end"],
-      "eligibilityContainsAny": ["enhanced-auh", "core-auh", "abu dhabi", "sahtak", "nw uae", "etihad nw"],
+      "eligibilityContainsAny": ["enhanced-auh", "core-auh", "abu dhabi", "nw uae", "etihad nw"],
       "eligibilityContainsClassification": "daman",
       "bidirectional": false,
       "displayTier": "Daman Low-End"
