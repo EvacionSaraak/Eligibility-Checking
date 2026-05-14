@@ -183,12 +183,21 @@ function packageNamesMatch(claimPackage, eligPackage) {
 
   // DAMAN Low-End variant matching: "TrueLife_DAMAN Low-End" should match various DAMAN plan names and classifications
   // These include specific plan names within DAMAN's network and also Silver/Gold/Bronze classification variants
+  // Also includes NW UAE and Etihad NW card networks
   if (claimLower.includes('daman') && claimLower.includes('low-end')) {
     // Match with specific DAMAN plan names OR classification variants (Silver/Gold/Bronze + variants)
+    // OR NW UAE/Etihad networks
     if (eligLower.includes('enhanced-auh') || eligLower.includes('core-auh') || eligLower.includes('abu dhabi') || 
-        eligLower.includes('sahtak') || containsDAMANClassification(eligLower)) {
+        eligLower.includes('sahtak') || eligLower.includes('nw uae') || eligLower.includes('etihad') ||
+        containsDAMANClassification(eligLower)) {
       return true;
     }
+  }
+
+  // Reverse mapping: eligibility has "NW UAE" or "Etihad" network and claim says "DAMAN Low-End"
+  if ((eligLower.includes('nw uae') || eligLower.includes('etihad')) && 
+      claimLower.includes('daman') && claimLower.includes('low-end')) {
+    return true;
   }
   
   // Special DAMAN classification matching: if claim starts with "daman" or has "daman" after _ or -
