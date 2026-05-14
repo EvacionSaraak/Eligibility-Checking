@@ -254,6 +254,72 @@ function matchesRule(rule, claimLower, eligLower, claimPackage) {
   return true;
 }
 
+/**
+ * Normalize package name to its tier level for display purposes
+ * Converts specific plan names (e.g., "Sahtak", "Core-AUH-LG") to generic tier names (e.g., "Daman Enhanced")
+ * @param {string} packageName - Original package name
+ * @returns {string} - Normalized tier name or original name if no match
+ */
+function normalizePackageNameForDisplay(packageName) {
+  if (!packageName) return packageName;
+  
+  const packageLower = packageName.trim().toLowerCase();
+  
+  // THIQA packages - keep as is
+  if (packageLower.includes('thiqa') || packageLower.includes('tc')) {
+    return packageName;
+  }
+  
+  // DAMAN packages - normalize to tier level
+  if (packageLower.includes('daman')) {
+    // Check for specific tier indicators in the package name
+    if (packageLower.includes('basic')) {
+      return 'Daman Basic';
+    }
+    if (packageLower.includes('enhanced')) {
+      return 'Daman Enhanced';
+    }
+    if (packageLower.includes('high-end')) {
+      return 'Daman High-End';
+    }
+    if (packageLower.includes('low-end')) {
+      return 'Daman Low-End';
+    }
+    if (packageLower.includes('mid')) {
+      return 'Daman Mid';
+    }
+    if (packageLower.includes('key')) {
+      return 'Daman Key';
+    }
+  }
+  
+  // For eligibility packages that don't have "daman" explicitly but are DAMAN plans
+  // Check for Sahtak, Enhanced-AUH, Core-AUH, DGE (these are Enhanced tier)
+  if (packageLower.includes('sahtak') || packageLower.includes('enhanced-auh') || 
+      packageLower.includes('core-auh') || packageLower.includes('dge')) {
+    return 'Daman Enhanced';
+  }
+  
+  // Check for Abu Dhabi packages (Basic tier)
+  if (packageLower.includes('abu dhabi') && !packageLower.includes('daman')) {
+    return 'Daman Basic';
+  }
+  
+  // Check for NW UAE or Etihad NW (Low-End tier)
+  if (packageLower.includes('nw uae') || packageLower.includes('etihad nw') || packageLower.includes('etihad')) {
+    return 'Daman Low-End';
+  }
+  
+  // Check for classification tiers (Silver, Gold, Bronze)
+  if (packageLower.includes('silver') || packageLower.includes('gold') || packageLower.includes('bronze')) {
+    // These are typically Enhanced tier classifications
+    return 'Daman Enhanced';
+  }
+  
+  // If no specific tier identified, return original name
+  return packageName;
+}
+
 /* ===========================
    Date handling (DateHandler)
    =========================== */
@@ -1783,7 +1849,10 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
           // Use special matching logic that handles Thiqa/TC packages
           if (!packageNamesMatch(row.packageName, eligibility['Package Name'])) {
             finalStatus = 'invalid';
-            remarks.push(`Registered under ${row.packageName}, ${eligibility['Package Name']} as per Eligibility`);
+            // Normalize package names for display to show tier levels (e.g., "Daman Enhanced") instead of specific plan names (e.g., "Sahtak")
+            const normalizedClaimPackage = normalizePackageNameForDisplay(row.packageName);
+            const normalizedEligPackage = normalizePackageNameForDisplay(eligibility['Package Name']);
+            remarks.push(`Registered under ${normalizedClaimPackage}, ${normalizedEligPackage} as per Eligibility`);
           } else {
             finalStatus = 'valid';
           }
@@ -2417,7 +2486,10 @@ function formatEligibilityDetails(record, memberID, claimDate, claimInfo = {}) {
   const eligPackage = (record['Package Name'] || '').trim();
   const claimPackage = claimInfo.claimPackage || '';
   if (eligPackage && claimPackage && !packageNamesMatch(claimPackage, eligPackage)) {
-    mismatches.push(`Registered under ${escapeHtml(claimPackage)}, ${escapeHtml(eligPackage)} as per Eligibility`);
+    // Normalize package names for display to show tier levels (e.g., "Daman Enhanced") instead of specific plan names (e.g., "Sahtak")
+    const normalizedClaimPackage = normalizePackageNameForDisplay(claimPackage);
+    const normalizedEligPackage = normalizePackageNameForDisplay(eligPackage);
+    mismatches.push(`Registered under ${escapeHtml(normalizedClaimPackage)}, ${escapeHtml(normalizedEligPackage)} as per Eligibility`);
   }
   
   // Check status mismatch
