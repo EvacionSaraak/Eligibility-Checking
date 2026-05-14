@@ -310,8 +310,8 @@ function normalizePackageNameForDisplay(packageName) {
       continue;
     }
     
-    // Extract tier name from rule ID (e.g., "daman-basic" -> "Daman Basic")
-    const tierName = extractTierNameFromRuleId(rule.id);
+    // Extract tier name from rule using displayTier field in JSON
+    const tierName = extractTierNameFromRuleId(rule.id, rule);
     if (!tierName) continue;
     
     // Check if this package matches the eligibility patterns in this rule
@@ -327,21 +327,17 @@ function normalizePackageNameForDisplay(packageName) {
 /**
  * Extract display tier name from rule ID
  * @param {string} ruleId - Rule identifier (e.g., "daman-basic", "daman-enhanced-forward")
- * @returns {string|null} - Tier name (e.g., "Daman Basic") or null if not applicable
+ * @param {Object} rule - The rule object from configuration
+ * @returns {string|null} - Tier name (e.g., "Daman Basic") from rule.displayTier, or null if not available
  */
-function extractTierNameFromRuleId(ruleId) {
-  // Map rule IDs to tier names
-  const tierMap = {
-    'daman-basic': 'Daman Basic',
-    'daman-enhanced-forward': 'Daman Enhanced',
-    'daman-enhanced-reverse': 'Daman Enhanced',
-    'daman-mid': 'Daman Mid',
-    'daman-key': 'Daman Key',
-    'daman-low-end': 'Daman Low-End',
-    'daman-high-end': 'Daman High-End'
-  };
+function extractTierNameFromRuleId(ruleId, rule) {
+  // Use displayTier from JSON if available
+  if (rule && rule.displayTier) {
+    return rule.displayTier;
+  }
   
-  return tierMap[ruleId] || null;
+  // Fallback: No tier name available (e.g., for generic or non-display rules)
+  return null;
 }
 
 /**

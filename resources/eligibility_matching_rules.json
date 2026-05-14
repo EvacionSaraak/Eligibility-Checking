@@ -27,7 +27,8 @@
       "description": "DAMAN BASIC variant matching: 'DAMAN BASIC' should match 'Basic' packages and Abu Dhabi I/O style package names",
       "claimContainsAll": ["daman", "basic"],
       "eligibilityContainsAny": ["basic", "abu dhabi"],
-      "bidirectional": false
+      "bidirectional": false,
+      "displayTier": "Daman Basic"
     },
     {
       "id": "daman-enhanced-forward",
@@ -35,7 +36,8 @@
       "claimContainsAll": ["daman", "enhanced"],
       "eligibilityContainsAny": ["sahtak", "enhanced", "core-auh"],
       "eligibilityContainsClassification": "daman",
-      "bidirectional": false
+      "bidirectional": false,
+      "displayTier": "Daman Enhanced"
     },
     {
       "id": "daman-enhanced-reverse",
@@ -47,7 +49,8 @@
         "type": "enhanced-without-daman",
         "description": "Match 'enhanced' in claim only if 'daman' is NOT present"
       },
-      "bidirectional": false
+      "bidirectional": false,
+      "displayTier": "Daman Enhanced"
     },
     {
       "id": "daman-mid",
@@ -55,7 +58,8 @@
       "claimContainsAll": ["daman", "mid"],
       "eligibilityContainsAny": ["enhanced", "sahtak"],
       "eligibilityContainsClassification": "daman",
-      "bidirectional": false
+      "bidirectional": false,
+      "displayTier": "Daman Mid"
     },
     {
       "id": "daman-key",
@@ -63,7 +67,8 @@
       "claimContainsAll": ["daman", "key"],
       "eligibilityContainsAny": ["sahtak"],
       "eligibilityContainsClassification": "daman",
-      "bidirectional": false
+      "bidirectional": false,
+      "displayTier": "Daman Key"
     },
     {
       "id": "daman-low-end",
@@ -71,7 +76,8 @@
       "claimContainsAll": ["daman", "low-end"],
       "eligibilityContainsAny": ["enhanced-auh", "core-auh", "abu dhabi", "sahtak", "nw uae", "etihad nw"],
       "eligibilityContainsClassification": "daman",
-      "bidirectional": false
+      "bidirectional": false,
+      "displayTier": "Daman Low-End"
     },
     {
       "id": "daman-generic",
