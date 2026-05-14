@@ -120,12 +120,12 @@ async function loadEligibilityMatchingConfig() {
       matchingRules: [
         { id: 'thiqa-tc', claimContains: ['thiqa'], eligibilityContains: ['tc'] },
         { id: 'thiqa-thiqa', claimContains: ['thiqa'], eligibilityContains: ['thiqa'] },
-        { id: 'daman-basic', claimContainsAll: ['daman', 'basic'], eligibilityContainsAny: ['basic', 'abu dhabi'] },
-        { id: 'daman-enhanced-forward', claimContainsAll: ['daman', 'enhanced'], eligibilityContainsAny: ['sahtak', 'enhanced', 'core-auh'], eligibilityContainsClassification: 'daman' },
-        { id: 'daman-enhanced-reverse', eligibilityContainsAll: ['daman', 'enhanced'], claimContainsAny: ['sahtak', 'dge', 'core-auh'], claimContainsClassification: 'daman', claimSpecialCondition: { type: 'enhanced-without-daman' } },
-        { id: 'daman-mid', claimContainsAll: ['daman', 'mid'], eligibilityContainsAny: ['enhanced', 'sahtak'], eligibilityContainsClassification: 'daman' },
-        { id: 'daman-key', claimContainsAll: ['daman', 'key'], eligibilityContainsAny: ['sahtak'], eligibilityContainsClassification: 'daman' },
-        { id: 'daman-low-end', claimContainsAll: ['daman', 'low-end'], eligibilityContainsAny: ['enhanced-auh', 'core-auh', 'abu dhabi', 'sahtak', 'nw uae', 'etihad nw'], eligibilityContainsClassification: 'daman' },
+        { id: 'daman-basic', claimContainsAll: ['daman', 'basic'], eligibilityContainsAny: ['basic', 'abu dhabi'], displayTier: 'Daman Basic' },
+        { id: 'daman-enhanced-forward', claimContainsAll: ['daman', 'enhanced'], eligibilityContainsAny: ['sahtak', 'enhanced', 'core-auh'], eligibilityContainsClassification: 'daman', displayTier: 'Daman Enhanced' },
+        { id: 'daman-enhanced-reverse', eligibilityContainsAll: ['daman', 'enhanced'], claimContainsAny: ['sahtak', 'dge', 'core-auh'], claimContainsClassification: 'daman', claimSpecialCondition: { type: 'enhanced-without-daman' }, displayTier: 'Daman Enhanced' },
+        { id: 'daman-mid', claimContainsAll: ['daman', 'mid'], eligibilityContainsAny: ['enhanced', 'sahtak'], eligibilityContainsClassification: 'daman', displayTier: 'Daman Mid' },
+        { id: 'daman-key', claimContainsAll: ['daman', 'key'], eligibilityContainsAny: ['sahtak'], eligibilityContainsClassification: 'daman', displayTier: 'Daman Key' },
+        { id: 'daman-low-end', claimContainsAll: ['daman', 'low-end'], eligibilityContainsAny: ['enhanced-auh', 'core-auh', 'abu dhabi', 'sahtak', 'nw uae', 'etihad nw'], eligibilityContainsClassification: 'daman', displayTier: 'Daman Low-End' },
         { id: 'daman-generic', claimPattern: '/(^|[_\\-])daman/i', claimExcludes: ['basic', 'enhanced', 'low-end', 'high-end'], eligibilityContainsClassification: 'daman' }
       ]
     };
