@@ -73,7 +73,7 @@
       "id": "daman-low-end",
       "description": "DAMAN Low-End variant matching: 'DAMAN Low-End' should match specific plan names, networks, or classifications",
       "claimContainsAll": ["daman", "low-end"],
-      "eligibilityContainsAny": ["enhanced-auh", "core-auh", "abu dhabi", "nw uae", "etihad nw"],
+      "eligibilityContainsAny": ["enhanced-auh", "core-auh", "abu dhabi", "nw uae", "etihad nw", "adnoc"],
       "eligibilityContainsClassification": "daman",
       "bidirectional": false,
       "displayTier": "Daman Low-End"
