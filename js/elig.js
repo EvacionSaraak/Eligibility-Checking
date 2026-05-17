@@ -17,11 +17,33 @@ console.log(`✅ Eligibility Checker v${VERSION} loaded successfully`);
 /* ===========================
    Constants & Application State
    =========================== */
+// Service category validation rules
+// Each category can have:
+// - keywords: array of required keywords (department must contain at least one)
+// - statusRules: optional object with rules based on consultation status
+//   - Each status can have: 
+//     - allowedDepartments: array of department terms (substring matching)
+//     - wordBoundaryTerms: array of terms to match as whole words (regex boundary matching)
 const SERVICE_PACKAGE_RULES = {
-  'Dental Services': ['dental', 'orthodontic'],
-  'Physiotherapy': ['physio'],
-  'Other OP Services': ['physio', 'diet', 'occupational', 'speech', 'orthop', 'family'],
-  'Consultation': []  // Special handling below
+  'Dental Services': {
+    keywords: ['dental', 'orthodontic']
+  },
+  'Physiotherapy': {
+    keywords: ['physio']
+  },
+  'Other OP Services': {
+    keywords: ['physio', 'diet', 'occupational', 'speech', 'orthop', 'family']
+  },
+  'Consultation': {
+    keywords: [],  // No general keyword requirements
+    statusRules: {
+      'elective': {
+        // ENT/Otolaryngology are explicitly allowed for elective consultations
+        allowedDepartments: ['otolaryngology', 'ear nose throat', 'ear, nose & throat', 'ear, nose and throat'],
+        wordBoundaryTerms: ['ent']  // Match 'ent' only as a whole word to avoid false matches
+      }
+    }
+  }
 };
 const DATE_KEYS = ['Date', 'On'];
 const MONTHS = ["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"];
@@ -54,6 +76,10 @@ function escapeHtml(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#x27;');
 }
 
+function escapeRegex(str) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 function normalizeMemberID(id) {
   if (!id) return "";
   let normalized = String(id).replace(/\D/g, "").trim();
@@ -71,22 +97,55 @@ function normalizeClinician(name) {
   return name.trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
-// Constants for package matching
-const DAMAN_PATTERN = /(^|[_\-])daman/i;
-const DAMAN_CLASSIFICATIONS = ['silver', 'gold', 'bronze'];
+// Package matching configuration - loaded from external JSON
+let eligibilityMatchingConfig = null;
 
 /**
- * Check if eligibility package contains any DAMAN classification keyword
- * Handles variants like "Silver Plus", "Gold Premium", etc.
- * @param {string} eligLower - Lowercase eligibility package name
- * @returns {boolean} - True if contains a classification keyword
+ * Load eligibility matching rules from external JSON configuration
+ * Falls back to hardcoded defaults if loading fails
  */
-function containsDAMANClassification(eligLower) {
-  return DAMAN_CLASSIFICATIONS.some(classification => eligLower.includes(classification));
+async function loadEligibilityMatchingConfig() {
+  try {
+    const response = await fetch('resources/eligibility_matching_rules.json');
+    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+    eligibilityMatchingConfig = await response.json();
+    console.log('✅ Loaded eligibility matching configuration from JSON');
+  } catch (error) {
+    console.warn('⚠️ Failed to load eligibility matching config, using defaults:', error.message);
+    // Fallback to hardcoded configuration
+    eligibilityMatchingConfig = {
+      classifications: {
+        daman: ['silver', 'gold', 'bronze']
+      },
+      matchingRules: [
+        { id: 'thiqa-tc', claimContains: ['thiqa'], eligibilityContains: ['tc'] },
+        { id: 'thiqa-thiqa', claimContains: ['thiqa'], eligibilityContains: ['thiqa'] },
+        { id: 'daman-basic', claimContainsAll: ['daman', 'basic'], eligibilityContainsAny: ['basic', 'abu dhabi'], displayTier: 'Daman Basic' },
+        { id: 'daman-enhanced-forward', claimContainsAll: ['daman', 'enhanced'], eligibilityContainsAny: ['sahtak', 'enhanced', 'core-auh'], eligibilityContainsClassification: 'daman', displayTier: 'Daman Enhanced' },
+        { id: 'daman-enhanced-reverse', eligibilityContainsAll: ['daman', 'enhanced'], claimContainsAny: ['sahtak', 'dge', 'core-auh'], claimContainsClassification: 'daman', claimSpecialCondition: { type: 'enhanced-without-daman' }, displayTier: 'Daman Enhanced' },
+        { id: 'daman-mid', claimContainsAll: ['daman', 'mid'], eligibilityContainsAny: ['enhanced'], eligibilityContainsClassification: 'daman', displayTier: 'Daman Mid' },
+        { id: 'daman-key', claimContainsAll: ['daman', 'key'], eligibilityContainsClassification: 'daman', displayTier: 'Daman Key' },
+        { id: 'daman-low-end', claimContainsAll: ['daman', 'low-end'], eligibilityContainsAny: ['enhanced-auh', 'core-auh', 'abu dhabi', 'nw uae', 'etihad nw', 'adnoc'], eligibilityContainsClassification: 'daman', displayTier: 'Daman Low-End' },
+        { id: 'daman-generic', claimPattern: '/(^|[_\\-])daman/i', claimExcludes: ['basic', 'enhanced', 'low-end', 'high-end'], eligibilityContainsClassification: 'daman' }
+      ]
+    };
+  }
 }
 
 /**
- * Check if package names match with special handling for Thiqa/TC packages and DAMAN classifications
+ * Check if a string contains any classification keyword from the specified classification group
+ * @param {string} text - Lowercase text to check
+ * @param {string} classificationType - Type of classification (e.g., 'daman')
+ * @returns {boolean} - True if contains a classification keyword
+ */
+function containsClassification(text, classificationType) {
+  if (!eligibilityMatchingConfig || !eligibilityMatchingConfig.classifications) return false;
+  const classifications = eligibilityMatchingConfig.classifications[classificationType] || [];
+  return classifications.some(classification => text.includes(classification));
+}
+
+/**
+ * Check if package names match using rules from external JSON configuration
  * @param {string} claimPackage - Package name from the claim
  * @param {string} eligPackage - Package name from the eligibility
  * @returns {boolean} - True if packages match
@@ -100,77 +159,226 @@ function packageNamesMatch(claimPackage, eligPackage) {
   // Direct match
   if (claimLower === eligLower) return true;
   
-  // Special Thiqa/TC matching: if claim has "thiqa" and eligibility has "tc", consider it a match
-  if (claimLower.includes('thiqa') && eligLower.includes('tc')) {
-    return true;
+  // If config not loaded, return false (will be loaded during initialization)
+  if (!eligibilityMatchingConfig || !eligibilityMatchingConfig.matchingRules) {
+    console.warn('⚠️ Eligibility matching config not loaded yet');
+    return false;
   }
   
-  // THIQA variant matching: "THIQA" or "TMC - Thiqa" should match "Thiqa C1", "Thiqa C2", etc.
-  if (claimLower.includes('thiqa') && eligLower.includes('thiqa')) {
-    return true;
-  }
-  
-  // DAMAN BASIC variant matching: "DAMAN BASIC" should match "Basic" packages and
-  // Abu Dhabi I/O style package names used by DAMAN.
-  // Check this BEFORE the general DAMAN classification matching to be more specific
-  if (claimLower.includes('daman') && claimLower.includes('basic')) {
-    if (eligLower.includes('basic') || eligLower.includes('abu dhabi')) {
+  // Apply each matching rule from configuration
+  for (const rule of eligibilityMatchingConfig.matchingRules) {
+    if (matchesRule(rule, claimLower, eligLower, claimPackage)) {
       return true;
     }
   }
   
-  // DAMAN Enhanced variant matching: "Daman Enhanced" should match "Sahtak", "Enhanced-*" plan names,
-  // or Silver/Gold/Bronze variants.
-  // Check this BEFORE the general DAMAN classification matching to include Sahtak
-  if (claimLower.includes('daman') && claimLower.includes('enhanced')) {
-    if (eligLower.includes('sahtak') || eligLower.includes('enhanced') || containsDAMANClassification(eligLower)) {
-      return true;
-    }
-  }
+  return false;
+}
 
-  // Reverse mapping: claim has an Enhanced-tier Daman plan name (Sahtak-AUH-LG, Enhanced-AUH-IND,
-  // Enhanced-AUH-LG, Bronze, Gold, Silver, DGE-Sports) and eligibility says "Daman Enhanced".
-  if (eligLower.includes('daman') && eligLower.includes('enhanced')) {
-    if (claimLower.includes('sahtak') ||
-        claimLower.includes('dge') ||
-        (claimLower.includes('enhanced') && !claimLower.includes('daman')) ||
-        containsDAMANClassification(claimLower)) {
-      return true;
+/**
+ * Check if a specific rule matches the claim and eligibility packages
+ * @param {Object} rule - Matching rule from configuration
+ * @param {string} claimLower - Lowercase claim package name
+ * @param {string} eligLower - Lowercase eligibility package name
+ * @param {string} claimPackage - Original claim package name (for pattern matching)
+ * @returns {boolean} - True if rule matches
+ */
+function matchesRule(rule, claimLower, eligLower, claimPackage) {
+  // Check claim-side conditions
+  if (rule.claimContains) {
+    if (!rule.claimContains.some(term => claimLower.includes(term))) return false;
+  }
+  
+  if (rule.claimContainsAll) {
+    if (!rule.claimContainsAll.every(term => claimLower.includes(term))) return false;
+  }
+  
+  if (rule.claimContainsAny) {
+    if (!rule.claimContainsAny.some(term => claimLower.includes(term))) {
+      // Check if classification matches instead
+      if (!rule.claimContainsClassification || !containsClassification(claimLower, rule.claimContainsClassification)) {
+        return false;
+      }
     }
   }
+  
+  if (rule.claimExcludes) {
+    if (rule.claimExcludes.some(term => claimLower.includes(term))) return false;
+  }
+  
+  if (rule.claimPattern) {
+    // Reconstruct regex from string (handle pattern like "/(^|[_\-])daman/i")
+    const patternMatch = rule.claimPattern.match(/^\/(.+)\/([gimuy]*)$/);
+    if (patternMatch) {
+      const pattern = new RegExp(patternMatch[1], patternMatch[2]);
+      if (!pattern.test(claimPackage)) return false;
+    }
+  }
+  
+  // Handle special claim conditions
+  if (rule.claimSpecialCondition) {
+    if (rule.claimSpecialCondition.type === 'enhanced-without-daman') {
+      // Match 'enhanced' in claim only if 'daman' is NOT present
+      const hasEnhanced = claimLower.includes('enhanced');
+      const hasDaman = claimLower.includes('daman');
+      if (hasEnhanced && hasDaman) return false;
+      if (!hasEnhanced && !rule.claimContainsAny.some(term => claimLower.includes(term)) && !containsClassification(claimLower, rule.claimContainsClassification)) {
+        return false;
+      }
+    }
+  }
+  
+  // Check eligibility-side conditions
+  if (rule.eligibilityContains) {
+    if (!rule.eligibilityContains.some(term => eligLower.includes(term))) return false;
+  }
+  
+  if (rule.eligibilityContainsAll) {
+    if (!rule.eligibilityContainsAll.every(term => eligLower.includes(term))) return false;
+  }
+  
+  if (rule.eligibilityContainsAny) {
+    if (!rule.eligibilityContainsAny.some(term => eligLower.includes(term))) {
+      // Check if classification matches instead
+      if (!rule.eligibilityContainsClassification || !containsClassification(eligLower, rule.eligibilityContainsClassification)) {
+        return false;
+      }
+    }
+  }
+  
+  if (rule.eligibilityExcludes) {
+    if (rule.eligibilityExcludes.some(term => eligLower.includes(term))) return false;
+  }
+  
+  // If we reach here, all conditions passed
+  return true;
+}
 
-  // DAMAN Mid variant matching: "Daman Mid" sits in the same Enhanced tier and should match
-  // "Sahtak", "Enhanced-*" plan names, or Silver/Gold/Bronze classification variants
-  if (claimLower.includes('daman') && claimLower.includes('mid')) {
-    if (eligLower.includes('enhanced') || eligLower.includes('sahtak') || containsDAMANClassification(eligLower)) {
+/**
+ * Normalize package name to its tier level for display purposes
+ * Converts specific plan names (e.g., "Sahtak", "Core-AUH-LG") to generic tier names (e.g., "Daman Enhanced")
+ * Uses the JSON configuration rules to determine tier mappings
+ * @param {string} packageName - Original package name
+ * @returns {string} - Normalized tier name or original name if no match
+ */
+function normalizePackageNameForDisplay(packageName) {
+  if (!packageName) return packageName;
+  
+  const packageLower = packageName.trim().toLowerCase();
+  
+  // THIQA packages - keep as is (not in DAMAN tier system)
+  if (packageLower.includes('thiqa') || packageLower.includes('tc')) {
+    return packageName;
+  }
+  
+  // If config not loaded, fall back to checking for explicit "daman" in package name
+  if (!eligibilityMatchingConfig || !eligibilityMatchingConfig.matchingRules) {
+    if (packageLower.includes('daman')) {
+      return packageName; // Keep original if we can't determine tier
+    }
+    return packageName;
+  }
+  
+  // Check if package name explicitly contains "daman" with a tier indicator
+  if (packageLower.includes('daman')) {
+    // Check for specific tier indicators in the package name
+    if (packageLower.includes('basic')) {
+      return 'Daman Basic';
+    }
+    if (packageLower.includes('enhanced')) {
+      return 'Daman Enhanced';
+    }
+    if (packageLower.includes('high-end')) {
+      return 'Daman High-End';
+    }
+    if (packageLower.includes('low-end')) {
+      return 'Daman Low-End';
+    }
+    if (packageLower.includes('mid')) {
+      return 'Daman Mid';
+    }
+    if (packageLower.includes('key')) {
+      return 'Daman Key';
+    }
+  }
+  
+  // For eligibility packages without explicit "daman", use JSON rules to determine tier
+  // Iterate through rules to find matches and derive tier from the claim package pattern
+  for (const rule of eligibilityMatchingConfig.matchingRules) {
+    // Skip non-DAMAN rules
+    if (!rule.id.startsWith('daman-')) {
+      continue;
+    }
+    
+    // Extract tier name from rule using displayTier field in JSON
+    const tierName = extractTierNameFromRuleId(rule.id, rule);
+    if (!tierName) continue;
+    
+    // Check if this package matches the eligibility patterns in this rule
+    if (packageMatchesEligibilityPattern(packageLower, rule)) {
+      return tierName;
+    }
+  }
+  
+  // If no specific tier identified, return original name
+  return packageName;
+}
+
+/**
+ * Extract display tier name from rule ID
+ * @param {string} ruleId - Rule identifier (e.g., "daman-basic", "daman-enhanced-forward")
+ * @param {Object} rule - The rule object from configuration
+ * @returns {string|null} - Tier name (e.g., "Daman Basic") from rule.displayTier, or null if not available
+ */
+function extractTierNameFromRuleId(ruleId, rule) {
+  // Use displayTier from JSON if available
+  if (rule && rule.displayTier) {
+    return rule.displayTier;
+  }
+  
+  // Fallback: No tier name available (e.g., for generic or non-display rules)
+  return null;
+}
+
+/**
+ * Check if a package name matches the eligibility patterns in a rule
+ * @param {string} packageLower - Lowercase package name
+ * @param {Object} rule - Matching rule from configuration
+ * @returns {boolean} - True if package matches eligibility pattern
+ */
+function packageMatchesEligibilityPattern(packageLower, rule) {
+  // Check eligibilityContainsAny
+  if (rule.eligibilityContainsAny) {
+    if (rule.eligibilityContainsAny.some(term => packageLower.includes(term))) {
       return true;
     }
   }
   
-  // DAMAN Key variant matching: "Daman-Key" should match "Sahtak" plan names or Silver/Gold/Bronze classification variants
-  if (claimLower.includes('daman') && claimLower.includes('key')) {
-    if (eligLower.includes('sahtak') || containsDAMANClassification(eligLower)) {
-      return true;
-    }
-  }
-
-  // DAMAN Low-End variant matching: "TrueLife_DAMAN Low-End" should match various DAMAN plan names and classifications
-  // These include specific plan names within DAMAN's network and also Silver/Gold/Bronze classification variants
-  if (claimLower.includes('daman') && claimLower.includes('low-end')) {
-    // Match with specific DAMAN plan names OR classification variants (Silver/Gold/Bronze + variants)
-    if (eligLower.includes('enhanced-auh') || eligLower.includes('core-auh') || eligLower.includes('abu dhabi') || 
-        eligLower.includes('sahtak') || containsDAMANClassification(eligLower)) {
+  // Check eligibilityContainsAll
+  if (rule.eligibilityContainsAll) {
+    if (rule.eligibilityContainsAll.every(term => packageLower.includes(term))) {
       return true;
     }
   }
   
-  // Special DAMAN classification matching: if claim starts with "daman" or has "daman" after _ or -
-  // and eligibility has classification (Silver/Gold/Bronze or variants like Silver Plus), consider it a match
-  // Match patterns: "DAMAN...", "_DAMAN...", "-DAMAN..."
-  // This covers: "DAMAN Premium", "DAMAN Royal", "TrueLife_DAMAN", "Premium-DAMAN", etc.
-  // Note: DAMAN BASIC, DAMAN Enhanced, and DAMAN Low-End are handled above with more specific rules
-  if (DAMAN_PATTERN.test(claimPackage) && !claimLower.includes('basic') && !claimLower.includes('enhanced') && !claimLower.includes('low-end') && !claimLower.includes('high-end')) {
-    if (containsDAMANClassification(eligLower)) {
+  // Check eligibilityContains (single check)
+  if (rule.eligibilityContains) {
+    if (rule.eligibilityContains.some(term => packageLower.includes(term))) {
+      return true;
+    }
+  }
+  
+  // Check classification match
+  if (rule.eligibilityContainsClassification) {
+    if (containsClassification(packageLower, rule.eligibilityContainsClassification)) {
+      return true;
+    }
+  }
+  
+  // Also check claimContainsAny for reverse rules (where claim patterns are in the package)
+  if (rule.claimContainsAny && rule.eligibilityContainsAll) {
+    // This handles reverse mappings where the package might have claim-side terms
+    if (rule.claimContainsAny.some(term => packageLower.includes(term))) {
       return true;
     }
   }
@@ -1067,32 +1275,47 @@ function isServiceCategoryValid(serviceCategory, consultationStatus, rawPackage)
   const pkgRaw = rawPackage || '';
   const pkg = pkgRaw.toLowerCase();
   
-  // TEMPORARILY DISABLED: Elective consultation restricted services check
-  // This check is being handled incorrectly and needs to be redesigned
-  /* 
-  if (category === 'consultation' && consultationStatus?.toLowerCase() === 'elective') {
-    const restrictedServices = {
-      'dental': 'dental',
-      'physio': 'physiotherapy',
-      'diet': 'dietitian',
-      'occupational': 'occupational therapy',
-      'speech': 'speech therapy'
-    };
-    const foundService = Object.keys(restrictedServices).find(term => pkg.includes(term));
-    if (foundService) {
-      const serviceList = Object.values(restrictedServices).join(', ');
-      return { valid: false, reason: `Elective consultations cannot include restricted services (${serviceList}). Package contains: "${pkgRaw}"` };
-    }
-    return { valid: true };
-  }
-  */
+  const rules = SERVICE_PACKAGE_RULES[serviceCategory];
+  if (!rules) return { valid: true };  // No rules defined for this category
   
-  const allowedKeywords = SERVICE_PACKAGE_RULES[serviceCategory];
-  if (allowedKeywords && allowedKeywords.length > 0) {
-    if (pkg && !allowedKeywords.some(keyword => pkg.includes(keyword))) {
+  // Check status-specific rules first if consultation status is provided
+  if (consultationStatus && rules.statusRules) {
+    const status = consultationStatus.toLowerCase();
+    const statusRule = rules.statusRules[status];
+    
+    if (statusRule) {
+      // Check word boundary terms (e.g., 'ent' as whole word only)
+      if (statusRule.wordBoundaryTerms && statusRule.wordBoundaryTerms.length > 0) {
+        for (const term of statusRule.wordBoundaryTerms) {
+          // Escape special regex characters to prevent regex injection
+          const escapedTerm = escapeRegex(term);
+          const regex = new RegExp(`\\b${escapedTerm}\\b`, 'i');
+          if (regex.test(pkg)) {
+            return { valid: true };
+          }
+        }
+      }
+      
+      // Check allowed departments (substring matching)
+      if (statusRule.allowedDepartments && statusRule.allowedDepartments.length > 0) {
+        const isAllowedDept = statusRule.allowedDepartments.some(dept => pkg.includes(dept));
+        if (isAllowedDept) {
+          return { valid: true };
+        }
+      }
+      
+      // If no status-specific match found, continue to general keyword validation below
+    }
+  }
+  
+  // Check general keyword requirements
+  const keywords = rules.keywords || [];
+  if (keywords.length > 0) {
+    if (pkg && !keywords.some(keyword => pkg.includes(keyword))) {
       return { valid: false, reason: `${serviceCategory} category requires related package. Found: "${pkgRaw}"` };
     }
   }
+  
   return { valid: true };
 }
 
@@ -1150,19 +1373,36 @@ function diagnoseEligibilityFailure(eligMap, claimDate, normalizedMemberID, clai
   const eligList = eligMap.get(normalizedMemberID) || [];
   if (!eligList.length) return null;
 
-  // Collect all eligibilities that match the date and have 'eligible' status
+  // Collect all eligibilities that match the date, have 'eligible' status,
+  // and are not already consumed by a different claim.
   const dateMatches = eligList.filter(e => {
     const eligDate = DateHandler.parse(e['Answered On'] || e['Ordered On'], { preferMDY: false });
-    return DateHandler.isSameDay(claimDate, eligDate) && (e.Status || '').toLowerCase() === 'eligible';
+    const reqNo = e['Eligibility Request Number'];
+    return DateHandler.isSameDay(claimDate, eligDate) &&
+      (e.Status || '').toLowerCase() === 'eligible' &&
+      !usedEligibilities.has(reqNo);
   });
 
   if (!dateMatches.length) return null;
+
+  // Only diagnose against eligibilities that are clinician-relevant to this claim.
+  // This avoids reporting "Wrong Service Category" based solely on unrelated
+  // eligibilities that belong to other clinicians.
+  const normalizedClaimClinician = normalizeClinician(claimClinician || '');
+  const clinicianRelevantMatches = dateMatches.filter(elig => {
+    const eligClinician = (elig.Clinician || '').trim();
+    if (!normalizedClaimClinician) return true;
+    if (!eligClinician) return false;
+    return normalizeClinician(eligClinician) === normalizedClaimClinician;
+  });
+
+  if (!clinicianRelevantMatches.length) return null;
 
   // Gather every failure reason across all date-matching records
   const reasons = new Set();
   const dept = (claimDepartment || '').toLowerCase();
 
-  for (const elig of dateMatches) {
+  for (const elig of clinicianRelevantMatches) {
     const categoryCheck = isServiceCategoryValid(elig['Service Category'], elig['Consultation Status'], dept);
     if (!categoryCheck.valid) {
       reasons.add('Wrong Service Category');
@@ -1675,7 +1915,10 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
           // Use special matching logic that handles Thiqa/TC packages
           if (!packageNamesMatch(row.packageName, eligibility['Package Name'])) {
             finalStatus = 'invalid';
-            remarks.push(`Package name mismatch: claim has "${row.packageName}", eligibility has "${eligibility['Package Name']}"`);
+            // Normalize package names for display to show tier levels (e.g., "Daman Enhanced") instead of specific plan names (e.g., "Sahtak")
+            const normalizedClaimPackage = normalizePackageNameForDisplay(row.packageName);
+            const normalizedEligPackage = normalizePackageNameForDisplay(eligibility['Package Name']);
+            remarks.push(`Registered under ${normalizedClaimPackage}, ${normalizedEligPackage} as per Eligibility`);
           } else {
             finalStatus = 'valid';
           }
@@ -1687,7 +1930,11 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
         remarks.push('Wrong Service Category');
       }
     } else {
-      remarks.push(`Eligibility status: ${eligibility.Status}`);
+      if (eligibility.Status?.toLowerCase() === 'cancelled') {
+        remarks.push('Eligibility Not Taken');
+      } else {
+        remarks.push(`Eligibility status: ${eligibility.Status}`);
+      }
     }
 
     // If EID fallback resolved a different member ID, the claim had the wrong member ID.
@@ -2305,7 +2552,10 @@ function formatEligibilityDetails(record, memberID, claimDate, claimInfo = {}) {
   const eligPackage = (record['Package Name'] || '').trim();
   const claimPackage = claimInfo.claimPackage || '';
   if (eligPackage && claimPackage && !packageNamesMatch(claimPackage, eligPackage)) {
-    mismatches.push(`Package mismatch: Claim has "${escapeHtml(claimPackage)}", but eligibility is for "${escapeHtml(eligPackage)}"`);
+    // Normalize package names for display to show tier levels (e.g., "Daman Enhanced") instead of specific plan names (e.g., "Sahtak")
+    const normalizedClaimPackage = normalizePackageNameForDisplay(claimPackage);
+    const normalizedEligPackage = normalizePackageNameForDisplay(eligPackage);
+    mismatches.push(`Registered under ${escapeHtml(normalizedClaimPackage)}, ${escapeHtml(normalizedEligPackage)} as per Eligibility`);
   }
   
   // Check status mismatch
@@ -2708,7 +2958,10 @@ function initializeEventListeners() {
   if (diagnosticsStatus) onDiagnosticsToggle();
 }
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+  // Load eligibility matching configuration first
+  await loadEligibilityMatchingConfig();
+  
   initializeEventListeners();
   updateStatus('Ready to process files');
 });

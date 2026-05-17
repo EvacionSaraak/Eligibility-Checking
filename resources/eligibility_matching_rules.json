@@ -1,0 +1,90 @@
+{
+  "$schema": "eligibility_matching_rules_schema",
+  "version": "1.0.0",
+  "description": "Configuration for eligibility package name matching rules. This file defines how claim package names should match with eligibility package names.",
+  
+  "classifications": {
+    "daman": ["silver", "gold", "bronze"]
+  },
+  
+  "matchingRules": [
+    {
+      "id": "thiqa-tc",
+      "description": "Thiqa/TC matching: if claim has 'thiqa' and eligibility has 'tc', consider it a match",
+      "claimContains": ["thiqa"],
+      "eligibilityContains": ["tc"],
+      "bidirectional": false
+    },
+    {
+      "id": "thiqa-thiqa",
+      "description": "THIQA variant matching: 'THIQA' or 'TMC - Thiqa' should match 'Thiqa C1', 'Thiqa C2', etc.",
+      "claimContains": ["thiqa"],
+      "eligibilityContains": ["thiqa"],
+      "bidirectional": false
+    },
+    {
+      "id": "daman-basic",
+      "description": "DAMAN BASIC variant matching: 'DAMAN BASIC' should match 'Basic' packages and Abu Dhabi I/O style package names",
+      "claimContainsAll": ["daman", "basic"],
+      "eligibilityContainsAny": ["basic", "abu dhabi"],
+      "bidirectional": false,
+      "displayTier": "Daman Basic"
+    },
+    {
+      "id": "daman-enhanced-forward",
+      "description": "DAMAN Enhanced forward matching: 'Daman Enhanced' should match 'Sahtak', 'Enhanced-*', 'Core-AUH-*', or classifications",
+      "claimContainsAll": ["daman", "enhanced"],
+      "eligibilityContainsAny": ["sahtak", "enhanced", "core-auh"],
+      "eligibilityContainsClassification": "daman",
+      "bidirectional": false,
+      "displayTier": "Daman Enhanced"
+    },
+    {
+      "id": "daman-enhanced-reverse",
+      "description": "DAMAN Enhanced reverse mapping: claim has Enhanced-tier plan name and eligibility says 'Daman Enhanced'",
+      "eligibilityContainsAll": ["daman", "enhanced"],
+      "claimContainsAny": ["sahtak", "dge", "core-auh"],
+      "claimContainsClassification": "daman",
+      "claimSpecialCondition": {
+        "type": "enhanced-without-daman",
+        "description": "Match 'enhanced' in claim only if 'daman' is NOT present"
+      },
+      "bidirectional": false,
+      "displayTier": "Daman Enhanced"
+    },
+    {
+      "id": "daman-mid",
+      "description": "DAMAN Mid variant matching: 'Daman Mid' sits in the same Enhanced tier",
+      "claimContainsAll": ["daman", "mid"],
+      "eligibilityContainsAny": ["enhanced"],
+      "eligibilityContainsClassification": "daman",
+      "bidirectional": false,
+      "displayTier": "Daman Mid"
+    },
+    {
+      "id": "daman-key",
+      "description": "DAMAN Key variant matching: 'Daman-Key' should match classifications",
+      "claimContainsAll": ["daman", "key"],
+      "eligibilityContainsClassification": "daman",
+      "bidirectional": false,
+      "displayTier": "Daman Key"
+    },
+    {
+      "id": "daman-low-end",
+      "description": "DAMAN Low-End variant matching: 'DAMAN Low-End' should match specific plan names, networks, or classifications",
+      "claimContainsAll": ["daman", "low-end"],
+      "eligibilityContainsAny": ["enhanced-auh", "core-auh", "abu dhabi", "nw uae", "etihad nw", "adnoc"],
+      "eligibilityContainsClassification": "daman",
+      "bidirectional": false,
+      "displayTier": "Daman Low-End"
+    },
+    {
+      "id": "daman-generic",
+      "description": "Generic DAMAN classification matching: claim starts with 'daman' or has 'daman' after _ or - and eligibility has classification",
+      "claimPattern": "/(^|[_\\-])daman/i",
+      "claimExcludes": ["basic", "enhanced", "low-end", "high-end"],
+      "eligibilityContainsClassification": "daman",
+      "bidirectional": false
+    }
+  ]
+}
