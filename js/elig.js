@@ -106,7 +106,7 @@ let eligibilityMatchingConfig = null;
  */
 async function loadEligibilityMatchingConfig() {
   try {
-    const response = await fetch('resources/eligibility_matching_rules.json');
+    const response = await fetch('json/eligibility_matching_rules.json');
     if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
     eligibilityMatchingConfig = await response.json();
     console.log('✅ Loaded eligibility matching configuration from JSON');
