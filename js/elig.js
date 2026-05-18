@@ -174,6 +174,14 @@ function packageNamesMatch(claimPackage, eligPackage) {
   return false;
 }
 
+function packagesEffectivelyMatch(claimPackage, eligPackage) {
+  if (packageNamesMatch(claimPackage, eligPackage)) return true;
+  const normalizedClaim = normalizePackageNameForDisplay(claimPackage);
+  const normalizedEligibility = normalizePackageNameForDisplay(eligPackage);
+  if (!normalizedClaim || !normalizedEligibility) return false;
+  return normalizedClaim.trim().toLowerCase() === normalizedEligibility.trim().toLowerCase();
+}
+
 /**
  * Check if a specific rule matches the claim and eligibility packages
  * @param {Object} rule - Matching rule from configuration
@@ -1134,7 +1142,7 @@ function selectBestEligibility(eligibilities, claimDepartment = '', claimPackage
     
     // Check package name match if both exist
     if (claimPackage && elig['Package Name']) {
-      if (!packageNamesMatch(claimPackage, elig['Package Name'])) return false;
+      if (!packagesEffectivelyMatch(claimPackage, elig['Package Name'])) return false;
     }
     
     return true;
@@ -1920,7 +1928,7 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
         // Validate package name match if both claim and eligibility have package names
         if (row.packageName && eligibility['Package Name']) {
           // Use special matching logic that handles Thiqa/TC packages
-          if (!packageNamesMatch(row.packageName, eligibility['Package Name'])) {
+          if (!packagesEffectivelyMatch(row.packageName, eligibility['Package Name'])) {
             finalStatus = 'invalid';
             // Normalize package names for display to show tier levels (e.g., "Daman Enhanced") instead of specific plan names (e.g., "Sahtak")
             const normalizedClaimPackage = normalizePackageNameForDisplay(row.packageName);
@@ -2351,7 +2359,7 @@ function initEligibilityModal(results, eligMap) {
         const eligClinician = (rec['Clinician'] || '').trim();
         if (eligClinician && claimClinician && eligClinician !== claimClinician) reasons.push('clinician');
         const eligPackage = (rec['Package Name'] || '').trim();
-        if (eligPackage && claimPackage && !packageNamesMatch(claimPackage, eligPackage)) reasons.push('package');
+        if (eligPackage && claimPackage && !packagesEffectivelyMatch(claimPackage, eligPackage)) reasons.push('package');
         const status = rec['Status'] || '';
         if (status.toLowerCase() !== 'eligible') reasons.push('status');
         return { isMatch: reasons.length === 0 };
@@ -2558,7 +2566,7 @@ function formatEligibilityDetails(record, memberID, claimDate, claimInfo = {}) {
   // Check package mismatch
   const eligPackage = (record['Package Name'] || '').trim();
   const claimPackage = claimInfo.claimPackage || '';
-  if (eligPackage && claimPackage && !packageNamesMatch(claimPackage, eligPackage)) {
+  if (eligPackage && claimPackage && !packagesEffectivelyMatch(claimPackage, eligPackage)) {
     // Normalize package names for display to show tier levels (e.g., "Daman Enhanced") instead of specific plan names (e.g., "Sahtak")
     const normalizedClaimPackage = normalizePackageNameForDisplay(claimPackage);
     const normalizedEligPackage = normalizePackageNameForDisplay(eligPackage);
@@ -2618,7 +2626,7 @@ function formatEligibilityDetails(record, memberID, claimDate, claimInfo = {}) {
         else if (!isAccepted && eligClinician && claimClinician && eligClinician !== claimClinician && !wrongMemberID) rowClass = 'table-danger';
       } else if (key === 'Package Name') {
         if (isAccepted && eligPackage && claimPackage) rowClass = 'table-success';
-        else if (!isAccepted && eligPackage && claimPackage && !packageNamesMatch(claimPackage, eligPackage)) rowClass = 'table-danger';
+        else if (!isAccepted && eligPackage && claimPackage && !packagesEffectivelyMatch(claimPackage, eligPackage)) rowClass = 'table-danger';
       }
       html += `<tr class="${rowClass}"><th>${escapeHtml(key)}</th><td>${escapeHtml(String(disp))}</td></tr>`;
     }
