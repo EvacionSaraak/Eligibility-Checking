@@ -288,13 +288,13 @@ function normalizePackageNameForDisplay(packageName) {
       return 'Daman Enhanced';
     }
     if (packageLower.includes('high-end')) {
-      return 'Daman Enhanced';
+      return 'Daman High-End';
     }
     if (packageLower.includes('low-end')) {
       return 'Daman Enhanced';
     }
     if (packageLower.includes('mid')) {
-      return 'Daman Enhanced';
+      return 'Daman Mid';
     }
     if (packageLower.includes('key')) {
       return 'Daman Key';
@@ -1873,6 +1873,7 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
       }
     }
     const packageLower = (row.packageName || '').toLowerCase();
+    const eligPackageLower = (eligibility?.['Package Name'] || '').toLowerCase();
 
     // Clinician license is 'FALSE' — not found in our database
     if (hasWhitespaceMemberID) {
@@ -1885,6 +1886,11 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
     } else if (packageLower.includes('daman') && packageLower.includes('high-end')) {
       finalStatus = 'unknown';
       remarks.push('Daman High-End claims are marked as unknown.');
+    // Eligibility package is High-End or Mid — not accepted at our facilities
+    } else if (eligibility && eligPackageLower.includes('daman') && (eligPackageLower.includes('high-end') || eligPackageLower.includes('mid'))) {
+      const tierName = eligPackageLower.includes('high-end') ? 'High-End' : 'Mid';
+      finalStatus = 'invalid';
+      remarks.push(`Eligibility is under ${tierName}; this is not accepted at our facilities.`);
     // Leading zero + matched eligibility → unknown so the record can still be used
     } else if (hasLeadingZero && eligibility) {
       finalStatus = 'unknown';
