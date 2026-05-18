@@ -1887,10 +1887,12 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
       finalStatus = 'unknown';
       remarks.push('Daman High-End claims are marked as unknown.');
     // Eligibility package is High-End or Mid — not accepted at our facilities
-    } else if (eligibility && eligPackageLower.includes('daman') && (eligPackageLower.includes('high-end') || eligPackageLower.includes('mid'))) {
-      const tierName = eligPackageLower.includes('high-end') ? 'High-End' : 'Mid';
+    } else if (eligibility && eligPackageLower.includes('daman') && eligPackageLower.includes('high-end')) {
       finalStatus = 'invalid';
-      remarks.push(`Eligibility is under ${tierName}; this is not accepted at our facilities.`);
+      remarks.push('Eligibility is under High-End; this is not accepted at our facilities.');
+    } else if (eligibility && eligPackageLower.includes('daman') && eligPackageLower.includes('mid')) {
+      finalStatus = 'invalid';
+      remarks.push('Eligibility is under Mid; this is not accepted at our facilities.');
     // Leading zero + matched eligibility → unknown so the record can still be used
     } else if (hasLeadingZero && eligibility) {
       finalStatus = 'unknown';
