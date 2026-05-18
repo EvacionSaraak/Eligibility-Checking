@@ -59,7 +59,16 @@
       "eligibilityContainsAny": ["enhanced"],
       "eligibilityContainsClassification": "daman",
       "bidirectional": false,
-      "displayTier": "Daman Mid"
+      "displayTier": "Daman Enhanced"
+    },
+    {
+      "id": "daman-high-end",
+      "description": "DAMAN High-End variant matching: 'Daman High-End' sits in the same Enhanced tier",
+      "claimContainsAll": ["daman", "high-end"],
+      "eligibilityContainsAny": ["enhanced"],
+      "eligibilityContainsClassification": "daman",
+      "bidirectional": false,
+      "displayTier": "Daman Enhanced"
     },
     {
       "id": "daman-key",
@@ -76,7 +85,7 @@
       "eligibilityContainsAny": ["enhanced-auh", "core-auh", "abu dhabi", "nw uae", "etihad nw", "adnoc"],
       "eligibilityContainsClassification": "daman",
       "bidirectional": false,
-      "displayTier": "Daman Low-End"
+      "displayTier": "Daman Enhanced"
     },
     {
       "id": "daman-generic",
