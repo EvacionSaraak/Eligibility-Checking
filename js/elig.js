@@ -178,8 +178,36 @@ function packagesEffectivelyMatch(claimPackage, eligPackage) {
   if (packageNamesMatch(claimPackage, eligPackage)) return true;
   const normalizedClaim = normalizePackageNameForDisplay(claimPackage);
   const normalizedEligibility = normalizePackageNameForDisplay(eligPackage);
-  if (!normalizedClaim || !normalizedEligibility) return false;
-  return normalizedClaim.trim().toLowerCase() === normalizedEligibility.trim().toLowerCase();
+  if (!normalizedClaim || !normalizedEligibility) {
+    console.warn(`⚠️ Package normalization returned falsy value:`, {
+      claimPackage,
+      eligPackage,
+      normalizedClaim,
+      normalizedEligibility
+    });
+    return false;
+  }
+  const claimLower = normalizedClaim.trim().toLowerCase();
+  const eligLower = normalizedEligibility.trim().toLowerCase();
+  const matches = claimLower === eligLower;
+  
+  // Log when normalized packages are the same but we're about to return a mismatch
+  if (claimLower === eligLower && claimLower.includes('daman') && claimLower.includes('enhanced')) {
+    console.log(`✅ Packages match after normalization:`, {
+      original: { claim: claimPackage, elig: eligPackage },
+      normalized: { claim: normalizedClaim, elig: normalizedEligibility },
+      result: matches
+    });
+  } else if (!matches && claimLower.includes('daman') && eligLower.includes('daman')) {
+    console.warn(`⚠️ Daman packages don't match after normalization:`, {
+      original: { claim: claimPackage, elig: eligPackage },
+      normalized: { claim: normalizedClaim, elig: normalizedEligibility },
+      normalizedLower: { claim: claimLower, elig: eligLower },
+      result: matches
+    });
+  }
+  
+  return matches;
 }
 
 /**
@@ -1929,11 +1957,32 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
         if (row.packageName && eligibility['Package Name']) {
           // Use special matching logic that handles Thiqa/TC packages
           if (!packagesEffectivelyMatch(row.packageName, eligibility['Package Name'])) {
-            finalStatus = 'invalid';
             // Normalize package names for display to show tier levels (e.g., "Daman Enhanced") instead of specific plan names (e.g., "Sahtak")
             const normalizedClaimPackage = normalizePackageNameForDisplay(row.packageName);
             const normalizedEligPackage = normalizePackageNameForDisplay(eligibility['Package Name']);
-            remarks.push(`Registered under ${normalizedClaimPackage}, ${normalizedEligPackage} as per Eligibility`);
+            
+            // Double-check: if normalized packages are identical, treat as match (safety check)
+            if (normalizedClaimPackage && normalizedEligPackage && 
+                normalizedClaimPackage.trim().toLowerCase() === normalizedEligPackage.trim().toLowerCase()) {
+              console.warn(`⚠️ packagesEffectivelyMatch returned false but normalized packages are identical - treating as valid`, {
+                claimPackage: row.packageName,
+                eligPackage: eligibility['Package Name'],
+                normalizedClaim: normalizedClaimPackage,
+                normalizedElig: normalizedEligPackage
+              });
+              finalStatus = 'valid';
+            } else {
+              finalStatus = 'invalid';
+              console.error(`🚨 Package mismatch detected (line 1959):`, {
+                claimPackage: row.packageName,
+                eligPackage: eligibility['Package Name'],
+                normalizedClaim: normalizedClaimPackage,
+                normalizedElig: normalizedEligPackage,
+                memberID,
+                claimDate: formattedDate
+              });
+              remarks.push(`Registered under ${normalizedClaimPackage}, ${normalizedEligPackage} as per Eligibility`);
+            }
           } else {
             finalStatus = 'valid';
           }
@@ -2570,7 +2619,25 @@ function formatEligibilityDetails(record, memberID, claimDate, claimInfo = {}) {
     // Normalize package names for display to show tier levels (e.g., "Daman Enhanced") instead of specific plan names (e.g., "Sahtak")
     const normalizedClaimPackage = normalizePackageNameForDisplay(claimPackage);
     const normalizedEligPackage = normalizePackageNameForDisplay(eligPackage);
-    mismatches.push(`Registered under ${escapeHtml(normalizedClaimPackage)}, ${escapeHtml(normalizedEligPackage)} as per Eligibility`);
+    
+    // Double-check: if normalized packages are identical, don't show mismatch (safety check)
+    if (normalizedClaimPackage && normalizedEligPackage && 
+        normalizedClaimPackage.trim().toLowerCase() !== normalizedEligPackage.trim().toLowerCase()) {
+      console.error(`🚨 Package mismatch detected (line 2597 - modal):`, {
+        claimPackage,
+        eligPackage,
+        normalizedClaim: normalizedClaimPackage,
+        normalizedElig: normalizedEligPackage
+      });
+      mismatches.push(`Registered under ${escapeHtml(normalizedClaimPackage)}, ${escapeHtml(normalizedEligPackage)} as per Eligibility`);
+    } else {
+      console.warn(`⚠️ packagesEffectivelyMatch returned false but normalized packages are identical - suppressing mismatch`, {
+        claimPackage,
+        eligPackage,
+        normalizedClaim: normalizedClaimPackage,
+        normalizedElig: normalizedEligPackage
+      });
+    }
   }
   
   // Check status mismatch
