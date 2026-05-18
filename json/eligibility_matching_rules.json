@@ -53,24 +53,6 @@
       "displayTier": "Daman Enhanced"
     },
     {
-      "id": "daman-mid",
-      "description": "DAMAN Mid variant matching: 'Daman Mid' sits in the same Enhanced tier",
-      "claimContainsAll": ["daman", "mid"],
-      "eligibilityContainsAny": ["enhanced"],
-      "eligibilityContainsClassification": "daman",
-      "bidirectional": false,
-      "displayTier": "Daman Enhanced"
-    },
-    {
-      "id": "daman-high-end",
-      "description": "DAMAN High-End variant matching: 'Daman High-End' sits in the same Enhanced tier",
-      "claimContainsAll": ["daman", "high-end"],
-      "eligibilityContainsAny": ["enhanced"],
-      "eligibilityContainsClassification": "daman",
-      "bidirectional": false,
-      "displayTier": "Daman Enhanced"
-    },
-    {
       "id": "daman-key",
       "description": "DAMAN Key variant matching: 'Daman-Key' should match classifications",
       "claimContainsAll": ["daman", "key"],
@@ -91,7 +73,7 @@
       "id": "daman-generic",
       "description": "Generic DAMAN classification matching: claim starts with 'daman' or has 'daman' after _ or - and eligibility has classification",
       "claimPattern": "/(^|[_\\-])daman/i",
-      "claimExcludes": ["basic", "enhanced", "low-end", "high-end"],
+      "claimExcludes": ["basic", "enhanced", "low-end", "mid", "high-end"],
       "eligibilityContainsClassification": "daman",
       "bidirectional": false
     }
