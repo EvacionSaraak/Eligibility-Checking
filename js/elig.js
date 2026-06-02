@@ -1449,6 +1449,29 @@ function diagnoseEligibilityFailure(eligMap, claimDate, normalizedMemberID, clai
 }
 
 /**
+ * Export-only clinician mismatch detector.
+ * Does not affect selection/remarks; only used for invalid export metadata.
+ */
+function hasClinicianMismatchForClaim(eligMap, claimDate, normalizedMemberID, claimClinician) {
+  const normalizedClaimClinician = normalizeClinician(claimClinician || '');
+  if (!normalizedClaimClinician) return false;
+
+  const eligList = eligMap.get(normalizedMemberID) || [];
+  if (!eligList.length) return false;
+
+  return eligList.some(elig => {
+    const eligDate = DateHandler.parse(elig['Answered On'] || elig['Ordered On'], { preferMDY: false });
+    if (!DateHandler.isSameDay(claimDate, eligDate)) return false;
+
+    const status = (elig.Status || '').toLowerCase();
+    if (status !== 'eligible' && status !== 'blocked' && status !== 'cancelled') return false;
+
+    const normalizedEligClinician = normalizeClinician((elig.Clinician || '').trim());
+    return !!normalizedEligClinician && normalizedEligClinician !== normalizedClaimClinician;
+  });
+}
+
+/**
  * Scan all eligibility records for one whose EID matches rawEID.
  * Used as a fallback when member ID lookup yields no results.
  * Dashes are stripped from both values before comparison.
@@ -2011,6 +2034,13 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
       finalStatus = 'invalid';
     }
 
+    const exportClinicianMismatch = hasClinicianMismatchForClaim(
+      eligMap,
+      claimDate,
+      (eidMatchedMemberID || memberID),
+      row.clinician
+    );
+
     results.push({
       claimID, 
       visitID: row.visitID || '',
@@ -2029,6 +2059,9 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
       claimStatus: row.claimStatus || '',
       remarks, finalStatus,
       wrongMemberID: !!(eidMatchedMemberID && eidMatchedMemberID !== memberID),
+      claimClinician: row.clinician || '',
+      claimPackageName: row.packageName || '',
+      exportClinicianMismatch,
       fullEligibilityRecord: eligibility,
       allEligibilityRecords: matchingEligibilities, // Store ALL matches
       fileNo: row.fileNo || '',
@@ -2746,6 +2779,33 @@ function formatEligibilityDetails(record, memberID, claimDate, claimInfo = {}) {
 /* ===========================
    Export helpers
    =========================== */
+function collectMismatchedElementsForExport(entry) {
+  const elements = new Set();
+  const remarks = Array.isArray(entry?.remarks) ? entry.remarks : [];
+
+  for (const remark of remarks) {
+    const text = String(remark || '').toLowerCase();
+    if (!text) continue;
+
+    if (text.includes('wrong member id') || text.includes('member id')) elements.add('Member ID');
+    if (text.includes('registered under') || text.includes('high-end') || text.includes('mid')) elements.add('Registration');
+    if (text.includes('service category')) elements.add('Service Category');
+    if (text.includes('eligibility status') || text.includes('eligibility not taken') || text.includes('status')) elements.add('Eligibility Status');
+    if (text.includes("clinician hasn't been added")) elements.add('Clinician');
+  }
+
+  if (entry?.wrongMemberID) elements.add('Member ID');
+  if (entry?.exportClinicianMismatch) elements.add('Clinician');
+
+  const claimPackage = (entry?.claimPackageName || '').trim();
+  const eligPackage = (entry?.fullEligibilityRecord?.['Package Name'] || '').trim();
+  if (claimPackage && eligPackage && !packagesEffectivelyMatch(claimPackage, eligPackage)) {
+    elements.add('Registration');
+  }
+
+  return Array.from(elements).join('; ');
+}
+
 function exportInvalidEntries(results) {
   const invalidEntries = (results || []).filter(r => r && r.finalStatus === 'invalid');
   if (!invalidEntries.length) { alert('No invalid entries to export.'); return; }
@@ -2768,6 +2828,7 @@ function exportInvalidEntries(results) {
       'Member ID': entry.rawMemberID || entry.memberID || '',
       'Clinician Name': entry.clinicianName || '',
       'Verdict': (entry.remarks || []).join('; '),
+      'Mismatched Elements': collectMismatchedElementsForExport(entry),
       'Opened By': entry.openedBy || '',
       'Price': entry.price ?? '',
       'Admitting DEPT': entry.department || '',
