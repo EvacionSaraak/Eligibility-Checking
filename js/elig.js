@@ -2828,13 +2828,13 @@ function exportInvalidEntries(results) {
       'Member ID': entry.rawMemberID || entry.memberID || '',
       'Clinician Name': entry.clinicianName || '',
       'Verdict': (entry.remarks || []).join('; '),
-      'Mismatched Elements': collectMismatchedElementsForExport(entry),
       'Opened By': entry.openedBy || '',
       'Price': entry.price ?? '',
       'Admitting DEPT': entry.department || '',
       'Pri. Plan Type': entry.packageName || entry.provider || '',
       'Facility ID': entry.facilityID || '',
-      'File Name': entry.sourceFile || sourceFileName || ''
+      'File Name': entry.sourceFile || sourceFileName || '',
+      'Mismatched Elements': collectMismatchedElementsForExport(entry)
     };
   });
   const wb = XLSX.utils.book_new();
