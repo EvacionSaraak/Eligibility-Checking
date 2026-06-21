@@ -57,6 +57,7 @@ let detectedReportType = 'Generic'; // detected report type before normalization
 const usedEligibilities = new Set();
 let lastReportWasCSV = false;
 let sourceFileName = '';   // Track the source report filename for export
+let clinicianLicenseMap = new Map();
 
 // Keep last eligibility map so UI filters can re-render without rebuilding the map
 let lastEligMap = null;
@@ -95,6 +96,103 @@ function normalizeMemberID(id) {
 function normalizeClinician(name) {
   if (!name) return '';
   return name.trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function readClinicianLicense(val) {
+  if (val === false || (typeof val === 'string' && val.trim().toUpperCase() === 'FALSE')) return 'FALSE';
+  if (val == null || val === '') return '';
+  return String(val).trim();
+}
+
+function normalizeClinicianLookupKey(value) {
+  if (value === null || value === undefined) return '';
+  return String(value)
+    .toUpperCase()
+    .replace(/\bDR\.?\b/g, '')
+    .replace(/\bDRA\.?\b/g, '')
+    .replace(/\bDOCTOR\b/g, '')
+    .replace(/\bDENTIST\b/g, '')
+    .replace(/\bPROF\.?\b/g, '')
+    .replace(/\bMR\.?\b/g, '')
+    .replace(/\bMS\.?\b/g, '')
+    .replace(/\bMRS\.?\b/g, '')
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function addClinicianLicenseAlias(name, license) {
+  const key = normalizeClinicianLookupKey(name);
+  const cleanLicense = readClinicianLicense(license);
+  if (!key || !cleanLicense || cleanLicense === 'FALSE') return;
+  clinicianLicenseMap.set(key, cleanLicense);
+}
+
+async function loadClinicianLicenseMap() {
+  clinicianLicenseMap = new Map();
+
+  const possiblePaths = [
+    'json/clinician_licenses.json',
+    './json/clinician_licenses.json'
+  ];
+
+  let data = null;
+  let loadedPath = '';
+
+  for (const path of possiblePaths) {
+    try {
+      const response = await fetch(path);
+      if (!response.ok) continue;
+      data = await response.json();
+      loadedPath = path;
+      break;
+    } catch (error) {
+      continue;
+    }
+  }
+
+  if (!Array.isArray(data)) {
+    console.warn('⚠️ Failed to load clinician license map from json/clinician_licenses.json, or file is not an array.');
+    clinicianLicenseMap = new Map();
+    return;
+  }
+
+  for (const item of data) {
+    const license =
+      item['Phy Lic'] ||
+      item['Physician License'] ||
+      item['Clinician License'] ||
+      item.license ||
+      '';
+
+    const clinicianName =
+      item['Clinician Name'] ||
+      item.clinicianName ||
+      item.name ||
+      '';
+
+    addClinicianLicenseAlias(clinicianName, license);
+  }
+
+  console.log(`✅ Loaded ${clinicianLicenseMap.size} clinician aliases from ${loadedPath}`);
+}
+
+function lookupClinicianLicenseByName(...names) {
+  for (const name of names) {
+    const key = normalizeClinicianLookupKey(name);
+    if (key && clinicianLicenseMap.has(key)) return clinicianLicenseMap.get(key);
+  }
+  return '';
+}
+
+function resolveClinicianLicense(primaryLicense, ...nameFallbacks) {
+  const directLicense = readClinicianLicense(primaryLicense);
+  if (directLicense) return directLicense;
+
+  const mappedLicense = lookupClinicianLicenseByName(...nameFallbacks);
+  if (mappedLicense) return mappedLicense;
+
+  return 'FALSE';
 }
 
 // Package matching configuration - loaded from external JSON
@@ -1595,101 +1693,121 @@ function readClinicianLicense(val) {
   return String(val);
 }
 
-function normalizeReportData(rawData) {
+function normalizeReportData(rawData) {function normalizeReportData(rawData) {
   if (!rawData) return [];
 
-  // If the input is an array-of-arrays (what XLSX.utils.sheet_to_json(..., {header:1}) returns),
-  // convert it into a { headers, rows } shape using the helper so downstream mapping can work.
   if (Array.isArray(rawData) && rawData.length > 0 && Array.isArray(rawData[0])) {
     const detection = findHeaderRowFromArrays(rawData, 50);
-    // detection.headers is an array of header strings, detection.rows is array-of-objects keyed by headers
-    rawData = {
-      headers: detection.headers,
-      rows: detection.rows
-    };
+    rawData = { headers: detection.headers, rows: detection.rows };
   }
 
-  // If rawData is an array of plain objects (not the {headers, rows} shape), handle that too.
+  const localGetField = (obj, candidates) => {
+    for (const k of candidates) {
+      if (obj && Object.prototype.hasOwnProperty.call(obj, k) && obj[k] !== '' && obj[k] !== null && obj[k] !== undefined) return obj[k];
+    }
+    return '';
+  };
+
   if (Array.isArray(rawData) && rawData.length > 0 && !rawData.headers && typeof rawData[0] === 'object' && !Array.isArray(rawData[0])) {
     const sample = rawData[0];
-    const isCombined = sample.hasOwnProperty('Pri. Claim No') && sample.hasOwnProperty('Total Amount');
-    const isInsta = sample.hasOwnProperty('Pri. Claim No') && !isCombined;
-    const isOdoo = sample.hasOwnProperty('Pri. Claim ID');
+    const isCombined = Object.prototype.hasOwnProperty.call(sample, 'Pri. Claim No') && Object.prototype.hasOwnProperty.call(sample, 'Total Amount');
+    const isInsta = Object.prototype.hasOwnProperty.call(sample, 'Pri. Claim No') && !isCombined;
+    const isOdoo = Object.prototype.hasOwnProperty.call(sample, 'Pri. Claim ID');
+
     return rawData.map(row => {
       if (isCombined) {
+        const clinicianName = row['Clinician Name'] || '';
+        const admittingDoctor = row['Admitting Doctor'] || row['Doctor'] || row['Physician'] || '';
         return {
           claimID: row['Pri. Claim No'] || '',
           visitID: row['Visit Id'] || '',
           memberID: row['Pri. Patient Insurance Card No'] || '',
           claimDate: row['Encounter Date'] || '',
-          clinician: readClinicianLicense(row['Clinician License']),
-          clinicianName: row['Clinician Name'] || '',
+          clinician: resolveClinicianLicense(row['Clinician License'], clinicianName, admittingDoctor),
+          clinicianName,
           department: row['Department'] || '',
           packageName: row['Pri. Plan Type'] || '',
           insuranceCompany: row['Pri. Plan Type'] || '',
           claimStatus: '',
           fileNo: row['Patient Code'] || '',
-          admittingDoctor: '',
+          admittingDoctor,
           openedBy: row['Opened by'] || '',
           price: row['Total Amount'] ?? '',
           facilityID: row['Facility ID'] || '',
           sourceFile: row['Source File'] || '',
-          emiratesID: getField(row, ['Emirates ID No', 'Emirates ID No.']) || ''
+          emiratesID: localGetField(row, ['Emirates ID No', 'Emirates ID No.', 'Emirates ID', 'EmiratesID']) || ''
         };
-      } else if (isInsta) {
+      }
+
+      if (isInsta) {
+        const clinicianName = row['Clinician Name'] || '';
+        const admittingDoctor = row['Admitting Doctor'] || row['Doctor'] || row['Physician'] || '';
         return {
           claimID: row['Pri. Claim No'] || '',
           visitID: row['Visit Id'] || '',
           memberID: row['Pri. Patient Insurance Card No'] || '',
           claimDate: row['Encounter Date'] || '',
-          clinician: readClinicianLicense(row['Clinician License']),
-          clinicianName: row['Clinician Name'] || '',
+          clinician: resolveClinicianLicense(row['Clinician License'], clinicianName, admittingDoctor),
+          clinicianName,
           department: row['Department'] || '',
           packageName: row['Pri. Plan Type'] || row['Pri. Plan Name'] || row['Pri. Payer Name'] || '',
           insuranceCompany: row['Pri. Plan Type'] || row['Pri. Plan Name'] || row['Pri. Payer Name'] || '',
           claimStatus: row['Codification Status'] || '',
           fileNo: row['Patient Code'] || '',
-          admittingDoctor: '',  // Insta reports don't have a separate Admitting Doctor column
+          admittingDoctor,
           openedBy: row['Opened by'] || '',
           price: row['Net Amount'] ?? row['Gross Amount'] ?? '',
           facilityID: row['Facility ID'] || '',
-          emiratesID: getField(row, ['Emirates ID No', 'Emirates ID No.']) || ''
+          sourceFile: row['Source File'] || '',
+          emiratesID: localGetField(row, ['Emirates ID No', 'Emirates ID No.', 'Emirates ID', 'EmiratesID']) || ''
         };
-      } else if (isOdoo) {
+      }
+
+      if (isOdoo) {
+        const admittingDoctor = row['Admitting Doctor'] || '';
+        const clinicianName = row['Clinician Name'] || admittingDoctor || '';
         return {
           claimID: row['Pri. Claim ID'] || '',
           visitID: row['Visit Id'] || '',
           memberID: row['Pri. Member ID'] || '',
           claimDate: row['Adm/Reg. Date'] || '',
-          clinician: readClinicianLicense(row['Admitting License']),
+          clinician: resolveClinicianLicense(row['Admitting License'], clinicianName, admittingDoctor),
+          clinicianName,
+          department: row['Department'] || row['Admitting Department'] || '',
           insuranceCompany: row['Pri. Plan Type'] || row['Pri. Sponsor'] || '',
           packageName: row['Pri. Plan Type'] || row['Pri. Sponsor'] || '',
           claimStatus: row['Codification Status'] || '',
           fileNo: row['MR No.'] || row['MR No'] || '',
-          admittingDoctor: row['Admitting Doctor'] || '',
+          admittingDoctor,
           openedBy: row['Opened by'] || '',
           price: row['Total Sponsor Amt'] ?? '',
           facilityID: row['Center Name'] || '',
-          emiratesID: getField(row, ['Emirates ID No', 'Emirates ID No.']) || ''
-        };
-      } else {
-        return {
-          claimID: row['ClaimID'] || '',
-          visitID: row['Visit Id'] || '',
-          memberID: row['PatientCardID'] || '',
-          claimDate: row['ClaimDate'] || '',
-          clinician: readClinicianLicense(row['Clinician License']),
-          insuranceCompany: row['Insurance Company'] || '',
-          department: row['Clinic'] || '',
-          claimStatus: row['VisitStatus'] || '',
-          fileNo: row['MR No'] || row['Patient Code'] || row['File No'] || row['FileNo'] || '',
-          admittingDoctor: row['Admitting Doctor'] || row['Doctor'] || row['Physician'] || '',
-          openedBy: row['Opened by'] || '',
-          price: row['Total Amount'] ?? '',
-          facilityID: row['Facility ID'] || '',
-          emiratesID: getField(row, ['Emirates ID No', 'Emirates ID No.']) || ''
+          sourceFile: row['Source File'] || '',
+          emiratesID: localGetField(row, ['Emirates ID No', 'Emirates ID No.', 'Emirates ID', 'EmiratesID']) || ''
         };
       }
+
+      const clinicianName = row['Clinician Name'] || '';
+      const admittingDoctor = row['Admitting Doctor'] || row['Doctor'] || row['Physician'] || '';
+      return {
+        claimID: row['ClaimID'] || row['Pri. Claim No'] || row['Pri. Claim ID'] || localGetField(row, ['Claim ID', 'Claim No', 'Pri. Claim No', 'Pri. Claim ID']) || '',
+        visitID: row['Visit Id'] || '',
+        memberID: row['Pri. Member ID'] || row['Pri. Patient Insurance Card No'] || row['PatientCardID'] || localGetField(row, ['Patient Insurance Card No', 'Card Number / DHA Member ID', 'Member ID']) || '',
+        claimDate: row['Encounter Date'] || row['Adm/Reg. Date'] || row['ClaimDate'] || localGetField(row, ['Date', 'Claim Date']) || '',
+        clinician: resolveClinicianLicense(row['Clinician License'] || row['Admitting License'] || row['OrderDoctor'], clinicianName, admittingDoctor),
+        clinicianName,
+        department: row['Department'] || row['Clinic'] || row['Admitting Department'] || '',
+        packageName: row['Pri. Plan Type'] || row['Pri. Plan Name'] || row['Pri. Payer Name'] || row['Insurance Company'] || row['Pri. Sponsor'] || row['Package'] || '',
+        insuranceCompany: row['Pri. Plan Type'] || row['Pri. Payer Name'] || row['Insurance Company'] || row['Pri. Sponsor'] || row['Payer Name'] || '',
+        claimStatus: row['Codification Status'] || row['VisitStatus'] || row['Status'] || row['Claim Status'] || '',
+        fileNo: row['MR No.'] || row['MR No'] || row['Patient Code'] || row['File No'] || row['FileNo'] || '',
+        admittingDoctor,
+        openedBy: row['Opened by'] || '',
+        price: row['Net Amount'] ?? row['Gross Amount'] ?? row['Total Sponsor Amt'] ?? row['Total Amount'] ?? '',
+        facilityID: row['Facility ID'] || row['Center Name'] || '',
+        sourceFile: row['Source File'] || '',
+        emiratesID: localGetField(row, ['Emirates ID No', 'Emirates ID No.', 'Emirates ID', 'EmiratesID']) || ''
+      };
     });
   }
 
@@ -1709,98 +1827,120 @@ function normalizeReportData(rawData) {
     const isOdoo = Object.prototype.hasOwnProperty.call(r, 'Pri. Claim ID');
 
     if (isCombined) {
+      const clinicianName = r['Clinician Name'] || '';
+      const admittingDoctor = r['Admitting Doctor'] || r['Doctor'] || r['Physician'] || '';
       return {
         claimID: r['Pri. Claim No'] || '',
         visitID: r['Visit Id'] || '',
         memberID: r['Pri. Patient Insurance Card No'] || '',
         claimDate: r['Encounter Date'] || '',
-        clinician: readClinicianLicense(r['Clinician License']),
-        clinicianName: r['Clinician Name'] || '',
+        clinician: resolveClinicianLicense(r['Clinician License'], clinicianName, admittingDoctor),
+        clinicianName,
         department: r['Department'] || '',
         packageName: r['Pri. Plan Type'] || '',
         insuranceCompany: r['Pri. Plan Type'] || '',
         claimStatus: '',
         fileNo: r['Patient Code'] || '',
-        admittingDoctor: '',
+        admittingDoctor,
         openedBy: r['Opened by'] || '',
-        price: getField(r, ['Total Amount']),  // getField preserves 0 values, unlike || ''
+        price: getField(r, ['Total Amount']),
         facilityID: r['Facility ID'] || '',
         sourceFile: r['Source File'] || '',
-        emiratesID: getField(r, ['Emirates ID No', 'Emirates ID No.']) || ''
+        emiratesID: getField(r, ['Emirates ID No', 'Emirates ID No.', 'Emirates ID', 'EmiratesID']) || ''
       };
-    } else if (isInsta) {
+    }
+
+    if (isInsta) {
+      const clinicianName = r['Clinician Name'] || '';
+      const admittingDoctor = r['Admitting Doctor'] || r['Doctor'] || r['Physician'] || '';
       return {
         claimID: r['Pri. Claim No'] || '',
         visitID: r['Visit Id'] || '',
         memberID: r['Pri. Patient Insurance Card No'] || '',
         claimDate: r['Encounter Date'] || '',
-        clinician: readClinicianLicense(r['Clinician License']),
-        clinicianName: r['Clinician Name'] || '',
+        clinician: resolveClinicianLicense(r['Clinician License'], clinicianName, admittingDoctor),
+        clinicianName,
         department: r['Department'] || '',
         packageName: r['Pri. Plan Type'] || r['Pri. Plan Name'] || r['Pri. Payer Name'] || '',
         insuranceCompany: r['Pri. Plan Type'] || r['Pri. Plan Name'] || r['Pri. Payer Name'] || '',
         claimStatus: r['Codification Status'] || '',
         fileNo: r['Patient Code'] || '',
-        admittingDoctor: '',  // Insta reports don't have a separate Admitting Doctor column
+        admittingDoctor,
         openedBy: r['Opened by'] || '',
         price: getField(r, ['Net Amount', 'Gross Amount']),
         facilityID: r['Facility ID'] || '',
-        emiratesID: getField(r, ['Emirates ID No', 'Emirates ID No.']) || ''
+        sourceFile: r['Source File'] || '',
+        emiratesID: getField(r, ['Emirates ID No', 'Emirates ID No.', 'Emirates ID', 'EmiratesID']) || ''
       };
-    } else if (isOdoo) {
+    }
+
+    if (isOdoo) {
+      const admittingDoctor = r['Admitting Doctor'] || '';
+      const clinicianName = r['Clinician Name'] || admittingDoctor || '';
       return {
         claimID: r['Pri. Claim ID'] || '',
         visitID: r['Visit Id'] || '',
         memberID: r['Pri. Member ID'] || '',
         claimDate: r['Adm/Reg. Date'] || '',
-        clinician: readClinicianLicense(r['Admitting License']),
+        clinician: resolveClinicianLicense(r['Admitting License'], clinicianName, admittingDoctor),
+        clinicianName,
+        department: r['Department'] || r['Admitting Department'] || '',
         insuranceCompany: r['Pri. Plan Type'] || r['Pri. Sponsor'] || '',
         packageName: r['Pri. Plan Type'] || r['Pri. Sponsor'] || '',
         claimStatus: r['Codification Status'] || '',
         fileNo: r['MR No.'] || r['MR No'] || '',
-        admittingDoctor: r['Admitting Doctor'] || '',
+        admittingDoctor,
         openedBy: r['Opened by'] || '',
         price: getField(r, ['Total Sponsor Amt']),
         facilityID: r['Center Name'] || '',
-        emiratesID: getField(r, ['Emirates ID No', 'Emirates ID No.']) || ''
+        sourceFile: r['Source File'] || '',
+        emiratesID: getField(r, ['Emirates ID No', 'Emirates ID No.', 'Emirates ID', 'EmiratesID']) || ''
       };
-    } else {
-      const out = {
-        claimID: r['ClaimID'] || r['Pri. Claim No'] || r['Pri. Claim ID'] || getField(r, ['ClaimID','Pri. Claim No','Pri. Claim ID','Claim ID','Pri. Claim ID']) || '',
-        visitID: r['Visit Id'] || '',
-        memberID: r['Pri. Member ID'] || r['Pri. Patient Insurance Card No'] || r['PatientCardID'] || getField(r, ['PatientCardID','Patient Insurance Card No','Card Number / DHA Member ID']) || '',
-        claimDate: r['Encounter Date'] || r['Adm/Reg. Date'] || r['ClaimDate'] || getField(r, ['Encounter Date','ClaimDate','Adm/Reg. Date','Date']) || '',
-        clinician: readClinicianLicense(
-          r['Clinician License'] != null && r['Clinician License'] !== ''
-            ? r['Clinician License']
-            : r['Admitting License'] || r['OrderDoctor'] || getField(r, ['Clinician','Admitting License','OrderDoctor'])),
-        clinicianName: r['Clinician Name'] || '',
-        department: r['Department'] || r['Clinic'] || r['Admitting Department'] || getField(r, ['Department','Clinic','Admitting Department']) || '',
-        packageName: r['Pri. Plan Type'] || r['Pri. Plan Name'] || r['Pri. Payer Name'] || r['Insurance Company'] || r['Pri. Sponsor'] || getField(r, ['Pri. Plan Type','Pri. Plan Name','Pri. Payer Name','Insurance Company','Package','Pri. Sponsor']) || '',
-        insuranceCompany: r['Pri. Plan Type'] || r['Pri. Payer Name'] || r['Insurance Company'] || r['Pri. Sponsor'] || getField(r, ['Pri. Plan Type','Payer Name','Insurance Company','Pri. Payer Name','Pri. Sponsor']) || '',
-        claimStatus: r['Codification Status'] || r['VisitStatus'] || r['Status'] || getField(r, ['Codification Status','VisitStatus','Status','Claim Status']) || '',
-        fileNo: r['MR No.'] || r['MR No'] || r['Patient Code'] || getField(r, ['MR No.','MR No','Patient Code','File No','FileNo']) || '',
-        admittingDoctor: r['Admitting Doctor'] || getField(r, ['Admitting Doctor','Doctor','Physician']) || '',
-        openedBy: r['Opened by'] || '',
-        price: getField(r, ['Net Amount', 'Gross Amount', 'Total Sponsor Amt', 'Total Amount']),
-        facilityID: r['Facility ID'] || r['Center Name'] || '',
-        emiratesID: getField(r, ['Emirates ID No', 'Emirates ID No.']) || ''
-      };
-
-      if (!out.memberID) {
-        for (const h of headers) {
-          const val = r[h];
-          if (val && String(h).toLowerCase().includes('card')) { out.memberID = val; break; }
-        }
-      }
-      if (!out.claimID) {
-        for (const h of headers) {
-          const val = r[h];
-          if (val && String(h).toLowerCase().includes('claim')) { out.claimID = val; break; }
-        }
-      }
-      return out;
     }
+
+    const clinicianName = r['Clinician Name'] || '';
+    const admittingDoctor = r['Admitting Doctor'] || getField(r, ['Doctor', 'Physician']);
+    const out = {
+      claimID: r['ClaimID'] || r['Pri. Claim No'] || r['Pri. Claim ID'] || getField(r, ['Claim ID', 'Claim No', 'Pri. Claim No', 'Pri. Claim ID']) || '',
+      visitID: r['Visit Id'] || '',
+      memberID: r['Pri. Member ID'] || r['Pri. Patient Insurance Card No'] || r['PatientCardID'] || getField(r, ['Patient Insurance Card No', 'Card Number / DHA Member ID', 'Member ID']) || '',
+      claimDate: r['Encounter Date'] || r['Adm/Reg. Date'] || r['ClaimDate'] || getField(r, ['Date', 'Claim Date']) || '',
+      clinician: resolveClinicianLicense(r['Clinician License'] || r['Admitting License'] || r['OrderDoctor'], clinicianName, admittingDoctor),
+      clinicianName,
+      department: r['Department'] || r['Clinic'] || r['Admitting Department'] || '',
+      packageName: r['Pri. Plan Type'] || r['Pri. Plan Name'] || r['Pri. Payer Name'] || r['Insurance Company'] || r['Pri. Sponsor'] || r['Package'] || '',
+      insuranceCompany: r['Pri. Plan Type'] || r['Pri. Payer Name'] || r['Insurance Company'] || r['Pri. Sponsor'] || r['Payer Name'] || '',
+      claimStatus: r['Codification Status'] || r['VisitStatus'] || r['Status'] || r['Claim Status'] || '',
+      fileNo: r['MR No.'] || r['MR No'] || r['Patient Code'] || r['File No'] || r['FileNo'] || '',
+      admittingDoctor,
+      openedBy: r['Opened by'] || '',
+      price: getField(r, ['Net Amount', 'Gross Amount', 'Total Sponsor Amt', 'Total Amount']),
+      facilityID: r['Facility ID'] || r['Center Name'] || '',
+      sourceFile: r['Source File'] || '',
+      emiratesID: getField(r, ['Emirates ID No', 'Emirates ID No.', 'Emirates ID', 'EmiratesID']) || ''
+    };
+
+    if (!out.memberID) {
+      for (const h of headers) {
+        const val = r[h];
+        if (val && String(h).toLowerCase().includes('card')) {
+          out.memberID = val;
+          break;
+        }
+      }
+    }
+
+    if (!out.claimID) {
+      for (const h of headers) {
+        const val = r[h];
+        if (val && String(h).toLowerCase().includes('claim')) {
+          out.claimID = val;
+          break;
+        }
+      }
+    }
+
+    return out;
   });
 }
 
@@ -3111,9 +3251,8 @@ function initializeEventListeners() {
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
-  // Load eligibility matching configuration first
   await loadEligibilityMatchingConfig();
-  
+  await loadClinicianLicenseMap();
   initializeEventListeners();
   updateStatus('Ready to process files');
 });
