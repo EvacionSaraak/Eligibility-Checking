@@ -1687,13 +1687,7 @@ function detectReportType(rawData) {
  * @param {*} val - Raw cell value
  * @returns {string}
  */
-function readClinicianLicense(val) {
-  if (val === false || (typeof val === 'string' && val.trim().toUpperCase() === 'FALSE')) return 'FALSE';
-  if (val == null || val === '') return '';
-  return String(val);
-}
-
-function normalizeReportData(rawData) {function normalizeReportData(rawData) {
+function normalizeReportData(rawData) {
   if (!rawData) return [];
 
   if (Array.isArray(rawData) && rawData.length > 0 && Array.isArray(rawData[0])) {
