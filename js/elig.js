@@ -137,7 +137,10 @@ async function loadClinicianLicenseMap() {
 
   const possiblePaths = [
     'json/clinician_licenses.json',
-    './json/clinician_licenses.json'
+    './json/clinician_licenses.json',
+    '../json/clinician_licenses.json',
+    '/Eligibility-Checking/json/clinician_licenses.json',
+    '/json/clinician_licenses.json'
   ];
 
   let data = null;
@@ -145,23 +148,58 @@ async function loadClinicianLicenseMap() {
 
   for (const path of possiblePaths) {
     try {
-      const response = await fetch(path);
+      const response = await fetch(`${path}?v=${Date.now()}`, { cache: 'no-store' });
+      const contentType = response.headers.get('content-type') || '';
+
+      console.log('🔎 Trying clinician license JSON:', {
+        path,
+        finalUrl: response.url,
+        ok: response.ok,
+        status: response.status,
+        contentType
+      });
+
       if (!response.ok) continue;
+
       data = await response.json();
       loadedPath = path;
+
+      console.log('🔎 Clinician JSON parsed:', {
+        loadedPath,
+        isArray: Array.isArray(data),
+        type: typeof data,
+        keys: data && typeof data === 'object' && !Array.isArray(data) ? Object.keys(data).slice(0, 20) : [],
+        length: Array.isArray(data) ? data.length : null,
+        firstItem: Array.isArray(data) && data.length ? data[0] : null
+      });
+
       break;
     } catch (error) {
-      continue;
+      console.warn('⚠️ Clinician JSON path failed:', path, error);
     }
   }
 
-  if (!Array.isArray(data)) {
-    console.warn('⚠️ Failed to load clinician license map from json/clinician_licenses.json, or file is not an array.');
+  const list = Array.isArray(data)
+    ? data
+    : data && Array.isArray(data.clinicians)
+      ? data.clinicians
+      : data && Array.isArray(data.data)
+        ? data.data
+        : [];
+
+  if (!list.length) {
+    console.warn('⚠️ Failed to load clinician license map. Parsed data was not a usable array.', {
+      loadedPath,
+      dataType: typeof data,
+      isArray: Array.isArray(data),
+      keys: data && typeof data === 'object' && !Array.isArray(data) ? Object.keys(data) : null,
+      sample: data
+    });
     clinicianLicenseMap = new Map();
     return;
   }
 
-  for (const item of data) {
+  for (const item of list) {
     const license =
       item['Phy Lic'] ||
       item['Physician License'] ||
@@ -180,7 +218,6 @@ async function loadClinicianLicenseMap() {
 
   console.log(`✅ Loaded ${clinicianLicenseMap.size} clinician aliases from ${loadedPath}`);
 }
-
 function lookupClinicianLicenseByName(...names) {
   for (const name of names) {
     const key = normalizeClinicianLookupKey(name);
