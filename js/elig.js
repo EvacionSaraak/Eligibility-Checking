@@ -107,6 +107,8 @@ function readClinicianLicense(val) {
 function normalizeClinicianLookupKey(value) {
   if (value === null || value === undefined) return '';
   return String(value)
+    .normalize('NFKC')
+    .replace(/\u00A0/g, ' ')
     .toUpperCase()
     .replace(/\bDR\.?\b/g, '')
     .replace(/\bDRA\.?\b/g, '')
@@ -125,7 +127,9 @@ function addClinicianLicenseAlias(name, license) {
   const key = normalizeClinicianLookupKey(name);
   const cleanLicense = readClinicianLicense(license);
   if (!key || !cleanLicense || cleanLicense === 'FALSE') return;
+
   clinicianLicenseMap.set(key, cleanLicense);
+  clinicianLicenseMap.set(key.replace(/\s+/g, ''), cleanLicense);
 }
 
 async function loadClinicianLicenseMap() {
@@ -180,8 +184,14 @@ async function loadClinicianLicenseMap() {
 function lookupClinicianLicenseByName(...names) {
   for (const name of names) {
     const key = normalizeClinicianLookupKey(name);
-    if (key && clinicianLicenseMap.has(key)) return clinicianLicenseMap.get(key);
+    if (!key) continue;
+
+    const compactKey = key.replace(/\s+/g, '');
+
+    if (clinicianLicenseMap.has(key)) return clinicianLicenseMap.get(key);
+    if (clinicianLicenseMap.has(compactKey)) return clinicianLicenseMap.get(compactKey);
   }
+
   return '';
 }
 
@@ -191,6 +201,13 @@ function resolveClinicianLicense(primaryLicense, ...nameFallbacks) {
 
   const mappedLicense = lookupClinicianLicenseByName(...nameFallbacks);
   if (mappedLicense) return mappedLicense;
+
+  console.warn('⚠️ Clinician license unresolved', {
+    primaryLicense,
+    nameFallbacks,
+    normalizedFallbacks: nameFallbacks.map(normalizeClinicianLookupKey),
+    mapLoadedSize: clinicianLicenseMap.size
+  });
 
   return 'FALSE';
 }
