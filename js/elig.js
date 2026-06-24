@@ -25,22 +25,26 @@ console.log(`✅ Eligibility Checker v${VERSION} loaded successfully`);
 //     - allowedDepartments: array of department terms (substring matching)
 //     - wordBoundaryTerms: array of terms to match as whole words (regex boundary matching)
 const SERVICE_PACKAGE_RULES = {
-  'Dental Services': {
-    keywords: ['dental', 'orthodontic']
-  },
-  'Physiotherapy': {
-    keywords: ['physio']
-  },
+  'Dental Services': { keywords: ['dental', 'orthodontic'] },
+  'Physiotherapy': { keywords: ['physio'] },
   'Other OP Services': {
-    keywords: ['physio', 'diet', 'occupational', 'speech', 'orthop', 'family']
+    keywords: [
+      'physio',
+      'diet',
+      'occupational',
+      'speech',
+      'orthop',
+      'family',
+      'psychiatry'
+    ]
   },
   'Consultation': {
-    keywords: [],  // No general keyword requirements
+    keywords: [], // No general keyword requirements
     statusRules: {
       'elective': {
         // ENT/Otolaryngology are explicitly allowed for elective consultations
         allowedDepartments: ['otolaryngology', 'ear nose throat', 'ear, nose & throat', 'ear, nose and throat'],
-        wordBoundaryTerms: ['ent']  // Match 'ent' only as a whole word to avoid false matches
+        wordBoundaryTerms: ['ent'] // Match 'ent' only as a whole word to avoid false matches
       }
     }
   }
