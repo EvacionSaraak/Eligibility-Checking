@@ -238,13 +238,17 @@ function lookupClinicianLicenseByName(...names) {
 
 function resolveClinicianLicense(primaryLicense, ...nameFallbacks) {
   const directLicense = readClinicianLicense(primaryLicense);
-  if (directLicense) return directLicense;
+
+  // A real license should be used immediately.
+  // FALSE means the report failed to provide a usable license, so we should still try name lookup.
+  if (directLicense && directLicense !== 'FALSE') return directLicense;
 
   const mappedLicense = lookupClinicianLicenseByName(...nameFallbacks);
   if (mappedLicense) return mappedLicense;
 
   console.warn('⚠️ Clinician license unresolved', {
     primaryLicense,
+    directLicense,
     nameFallbacks,
     normalizedFallbacks: nameFallbacks.map(normalizeClinicianLookupKey),
     mapLoadedSize: clinicianLicenseMap.size
