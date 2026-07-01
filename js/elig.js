@@ -2158,7 +2158,7 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
       remarks.push('Eligibility is under Mid; this is not accepted at our facilities.');
     } else if (eligibility && /^tc[1-4]$/i.test((eligibility['Package Name'] || '').trim())) {
       finalStatus = 'invalid';
-      remarks.push(`${eligibility['Package Name']} are not acceptible as eligibilities`);
+      remarks.push(`${eligibility['Package Name']} are not acceptable as eligibilities`);
     } else if (hasLeadingZero && eligibility) {
       finalStatus = 'unknown';
       remarks.push('Member ID has a leading zero; marked as unknown.');
