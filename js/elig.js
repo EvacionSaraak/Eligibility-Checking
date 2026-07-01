@@ -2156,7 +2156,7 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
     } else if (eligibility && eligPackageLower.includes('daman') && eligPackageLower.includes('mid')) {
       finalStatus = 'invalid';
       remarks.push('Eligibility is under Mid; this is not accepted at our facilities.');
-    } else if (eligibility && /^tc[1-4]$/i.test((eligibility['Package Name'] || '').trim())) {
+    } else if (eligibility && /tc[1-4]$/i.test((eligibility['Package Name'] || '').trim())) {
       finalStatus = 'invalid';
       remarks.push(`${eligibility['Package Name']} are not acceptable as eligibilities`);
     } else if (hasLeadingZero && eligibility) {
