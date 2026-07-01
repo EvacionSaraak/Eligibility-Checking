@@ -2156,11 +2156,14 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
     } else if (eligibility && eligPackageLower.includes('daman') && eligPackageLower.includes('mid')) {
       finalStatus = 'invalid';
       remarks.push('Eligibility is under Mid; this is not accepted at our facilities.');
+    } else if (eligibility && /^tc[1-4]$/i.test((eligibility['Package Name'] || '').trim())) {
+      finalStatus = 'invalid';
+      remarks.push(`${eligibility['Package Name']} are not acceptible as eligibilities`);
     } else if (hasLeadingZero && eligibility) {
       finalStatus = 'unknown';
       remarks.push('Member ID has a leading zero; marked as unknown.');
     } else if (!eligibility) {
-      if (eidMatchedMemberID && memberID && eidMatchedMemberID !== memberID) remarks.push('Wrong Member ID');
+      if (eidMatchedMemberID && memberID && eidMatchedMemberID !== memberID) remarks.push(`Wrong Member ID (should be ${eidMatchedMemberID})`);
 
       const lookupMemberID = eidMatchedMemberID || memberID;
       const rawEligList = eligMap.get(lookupMemberID) || [];
@@ -2233,7 +2236,7 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
     }
 
     if (eidMatchedMemberID && memberID && eidMatchedMemberID !== memberID) {
-      if (!remarks.includes('Wrong Member ID')) remarks.push('Wrong Member ID');
+      if (!remarks.some(r => r.startsWith('Wrong Member ID'))) remarks.push(`Wrong Member ID (should be ${eidMatchedMemberID})`);
       finalStatus = 'invalid';
     }
 
