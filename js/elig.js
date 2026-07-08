@@ -72,6 +72,7 @@ let showDiagnosticsButtons = false;
 // DOM Elements (lookups performed in initializeEventListeners)
 let reportInput, eligInput, processBtn, exportInvalidBtn, statusEl, resultsContainer, filterCheckbox, filterStatus, pasteTextarea, pasteBtn;
 let diagnosticsCheckbox, diagnosticsStatus;
+let includeUnknownExportCheckbox;
 
 /* ===========================
    Small Utilities
@@ -3014,10 +3015,16 @@ function collectMismatchedElementsForExport(entry) {
   return Array.from(elements).join('; ');
 }
 
-function exportInvalidEntries(results) {
-  const invalidEntries = (results || []).filter(r => r && r.finalStatus === 'invalid');
-  if (!invalidEntries.length) { alert('No invalid entries to export.'); return; }
-  const exportData = invalidEntries.map((entry, index) => {
+function exportInvalidEntries(results, includeUnknown = false) {
+  const entriesToExport = (results || []).filter(r => {
+    if (!r) return false;
+    return r.finalStatus === 'invalid' || (includeUnknown && r.finalStatus === 'unknown');
+  });
+  if (!entriesToExport.length) {
+    alert(includeUnknown ? 'No invalid or unknown entries to export.' : 'No invalid entries to export.');
+    return;
+  }
+  const exportData = entriesToExport.map((entry, index) => {
     // Convert date to Date object for Excel to recognize it as a date
     let exportDate = entry.encounterStart || '';
     if (exportDate) {
@@ -3047,7 +3054,7 @@ function exportInvalidEntries(results) {
   });
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.json_to_sheet(exportData);
-  XLSX.utils.book_append_sheet(wb, ws, 'Invalid Claims');
+  XLSX.utils.book_append_sheet(wb, ws, includeUnknown ? 'Invalid and Unknown Claims' : 'Invalid Claims');
   XLSX.writeFile(wb, `invalid_claims_${new Date().toISOString().slice(0,10)}.xlsx`);
 }
 
@@ -3253,13 +3260,21 @@ function initializeEventListeners() {
   filterStatus = document.getElementById('filterStatus');
   diagnosticsCheckbox = document.getElementById('showDiagnosticsButtons');
   diagnosticsStatus = document.getElementById('diagnosticsStatus');
+  includeUnknownExportCheckbox = document.getElementById('includeUnknownForInvalidExport');
   pasteTextarea = document.getElementById('pasteCsvTextarea');
   pasteBtn = document.getElementById('pasteCsvBtn');
 
   if (eligInput) eligInput.addEventListener('change', (e) => handleFileUpload(e, 'eligibility'));
   if (reportInput) reportInput.addEventListener('change', (e) => handleFileUpload(e, 'report'));
   if (processBtn) processBtn.addEventListener('click', handleProcessClick);
-  if (exportInvalidBtn) exportInvalidBtn.addEventListener('click', () => exportInvalidEntries(window.lastValidationResults || []));
+  if (exportInvalidBtn) {
+    exportInvalidBtn.addEventListener('click', () => {
+      exportInvalidEntries(
+        window.lastValidationResults || [],
+        !!(includeUnknownExportCheckbox && includeUnknownExportCheckbox.checked)
+      );
+    });
+  }
   if (filterCheckbox) {
     filterCheckbox.checked = true;
     filterCheckbox.addEventListener('change', onFilterToggle);
