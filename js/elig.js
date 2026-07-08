@@ -2147,7 +2147,7 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
       remarks.push('Member ID appears to contain extra data; please recheck this claim.');
     } else if (row.clinician === 'FALSE') {
       finalStatus = 'unknown';
-      remarks.push("This clinician hasn't been added to our database yet.");
+      remarks.push('Claim (or Report) does not contain Clinician data.');
     } else if (packageLower.includes('daman') && packageLower.includes('high-end')) {
       finalStatus = 'unknown';
       remarks.push('Daman High-End claims are marked as unknown.');
