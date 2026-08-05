@@ -2015,7 +2015,6 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
       if (i < 3) console.log(`  Row ${i}: Skipped - no claimID`);
       continue;
     }
-
     if (seenClaimIDs.has(claimID)) {
       if (i < 3) console.log(`  Row ${i}: Skipped - duplicate claimID ${claimID}`);
       continue;
@@ -2029,7 +2028,6 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
       if (claimIndex <= 3) console.log(`  Claim #${claimIndex} (${claimID}): Skipped - no memberID or Emirates ID`);
       continue;
     }
-
     const memberID = normalizeMemberID(rawMemberID);
     let insurance = (row.insuranceCompany || '').trim();
 
@@ -2044,14 +2042,12 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
         wasSwapped = true;
       }
     }
-
     if (!claimDate) {
       if (claimIndex <= 3) console.log(`  Claim #${claimIndex} (${claimID}): Skipped - failed to parse date from "${row.claimDate}"`);
       continue;
     }
 
     const formattedDate = DateHandler.format(claimDate);
-
     if (memberID.startsWith('(VVIP)')) {
       if (claimIndex <= 3) console.log(`  Claim #${claimIndex} (${claimID}): VVIP member, skipping eligibility check`);
       results.push({
@@ -2079,7 +2075,6 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
       });
       continue;
     }
-
     const hasWhitespaceMemberID = /\s/.test(rawMemberID);
     const hasLeadingZero = /^0/.test(rawMemberID);
 
@@ -2090,7 +2085,6 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
     let eidMatchedMemberID = null;
     let matchingEligibilities = [];
     let selectedEligibility = null;
-
     if (rawEmiratesID) {
       const eidResult = findEligibilityByEID(
         eligMap,
@@ -2106,7 +2100,6 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
         eidMatchedMemberID = eidResult.matchedMemberID;
         selectedEligibility = eidResult.eligibility;
         matchingEligibilities = eidResult.matchingEligibilities || [];
-
         if (!matchingEligibilities.length) {
           matchingEligibilities = (eligMap.get(eidMatchedMemberID) || []).map(r => ({
             ...r,
@@ -2115,7 +2108,6 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
         }
       }
     }
-
     if (!selectedEligibility && memberID) {
       matchingEligibilities = findEligibilityForClaim(
         eligMap,
@@ -2128,7 +2120,6 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
       );
       selectedEligibility = selectBestEligibility(matchingEligibilities, row.department, row.packageName);
     }
-
     if (selectedEligibility && selectedEligibility['Eligibility Request Number']) {
       if (!usedEligibilities.has(selectedEligibility['Eligibility Request Number'])) {
         usedEligibilities.add(selectedEligibility['Eligibility Request Number']);
@@ -2138,13 +2129,23 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
 
     let eligibility = selectedEligibility;
     let finalStatus = 'invalid', remarks = [];
-
     const packageLower = (row.packageName || '').toLowerCase();
     const eligPackageLower = (eligibility?.['Package Name'] || '').toLowerCase();
 
+    const eligibilityMemberID = normalizeMemberID(
+      eligibility?.['Card Number / DHA Member ID'] ||
+      eligibility?.['Card Number'] ||
+      eligibility?.['MemberID'] ||
+      eligibility?.['Member ID'] ||
+      eligibility?.['Patient Insurance Card No'] ||
+      eligibility?.['PatientCardID'] ||
+      ''
+    );
+    const expectedMemberID = eidMatchedMemberID || eligibilityMemberID || memberID;
+
     if (hasWhitespaceMemberID) {
-      finalStatus = 'unknown';
-      remarks.push('Member ID appears to contain extra data; please recheck this claim.');
+      finalStatus = 'invalid';
+      remarks.push(`Wrong Member ID (should be ${expectedMemberID})`);
     } else if (row.clinician === 'FALSE') {
       finalStatus = 'unknown';
       remarks.push('Claim (or Report) does not contain Clinician data.');
@@ -2165,10 +2166,8 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
       remarks.push('Member ID has a leading zero; marked as unknown.');
     } else if (!eligibility) {
       if (eidMatchedMemberID && memberID && eidMatchedMemberID !== memberID) remarks.push(`Wrong Member ID (should be ${eidMatchedMemberID})`);
-
       const lookupMemberID = eidMatchedMemberID || memberID;
       const rawEligList = eligMap.get(lookupMemberID) || [];
-
       if (rawEligList.length > 0) {
         const effectiveDiagnoseClinician = (eidMatchedMemberID && memberID && eidMatchedMemberID !== memberID) ? '' : row.clinician;
         const failureReason = diagnoseEligibilityFailure(
@@ -2188,13 +2187,11 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
         eligibility['Consultation Status'],
         (row.department || '').toLowerCase()
       );
-
       if (categoryCheck.valid) {
         if (row.packageName && eligibility['Package Name']) {
           if (!packagesEffectivelyMatch(row.packageName, eligibility['Package Name'])) {
             const normalizedClaimPackage = normalizePackageNameForDisplay(row.packageName);
             const normalizedEligPackage = normalizePackageNameForDisplay(eligibility['Package Name']);
-
             if (
               normalizedClaimPackage &&
               normalizedEligPackage &&
@@ -2235,9 +2232,13 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
         remarks.push(`Eligibility status: ${eligibility.Status}`);
       }
     }
-
     if (eidMatchedMemberID && memberID && eidMatchedMemberID !== memberID) {
-      if (!remarks.some(r => r.startsWith('Wrong Member ID'))) remarks.push(`Wrong Member ID (should be ${eidMatchedMemberID})`);
+      remarks = remarks.filter(remark =>
+        remark !== 'Member ID has a leading zero; marked as unknown.' &&
+        remark !== 'Member ID appears to contain extra data; please recheck this claim.' &&
+        !remark.startsWith('Wrong Member ID')
+      );
+      remarks.push(`Wrong Member ID (should be ${eidMatchedMemberID})`);
       finalStatus = 'invalid';
     }
 
@@ -2247,7 +2248,6 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
       (eidMatchedMemberID || memberID),
       row.clinician
     );
-
     results.push({
       claimID,
       visitID: row.visitID || '',
@@ -2280,7 +2280,6 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
       sourceFile: row.sourceFile || ''
     });
   }
-
   return results;
 }
 
