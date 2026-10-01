@@ -25,15 +25,9 @@ console.log(`✅ Eligibility Checker v${VERSION} loaded successfully`);
 //     - allowedDepartments: array of department terms (substring matching)
 //     - wordBoundaryTerms: array of terms to match as whole words (regex boundary matching)
 const SERVICE_PACKAGE_RULES = {
-  'Dental Services': {
-    keywords: ['dental', 'orthodontic']
-  },
-  'Physiotherapy': {
-    keywords: ['physio']
-  },
-  'Other OP Services': {
-    keywords: ['physio', 'diet', 'occupational', 'speech', 'orthop', 'family']
-  },
+  'Dental Services': { keywords: ['dental', 'orthodontic'] },
+  'Physiotherapy': { keywords: ['physio'] },
+  'Other OP Services': { keywords: ['physio', 'diet', 'occupational', 'speech', 'orthop', 'family'] },
   'Consultation': {
     keywords: [],  // No general keyword requirements
     statusRules: {
@@ -76,20 +70,57 @@ function escapeHtml(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#x27;');
 }
 
-function escapeRegex(str) {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
+function escapeRegex(str) { return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
 function normalizeMemberID(id) {
   if (!id) return "";
   let normalized = String(id).replace(/\D/g, "").trim();
   
   // Remove leading zeroes; if input is all zeroes (e.g., "0000"), keep at least one "0"
-  if (normalized.length > 0) {
-    normalized = normalized.replace(/^0+/, '') || '0';
-  }
+  if (normalized.length > 0) normalized = normalized.replace(/^0+/, '') || '0'; 
   
   return normalized;
+}
+
+/**
+ * Build a stable comparison key for Claim IDs.
+ *
+ * Claim IDs can arrive from Excel/CSV with harmless formatting differences
+ * (number vs string, hidden whitespace, casing, etc.). Those rows should still
+ * be treated as one claim.
+ */
+function normalizeClaimIDKey(value) {
+  if (value === null || value === undefined) return '';
+
+  return String(value)
+    .normalize('NFKC')
+    .replace(/[\u200B-\u200D\uFEFF]/g, '') // zero-width characters
+    .replace(/\s+/g, '')                     // Claim IDs should not contain spaces
+    .toUpperCase();
+}
+
+/**
+ * Keep only the first row for each Claim ID.
+ *
+ * Deduplicating here ensures counts, validation, filtering, and exports all
+ * operate on one logical claim instead of on duplicated report rows.
+ */
+function deduplicateClaimsByID(rows) {
+  const seen = new Set();
+  const uniqueRows = [];
+
+  for (const row of rows || []) {
+    if (!row) continue;
+
+    const claimKey = normalizeClaimIDKey(row.claimID);
+    if (!claimKey) continue;
+    if (seen.has(claimKey)) continue;
+
+    seen.add(claimKey);
+    uniqueRows.push(row);
+  }
+
+  return uniqueRows;
 }
 
 function normalizeClinician(name) {
@@ -114,9 +145,7 @@ async function loadEligibilityMatchingConfig() {
     console.warn('⚠️ Failed to load eligibility matching config, using defaults:', error.message);
     // Fallback to hardcoded configuration
     eligibilityMatchingConfig = {
-      classifications: {
-        daman: ['silver', 'gold', 'bronze']
-      },
+      classifications: { daman: ['silver', 'gold', 'bronze'] },
       matchingRules: [
         { id: 'thiqa-tc', claimContains: ['thiqa'], eligibilityContains: ['tc'] },
         { id: 'thiqa-thiqa', claimContains: ['thiqa'], eligibilityContains: ['thiqa'] },
@@ -167,9 +196,7 @@ function packageNamesMatch(claimPackage, eligPackage) {
   
   // Apply each matching rule from configuration
   for (const rule of eligibilityMatchingConfig.matchingRules) {
-    if (matchesRule(rule, claimLower, eligLower, claimPackage)) {
-      return true;
-    }
+    if (matchesRule(rule, claimLower, eligLower, claimPackage)) return true;
   }
   
   return false;
@@ -185,26 +212,18 @@ function packageNamesMatch(claimPackage, eligPackage) {
  */
 function matchesRule(rule, claimLower, eligLower, claimPackage) {
   // Check claim-side conditions
-  if (rule.claimContains) {
-    if (!rule.claimContains.some(term => claimLower.includes(term))) return false;
-  }
+  if (rule.claimContains) if (!rule.claimContains.some(term => claimLower.includes(term))) return false;
   
-  if (rule.claimContainsAll) {
-    if (!rule.claimContainsAll.every(term => claimLower.includes(term))) return false;
-  }
+  if (rule.claimContainsAll) if (!rule.claimContainsAll.every(term => claimLower.includes(term))) return false;
   
   if (rule.claimContainsAny) {
     if (!rule.claimContainsAny.some(term => claimLower.includes(term))) {
       // Check if classification matches instead
-      if (!rule.claimContainsClassification || !containsClassification(claimLower, rule.claimContainsClassification)) {
-        return false;
-      }
+      if (!rule.claimContainsClassification || !containsClassification(claimLower, rule.claimContainsClassification)) return false;
     }
   }
   
-  if (rule.claimExcludes) {
-    if (rule.claimExcludes.some(term => claimLower.includes(term))) return false;
-  }
+  if (rule.claimExcludes) if (rule.claimExcludes.some(term => claimLower.includes(term))) return false;
   
   if (rule.claimPattern) {
     // Reconstruct regex from string (handle pattern like "/(^|[_\-])daman/i")
@@ -222,33 +241,23 @@ function matchesRule(rule, claimLower, eligLower, claimPackage) {
       const hasEnhanced = claimLower.includes('enhanced');
       const hasDaman = claimLower.includes('daman');
       if (hasEnhanced && hasDaman) return false;
-      if (!hasEnhanced && !rule.claimContainsAny.some(term => claimLower.includes(term)) && !containsClassification(claimLower, rule.claimContainsClassification)) {
-        return false;
-      }
+      if (!hasEnhanced && !rule.claimContainsAny.some(term => claimLower.includes(term)) && !containsClassification(claimLower, rule.claimContainsClassification)) return false;
     }
   }
   
   // Check eligibility-side conditions
-  if (rule.eligibilityContains) {
-    if (!rule.eligibilityContains.some(term => eligLower.includes(term))) return false;
-  }
+  if (rule.eligibilityContains) if (!rule.eligibilityContains.some(term => eligLower.includes(term))) return false;
   
-  if (rule.eligibilityContainsAll) {
-    if (!rule.eligibilityContainsAll.every(term => eligLower.includes(term))) return false;
-  }
+  if (rule.eligibilityContainsAll) if (!rule.eligibilityContainsAll.every(term => eligLower.includes(term))) return false;
   
   if (rule.eligibilityContainsAny) {
     if (!rule.eligibilityContainsAny.some(term => eligLower.includes(term))) {
       // Check if classification matches instead
-      if (!rule.eligibilityContainsClassification || !containsClassification(eligLower, rule.eligibilityContainsClassification)) {
-        return false;
-      }
+      if (!rule.eligibilityContainsClassification || !containsClassification(eligLower, rule.eligibilityContainsClassification)) return false;
     }
   }
   
-  if (rule.eligibilityExcludes) {
-    if (rule.eligibilityExcludes.some(term => eligLower.includes(term))) return false;
-  }
+  if (rule.eligibilityExcludes) if (rule.eligibilityExcludes.some(term => eligLower.includes(term))) return false;
   
   // If we reach here, all conditions passed
   return true;
@@ -267,57 +276,37 @@ function normalizePackageNameForDisplay(packageName) {
   const packageLower = packageName.trim().toLowerCase();
   
   // THIQA packages - keep as is (not in DAMAN tier system)
-  if (packageLower.includes('thiqa') || packageLower.includes('tc')) {
-    return packageName;
-  }
+  if (packageLower.includes('thiqa') || packageLower.includes('tc')) return packageName;
   
   // If config not loaded, fall back to checking for explicit "daman" in package name
   if (!eligibilityMatchingConfig || !eligibilityMatchingConfig.matchingRules) {
-    if (packageLower.includes('daman')) {
-      return packageName; // Keep original if we can't determine tier
-    }
+    if (packageLower.includes('daman')) return packageName; // Keep original if we can't determine tier
     return packageName;
   }
   
   // Check if package name explicitly contains "daman" with a tier indicator
   if (packageLower.includes('daman')) {
     // Check for specific tier indicators in the package name
-    if (packageLower.includes('basic')) {
-      return 'Daman Basic';
-    }
-    if (packageLower.includes('enhanced')) {
-      return 'Daman Enhanced';
-    }
-    if (packageLower.includes('high-end')) {
-      return 'Daman High-End';
-    }
-    if (packageLower.includes('low-end')) {
-      return 'Daman Low-End';
-    }
-    if (packageLower.includes('mid')) {
-      return 'Daman Mid';
-    }
-    if (packageLower.includes('key')) {
-      return 'Daman Key';
-    }
+    if (packageLower.includes('basic')) return 'Daman Basic';
+    if (packageLower.includes('enhanced')) return 'Daman Enhanced';
+    if (packageLower.includes('high-end')) return 'Daman High-End';
+    if (packageLower.includes('low-end')) return 'Daman Low-End';
+    if (packageLower.includes('mid')) return 'Daman Mid';
+    if (packageLower.includes('key')) return 'Daman Key';
   }
   
   // For eligibility packages without explicit "daman", use JSON rules to determine tier
   // Iterate through rules to find matches and derive tier from the claim package pattern
   for (const rule of eligibilityMatchingConfig.matchingRules) {
     // Skip non-DAMAN rules
-    if (!rule.id.startsWith('daman-')) {
-      continue;
-    }
+    if (!rule.id.startsWith('daman-')) continue;
     
     // Extract tier name from rule using displayTier field in JSON
     const tierName = extractTierNameFromRuleId(rule.id, rule);
     if (!tierName) continue;
     
     // Check if this package matches the eligibility patterns in this rule
-    if (packageMatchesEligibilityPattern(packageLower, rule)) {
-      return tierName;
-    }
+    if (packageMatchesEligibilityPattern(packageLower, rule)) return tierName;
   }
   
   // If no specific tier identified, return original name
@@ -332,9 +321,7 @@ function normalizePackageNameForDisplay(packageName) {
  */
 function extractTierNameFromRuleId(ruleId, rule) {
   // Use displayTier from JSON if available
-  if (rule && rule.displayTier) {
-    return rule.displayTier;
-  }
+  if (rule && rule.displayTier) return rule.displayTier;
   
   // Fallback: No tier name available (e.g., for generic or non-display rules)
   return null;
@@ -348,39 +335,21 @@ function extractTierNameFromRuleId(ruleId, rule) {
  */
 function packageMatchesEligibilityPattern(packageLower, rule) {
   // Check eligibilityContainsAny
-  if (rule.eligibilityContainsAny) {
-    if (rule.eligibilityContainsAny.some(term => packageLower.includes(term))) {
-      return true;
-    }
-  }
+  if (rule.eligibilityContainsAny) if (rule.eligibilityContainsAny.some(term => packageLower.includes(term))) return true;
   
   // Check eligibilityContainsAll
-  if (rule.eligibilityContainsAll) {
-    if (rule.eligibilityContainsAll.every(term => packageLower.includes(term))) {
-      return true;
-    }
-  }
+  if (rule.eligibilityContainsAll) if (rule.eligibilityContainsAll.every(term => packageLower.includes(term))) return true;
   
   // Check eligibilityContains (single check)
-  if (rule.eligibilityContains) {
-    if (rule.eligibilityContains.some(term => packageLower.includes(term))) {
-      return true;
-    }
-  }
+  if (rule.eligibilityContains) if (rule.eligibilityContains.some(term => packageLower.includes(term))) return true;
   
   // Check classification match
-  if (rule.eligibilityContainsClassification) {
-    if (containsClassification(packageLower, rule.eligibilityContainsClassification)) {
-      return true;
-    }
-  }
+  if (rule.eligibilityContainsClassification) if (containsClassification(packageLower, rule.eligibilityContainsClassification)) return true;
   
   // Also check claimContainsAny for reverse rules (where claim patterns are in the package)
   if (rule.claimContainsAny && rule.eligibilityContainsAll) {
     // This handles reverse mappings where the package might have claim-side terms
-    if (rule.claimContainsAny.some(term => packageLower.includes(term))) {
-      return true;
-    }
+    if (rule.claimContainsAny.some(term => packageLower.includes(term))) return true;
   }
   
   return false;
@@ -403,17 +372,12 @@ const DateHandler = {
     const inputStr = input.toString().trim();
     if (/^\d+\.?\d*$/.test(inputStr)) {
       const numericValue = parseFloat(inputStr);
-      if (!isNaN(numericValue)) {
-        return this._parseExcelDate(numericValue);
-      }
+      if (!isNaN(numericValue)) return this._parseExcelDate(numericValue);
     }
 
     const cleanStr = inputStr.replace(/[,.]/g, '');
     const parsed = this._parseStringDate(cleanStr, preferMDY, debugLog) || new Date(cleanStr);
-    if (isNaN(parsed)) {
-      // Removed console warning - only log via debugLog flag
-      return null;
-    }
+    if (isNaN(parsed)) return null; // Removed console warning - only log via debugLog flag
     return parsed;
   },
 
@@ -471,9 +435,7 @@ const DateHandler = {
   _normalizeTwoDigitYear: function(year) {
     // Handle 2-digit years: assume 2000s for years 0-99
     // This assumes medical records are from recent years (2000-2099)
-    if (year < 100) {
-      return year + 2000;
-    }
+    if (year < 100) return year + 2000;
     return year;
   },
 
@@ -495,9 +457,7 @@ const DateHandler = {
       const rawYear = parseInt(dmyMdyMatch[3], 10);
       const year = this._normalizeTwoDigitYear(rawYear);
       
-      if (debugLog) {
-        console.log(`    [Parse] Numeric date matched: part1=${part1}, part2=${part2}, rawYear=${rawYear}, normalizedYear=${year}`);
-      }
+      if (debugLog) console.log(`    [Parse] Numeric date matched: part1=${part1}, part2=${part2}, rawYear=${rawYear}, normalizedYear=${year}`);
       
       if (part1 > 12 && part2 <= 12) {
         // Unambiguous DMY (day > 12, so first part must be day)
@@ -524,9 +484,7 @@ const DateHandler = {
       const rawYear = parseInt(textMatch[3], 10);
       const year = this._normalizeTwoDigitYear(rawYear);
       
-      if (debugLog) {
-        console.log(`    [Parse] Text date matched: day=${day}, monthName=${monthName} (index=${monthIndex}), rawYear=${rawYear}, normalizedYear=${year}`);
-      }
+      if (debugLog) console.log(`    [Parse] Text date matched: day=${day}, monthName=${monthName} (index=${monthIndex}), rawYear=${rawYear}, normalizedYear=${year}`);
       
       if (monthIndex >= 0 && monthIndex < 12 && day >= 1 && day <= 31) {
         if (debugLog) console.log(`    [Parse] Final text date: day=${day}, month=${MONTHS[monthIndex]} (index=${monthIndex}), year=${year}`);
@@ -557,7 +515,7 @@ function summarizeAndDisplayCounts() {
     if ((!Array.isArray(xlsData) || xlsData.length === 0) && rawParsedReport) {
       try {
         const normalized = normalizeReportData(rawParsedReport);
-        xlsData = normalized.filter(r => r && r.claimID && String(r.claimID).trim() !== '');
+        xlsData = deduplicateClaimsByID(normalized);
       } catch (e) {
         // Removed console warning - fails silently
       }
@@ -565,9 +523,7 @@ function summarizeAndDisplayCounts() {
 
     const claimCount = Array.isArray(xlsData) ? xlsData.length : 0;
 
-    if (statusEl) {
-      statusEl.textContent = `Loaded ${eligCount} eligibilities, ${claimCount} claims — Ready to process files`;
-    }
+    if (statusEl) statusEl.textContent = `Loaded ${eligCount} eligibilities, ${claimCount} claims — Ready to process files`;
   } catch (err) {
     // Removed console error - fails silently
   }
@@ -616,9 +572,7 @@ function findHeaderRowFromArrays(allRows, maxScan = 10) {
       : String(headerValue).trim();
     
     // Only include non-empty headers
-    if (headerStr !== '') {
-      headerMapping.push({ index: c, name: headerStr });
-    }
+    if (headerStr !== '') headerMapping.push({ index: c, name: headerStr });
   }
   
   const headers = headerMapping.map(h => h.name);
@@ -627,9 +581,7 @@ function findHeaderRowFromArrays(allRows, maxScan = 10) {
   const rows = dataRows.map(rowArray => {
     const obj = {};
     // Map only the non-empty header columns to the object
-    for (const { index, name } of headerMapping) {
-      obj[name] = rowArray[index] === undefined || rowArray[index] === null ? '' : rowArray[index];
-    }
+    for (const { index, name } of headerMapping) { obj[name] = rowArray[index] === undefined || rowArray[index] === null ? '' : rowArray[index]; }
     return obj;
   });
   
@@ -702,12 +654,8 @@ function prepareEligibilityMap(rawSheetArray) {
   // If rows are arrays -> detect header and convert to objects
   if (Array.isArray(rawSheetArray[0])) {
     // find header row
-    let headerRowIndex = rawSheetArray.findIndex(row =>
-      Array.isArray(row) && row.some(cell => String(cell || '').trim().toLowerCase().includes('eligibility request number'))
-    );
-    if (headerRowIndex === -1) {
-      headerRowIndex = rawSheetArray.findIndex(row => Array.isArray(row) && row.some(cell => String(cell || '').trim() !== ''));
-    }
+    let headerRowIndex = rawSheetArray.findIndex(row => Array.isArray(row) && row.some(cell => String(cell || '').trim().toLowerCase().includes('eligibility request number')) );
+    if (headerRowIndex === -1) headerRowIndex = rawSheetArray.findIndex(row => Array.isArray(row) && row.some(cell => String(cell || '').trim() !== ''));
     if (headerRowIndex === -1) return new Map();
 
     const headers = (rawSheetArray[headerRowIndex] || []).map(h => String(h || '').trim());
@@ -718,12 +666,8 @@ function prepareEligibilityMap(rawSheetArray) {
     console.log(`📋 Header row found at index ${headerRowIndex}`);
     console.log(`📋 Total columns: ${headers.length}`);
     console.log(`📋 Column headers (first 15):`, headers.slice(0, 15).join(', '));
-    if (headers.length > 15) {
-      console.log(`📋 Column headers (columns 16-30):`, headers.slice(15, 30).join(', '));
-    }
-    if (headers.length > 30) {
-      console.log(`📋 ALL column headers:`, headers.join(', '));
-    }
+    if (headers.length > 15) console.log(`📋 Column headers (columns 16-30):`, headers.slice(15, 30).join(', '));
+    if (headers.length > 30) console.log(`📋 ALL column headers:`, headers.join(', '));
     
     // Show first 3 raw data rows to inspect actual file structure
     console.log(`\n🔍 RAW DATA INSPECTION - First 3 data rows from file:`);
@@ -732,9 +676,7 @@ function prepareEligibilityMap(rawSheetArray) {
       if (!Array.isArray(inspectRow)) continue;
       const inspectRecord = {};
       headers.forEach((h, idx) => {
-        if (inspectRow[idx] !== undefined && inspectRow[idx] !== null && inspectRow[idx] !== '') {
-          inspectRecord[h] = inspectRow[idx];
-        }
+        if (inspectRow[idx] !== undefined && inspectRow[idx] !== null && inspectRow[idx] !== '') inspectRecord[h] = inspectRow[idx];
       });
       console.log(`   Row ${inspectIdx} (${Object.keys(inspectRecord).length} populated columns):`);
       // Show all column names and first few chars of values
@@ -744,9 +686,7 @@ function prepareEligibilityMap(rawSheetArray) {
         const preview = valStr.length > 30 ? valStr.substring(0, 30) + '...' : valStr;
         console.log(`      "${col}": "${preview}"`);
       });
-      if (Object.keys(inspectRecord).length > 10) {
-        console.log(`      ... and ${Object.keys(inspectRecord).length - 10} more columns`);
-      }
+      if (Object.keys(inspectRecord).length > 10) console.log(`      ... and ${Object.keys(inspectRecord).length - 10} more columns`);
     }
     console.log(``);
     
@@ -780,9 +720,7 @@ function prepareEligibilityMap(rawSheetArray) {
       // the first non-empty occurrence takes precedence over later ones.
       headers.forEach((h, idx) => {
         const val = row[idx] !== undefined ? row[idx] : '';
-        if (!Object.prototype.hasOwnProperty.call(record, h) || record[h] === '' || record[h] === null || record[h] === undefined) {
-          record[h] = val;
-        }
+        if (!Object.prototype.hasOwnProperty.call(record, h) || record[h] === '' || record[h] === null || record[h] === undefined) record[h] = val;
       });
 
       let rawMemberID = '';
@@ -795,17 +733,13 @@ function prepareEligibilityMap(rawSheetArray) {
       }
       if (!rawMemberID) {
         skippedNoMemberID++;
-        if (firstSkippedSamples.length < 10) {
-          firstSkippedSamples.push({row: i, reason: 'No member ID found (card number is blank)', raw: rawMemberID});
-        }
+        if (firstSkippedSamples.length < 10) firstSkippedSamples.push({row: i, reason: 'No member ID found (card number is blank)', raw: rawMemberID});
         continue;
       }
       const memberID = normalizeMemberID(rawMemberID);
       if (!memberID) {
         skippedEmptyMemberID++;
-        if (firstSkippedSamples.length < 10) {
-          firstSkippedSamples.push({row: i, reason: 'Empty after normalization', raw: rawMemberID});
-        }
+        if (firstSkippedSamples.length < 10) firstSkippedSamples.push({row: i, reason: 'Empty after normalization', raw: rawMemberID});
         continue;
       }
 
@@ -817,10 +751,7 @@ function prepareEligibilityMap(rawSheetArray) {
       
       // Log first 10 eligibilities to show mapping process
       recordCount++;
-      if (recordCount <= 10) {
-        console.log(`  Elig ${recordCount}: Raw="${rawMemberID}" → Normalized="${memberID}" → Map key="${memberID}"`);
-      }
-
+      if (recordCount <= 10) console.log(`  Elig ${recordCount}: Raw="${rawMemberID}" → Normalized="${memberID}" → Map key="${memberID}"`);
       if (!eligMap.has(memberID)) eligMap.set(memberID, []);
       eligMap.get(memberID).push(record);
     }
@@ -833,9 +764,7 @@ function prepareEligibilityMap(rawSheetArray) {
       console.log(`   Empty after normalization: ${skippedEmptyMemberID}`);
       if (firstSkippedSamples.length > 0) {
         console.log(`\n   First ${firstSkippedSamples.length} skipped rows:`);
-        firstSkippedSamples.forEach(s => {
-          console.log(`   Row ${s.row}: ${s.reason}, Raw="${s.raw}"`);
-        });
+        firstSkippedSamples.forEach(s => { console.log(`   Row ${s.row}: ${s.reason}, Raw="${s.raw}"`); });
       }
     }
 
@@ -913,9 +842,7 @@ function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians =
   
   const eligList = eligMap.get(normalizedID) || [];
   
-  if (shouldLog) {
-    console.log(`  4️⃣ Result: ${eligList.length > 0 ? `Found ${eligList.length} eligibilities` : 'undefined (NOT FOUND)'}`);
-  }
+  if (shouldLog) console.log(`  4️⃣ Result: ${eligList.length > 0 ? `Found ${eligList.length} eligibilities` : 'undefined (NOT FOUND)'}`);
   
   if (!eligList.length) {
     if (shouldLog) {
@@ -1002,18 +929,14 @@ function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians =
         const eligFormattedDate = DateHandler.format(eligDate);
         const matches = DateHandler.isSameDay(claimDate, eligDate);
         console.log(`   Elig ${eligIndex}/${eligList.length} #${eligNum}: Date=${eligFormattedDate}, Status="${status}", Clinician="${clinician}" → ${matches ? '✅ Date match' : '❌ Date mismatch'}`);
-        if (!matches) {
-          continue;
-        }
+        if (!matches) continue;
       } else {
         console.log(`   Elig ${eligIndex}/${eligList.length} #${eligNum}: ❌ Failed to parse date from "${eligDateStr}"`);
         continue;
       }
     } else {
       // Non-logging path - just check date
-      if (!DateHandler.isSameDay(claimDate, eligDate)) {
-        continue;
-      }
+      if (!DateHandler.isSameDay(claimDate, eligDate)) continue;
     }
     
     const eligStatus = (elig.Status || '').toLowerCase();
@@ -1029,15 +952,11 @@ function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians =
     // (the scenario where the wrong clinician was entered on the claim but the
     // Blocked/Cancelled eligibility is the correct one for that visit).
     if (clinicianMismatch && !isBlockedOrCancelled) {
-      if (shouldLog) {
-        console.log(`      ❌ Clinician mismatch: has "${eligClinician}" but need: ${claimClinicians.join(', ')}`);
-      }
+      if (shouldLog) console.log(`      ❌ Clinician mismatch: has "${eligClinician}" but need: ${claimClinicians.join(', ')}`);
       continue;
     }
 
-    if (clinicianMismatch && shouldLog) {
-      console.log(`      ⚠️ Clinician mismatch for Blocked/Cancelled eligibility (including anyway — takes priority): has "${eligClinician}" but need: ${claimClinicians.join(', ')}`);
-    }
+    if (clinicianMismatch && shouldLog) console.log(`      ⚠️ Clinician mismatch for Blocked/Cancelled eligibility (including anyway — takes priority): has "${eligClinician}" but need: ${claimClinicians.join(', ')}`);
 
     const serviceCategory = (elig['Service Category'] || '').trim();
     const consultationStatus = (elig['Consultation Status'] || '').trim();
@@ -1045,29 +964,21 @@ function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians =
     const categoryCheck = isServiceCategoryValid(serviceCategory, consultationStatus, department);
     
     if (!categoryCheck.valid) {
-      if (shouldLog) {
-        console.log(`      ❌ Service category invalid: ${categoryCheck.reason}`);
-      }
+      if (shouldLog) console.log(`      ❌ Service category invalid: ${categoryCheck.reason}`);
       continue;
     }
     
     // Include Eligible, Blocked, and Cancelled statuses; skip all others
     if (eligStatus !== 'eligible' && !isBlockedOrCancelled) {
-      if (shouldLog) {
-        console.log(`      ❌ Status "${elig.Status}" (must be eligible, blocked, or cancelled)`);
-      }
+      if (shouldLog) console.log(`      ❌ Status "${elig.Status}" (must be eligible, blocked, or cancelled)`);
       continue;
     }
     
-    if (shouldLog) {
-      console.log(`      ✅ MATCH FOUND - Adding to results (match ${matchingEligs.length + 1})`);
-    }
+    if (shouldLog) console.log(`      ✅ MATCH FOUND - Adding to results (match ${matchingEligs.length + 1})`);
     
     // Check if already used, but don't mark as used yet - will mark the selected one later
     const isUsed = usedEligibilities.has(elig['Eligibility Request Number']);
-    if (shouldLog && isUsed) {
-      console.log(`      ⚠️ Note: Already used for another claim`);
-    }
+    if (shouldLog && isUsed) console.log(`      ⚠️ Note: Already used for another claim`);
     
     // Add this eligibility to matches with usage status and clinician-match flags
     // _clinicianMatch: true  = elig has a non-empty clinician AND it positively matched the claim's clinician
@@ -1134,9 +1045,7 @@ function selectBestEligibility(eligibilities, claimDepartment = '', claimPackage
     if (!categoryCheck.valid) return false;
     
     // Check package name match if both exist
-    if (claimPackage && elig['Package Name']) {
-      if (!packageNamesMatch(claimPackage, elig['Package Name'])) return false;
-    }
+    if (claimPackage && elig['Package Name']) if (!packageNamesMatch(claimPackage, elig['Package Name'])) return false;
     
     return true;
   });
@@ -1155,9 +1064,7 @@ function selectBestEligibility(eligibilities, claimDepartment = '', claimPackage
   // that is the scenario where the "correct" eligibility was blocked/cancelled and an
   // unrelated Eligible (with no clinician on it) was otherwise being selected.
   // If a genuine Eligible+clinician-match exists alongside a B/C, use the Eligible.
-  const eligiblesWithStrongClinician = eligsToConsider.filter(e =>
-    (e.Status || '').toLowerCase() === 'eligible' && e._clinicianMatch === true
-  );
+  const eligiblesWithStrongClinician = eligsToConsider.filter(e => (e.Status || '').toLowerCase() === 'eligible' && e._clinicianMatch === true );
   const blockedCancelledEligs = eligsToConsider.filter(e => {
     const s = (e.Status || '').toLowerCase();
     return s === 'blocked' || s === 'cancelled';
@@ -1188,35 +1095,26 @@ function selectBestEligibility(eligibilities, claimDepartment = '', claimPackage
     // Exact service category match (weight: 100)
     if (dept && serviceCategory && dept.includes(serviceCategory)) {
       score += 100;
-    } else if (dept && serviceCategory && serviceCategory.includes(dept)) {
-      score += 100;
-    }
+    } else if (dept && serviceCategory && serviceCategory.includes(dept)) score += 100;
     
     // Specific service category (weight: 50) - prefer specific over generic
     if (serviceCategory === 'consultation') {
       score += 50;
       // Consultation with specific status (weight: +25)
-      if (consultationStatus === 'elective' || consultationStatus === 'emergency') {
-        score += 25;
-      }
+      if (consultationStatus === 'elective' || consultationStatus === 'emergency') score += 25;
     } else if (serviceCategory && serviceCategory !== 'other op services' && serviceCategory !== 'other') {
       score += 40; // Other specific categories
     }
     
     // Generic categories get lower score (weight: 10)
-    if (serviceCategory === 'other op services' || serviceCategory === 'other') {
-      score += 10;
-    }
-    
+    if (serviceCategory === 'other op services' || serviceCategory === 'other') score += 10;
     return { elig, score };
   });
   
   // Sort by score first (highest first), then by date (most recent first), then by request number (highest first)
   scored.sort((a, b) => {
     // Primary: Sort by score (descending)
-    if (b.score !== a.score) {
-      return b.score - a.score;
-    }
+    if (b.score !== a.score) return b.score - a.score;
     
     // Secondary: Sort by "Answered On" date (most recent first)
     const dateA = DateHandler.parse(a.elig['Answered On']);
@@ -1236,10 +1134,7 @@ function selectBestEligibility(eligibilities, claimDepartment = '', claimPackage
     // Tertiary: Sort by Eligibility Request Number (higher/more recent first)
     const reqNumA = extractRequestNumber(a.elig['Eligibility Request Number']);
     const reqNumB = extractRequestNumber(b.elig['Eligibility Request Number']);
-    if (reqNumA !== null && reqNumB !== null) {
-      return reqNumB - reqNumA;  // Higher number (more recent) first
-    }
-    
+    if (reqNumA !== null && reqNumB !== null) return reqNumB - reqNumA;  // Higher number (more recent) first
     return 0;  // Keep original order only as absolute last resort
   });
   
@@ -1252,12 +1147,8 @@ function selectBestEligibility(eligibilities, claimDepartment = '', claimPackage
   });
   
   // If we had to use a used eligibility, log a warning
-  if (scored[0].elig._isUsed) {
-    console.log(`   ⚠️ WARNING: Selected a USED eligibility (no unused options available)`);
-  }
-  
+  if (scored[0].elig._isUsed) console.log(`   ⚠️ WARNING: Selected a USED eligibility (no unused options available)`);
   console.log(`   ✅ Selected: #${scored[0].elig['Eligibility Request Number']} (score: ${scored[0].score})`);
-  
   return scored[0].elig;
 }
 
@@ -1290,18 +1181,14 @@ function isServiceCategoryValid(serviceCategory, consultationStatus, rawPackage)
           // Escape special regex characters to prevent regex injection
           const escapedTerm = escapeRegex(term);
           const regex = new RegExp(`\\b${escapedTerm}\\b`, 'i');
-          if (regex.test(pkg)) {
-            return { valid: true };
-          }
+          if (regex.test(pkg)) return { valid: true };
         }
       }
       
       // Check allowed departments (substring matching)
       if (statusRule.allowedDepartments && statusRule.allowedDepartments.length > 0) {
         const isAllowedDept = statusRule.allowedDepartments.some(dept => pkg.includes(dept));
-        if (isAllowedDept) {
-          return { valid: true };
-        }
+        if (isAllowedDept) return { valid: true };
       }
       
       // If no status-specific match found, continue to general keyword validation below
@@ -1311,9 +1198,7 @@ function isServiceCategoryValid(serviceCategory, consultationStatus, rawPackage)
   // Check general keyword requirements
   const keywords = rules.keywords || [];
   if (keywords.length > 0) {
-    if (pkg && !keywords.some(keyword => pkg.includes(keyword))) {
-      return { valid: false, reason: `${serviceCategory} category requires related package. Found: "${pkgRaw}"` };
-    }
+    if (pkg && !keywords.some(keyword => pkg.includes(keyword))) return { valid: false, reason: `${serviceCategory} category requires related package. Found: "${pkgRaw}"` };
   }
   
   return { valid: true };
@@ -1404,9 +1289,7 @@ function diagnoseEligibilityFailure(eligMap, claimDate, normalizedMemberID, clai
 
   for (const elig of clinicianRelevantMatches) {
     const categoryCheck = isServiceCategoryValid(elig['Service Category'], elig['Consultation Status'], dept);
-    if (!categoryCheck.valid) {
-      reasons.add('Wrong Service Category');
-    }
+    if (!categoryCheck.valid) reasons.add('Wrong Service Category');
   }
 
   if (!reasons.size) return null;
@@ -1452,9 +1335,7 @@ function findEligibilityByEID(eligMap, rawEID, claimDate, claimClinicians, insur
   for (const matchedMemberID of matchedMemberIDs) {
     const matches = findEligibilityForClaim(eligMap, claimDate, matchedMemberID, claimClinicians, insurance, false, 0);
     const best = selectBestEligibility(matches, claimDepartment, claimPackage);
-    if (best) {
-      return { eligibility: best, matchedMemberID };
-    }
+    if (best) return { eligibility: best, matchedMemberID };
   }
 
   // EID matched a record but no valid eligibility for this claim date/clinician
@@ -1748,12 +1629,14 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
       continue;
     }
     
+    const claimKey = normalizeClaimIDKey(claimID);
+
     // Skip duplicate claim IDs - keep only first occurrence
-    if (seenClaimIDs.has(claimID)) {
+    if (seenClaimIDs.has(claimKey)) {
       if (i < 3) console.log(`  Row ${i}: Skipped - duplicate claimID ${claimID}`);
       continue;
     }
-    seenClaimIDs.add(claimID);
+    seenClaimIDs.add(claimKey);
     claimIndex++; // Increment for every non-duplicate claim
 
     const rawMemberID = String(row.memberID || '').trim();
@@ -1891,9 +1774,7 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
       finalStatus = 'unknown';
       remarks.push('Member ID has a leading zero; marked as unknown.');
     } else if (!eligibility) {
-      if (eidMatchedMemberID && eidMatchedMemberID !== memberID) {
-        remarks.push('Wrong Member ID');
-      }
+      if (eidMatchedMemberID && eidMatchedMemberID !== memberID) remarks.push('Wrong Member ID');
       const lookupMemberID = eidMatchedMemberID || memberID;
       const rawEligList = eligMap.get(lookupMemberID) || [];
       if (rawEligList.length > 0) {
@@ -1941,9 +1822,7 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
     // Mark it invalid and surface "Wrong Member ID" regardless of which branch above ran
     // (e.g. the leading-zero branch sets finalStatus = 'invalid' without adding this remark).
     if (eidMatchedMemberID && eidMatchedMemberID !== memberID) {
-      if (!remarks.includes('Wrong Member ID')) {
-        remarks.push('Wrong Member ID');
-      }
+      if (!remarks.includes('Wrong Member ID')) remarks.push('Wrong Member ID');
       finalStatus = 'invalid';
     }
 
@@ -2081,9 +1960,7 @@ function renderResults(results, eligMap, totalResults = null) {
     if (provider.includes('daman')) row.classList.add('daman-only');
     else if (provider.includes('thiqa')) row.classList.add('thiqa-only');
 
-    if ((result.finalStatus || '').toLowerCase() === 'vvip' || (result.status || '').toString().toLowerCase() === 'vvip') {
-      row.classList.add('selected');
-    }
+    if ((result.finalStatus || '').toLowerCase() === 'vvip' || (result.status || '').toString().toLowerCase() === 'vvip') row.classList.add('selected');
 
     const statusBadge = result.status
       ? `<span class="badge ${result.status.toString().toLowerCase() === 'eligible' ? 'bg-success' : 'bg-danger'}">${escapeHtml(result.status)}</span>`
@@ -2727,7 +2604,7 @@ async function handleFileUpload(event, type) {
       detectedReportType = detectReportType(parsed);
       
       const normalized = normalizeReportData(parsed);
-      xlsData = normalized.filter(r => r && r.claimID && String(r.claimID).trim() !== '');
+      xlsData = deduplicateClaimsByID(normalized);
       if (!xlsData || xlsData.length === 0) {
         // Reset report type if no valid data
         detectedReportType = 'Generic';
@@ -2757,7 +2634,7 @@ async function handlePasteCsvClick() {
     detectedReportType = detectReportType(parsed);
     
     const normalized = normalizeReportData(parsed);
-    xlsData = normalized.filter(r => r && r.claimID && String(r.claimID).trim() !== '');
+    xlsData = deduplicateClaimsByID(normalized);
     if (xlsData.length === 0) {
       // Reset report type if no valid data
       detectedReportType = 'Generic';
