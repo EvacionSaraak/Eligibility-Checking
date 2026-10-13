@@ -1838,6 +1838,7 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
       matchingEligibilities, row.department, row.packageName
     );
     let eidMatchedMemberID = null;
+    let eidMismatchWithoutValidEligibility = false;
     let finalStatus = 'invalid', remarks = [];
 
     // EID is authoritative for detecting a Wrong Member ID.
@@ -1849,29 +1850,30 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
       );
 
       if (eidResult && eidResult.matchedMemberID) {
-        eidMatchedMemberID = eidResult.matchedMemberID;
+        const resolvedMemberID = eidResult.matchedMemberID;
 
-        // If EID resolves to a different Member ID, the claim Member ID is wrong.
-        // Use the EID-resolved eligibility/candidate records for validation and Details.
-        if (eidMatchedMemberID !== memberID) {
-          eligibility = eidResult.eligibility;
+        // A different Member ID only counts as "Wrong Member ID" when the EID
+        // also resolves to a valid eligibility for this claim context.
+        if (resolvedMemberID !== memberID) {
+          if (eidResult.eligibility) {
+            eidMatchedMemberID = resolvedMemberID;
+            eligibility = eidResult.eligibility;
 
-          const eidMatches = findEligibilityForClaim(
-            eligMap, claimDate, eidMatchedMemberID, [row.clinician], insurance, false, claimIndex
-          );
+            const eidMatches = findEligibilityForClaim(
+              eligMap, claimDate, eidMatchedMemberID, [row.clinician], insurance, false, claimIndex
+            );
 
-          matchingEligibilities.length = 0;
-          if (eidMatches && eidMatches.length > 0) {
-            eidMatches.forEach(r => matchingEligibilities.push(r));
+            matchingEligibilities.length = 0;
+            if (eidMatches && eidMatches.length > 0) {
+              eidMatches.forEach(r => matchingEligibilities.push(r));
+            }
           } else {
-            // Even when no EID-resolved record passes date/clinician/package filters,
-            // keep the raw records available so Wrong Member ID can still be shown
-            // with the correct Member ID in Details.
-            const allEidRecords = eligMap.get(eidMatchedMemberID) || [];
-            allEidRecords.forEach(r => matchingEligibilities.push({
-              ...r,
-              _isUsed: usedEligibilities.has(r['Eligibility Request Number'])
-            }));
+            // EID identifies a different member, but there is no valid eligibility
+            // for the same claim date/clinician/package. The actionable result is
+            // Eligibility Not Taken, not Wrong Member ID.
+            eidMismatchWithoutValidEligibility = true;
+            eligibility = null;
+            matchingEligibilities.length = 0;
           }
         }
       }
@@ -1907,21 +1909,25 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
       finalStatus = 'unknown';
       remarks.push('Member ID has a leading zero; marked as unknown.');
     } else if (!eligibility) {
-      if (eidMatchedMemberID && eidMatchedMemberID !== memberID) {
-        remarks.push(buildWrongMemberIDRemark(eidMatchedMemberID));
-      }
-      const lookupMemberID = eidMatchedMemberID || memberID;
-      const rawEligList = eligMap.get(lookupMemberID) || [];
-      if (rawEligList.length > 0) {
-        // Member found in map but no eligibility passed all filters —
-        // attempt to surface the specific single-field failure reason.
-        // When the root cause is already "Wrong Member ID", suppress clinician
-        // diagnosis (clinician mismatch is irrelevant on the wrong member's records).
-        const effectiveDiagnoseClinician = (eidMatchedMemberID && eidMatchedMemberID !== memberID) ? '' : row.clinician;
-        const failureReason = diagnoseEligibilityFailure(eligMap, claimDate, lookupMemberID, effectiveDiagnoseClinician, row.department);
-        remarks.push(failureReason || 'Eligibility Not Taken');
-      } else {
+      if (eidMismatchWithoutValidEligibility) {
         remarks.push('Eligibility Not Taken');
+      } else {
+        if (eidMatchedMemberID && eidMatchedMemberID !== memberID) {
+          remarks.push(buildWrongMemberIDRemark(eidMatchedMemberID));
+        }
+        const lookupMemberID = eidMatchedMemberID || memberID;
+        const rawEligList = eligMap.get(lookupMemberID) || [];
+        if (rawEligList.length > 0) {
+          // Member found in map but no eligibility passed all filters —
+          // attempt to surface the specific single-field failure reason.
+          // When the root cause is already "Wrong Member ID", suppress clinician
+          // diagnosis (clinician mismatch is irrelevant on the wrong member's records).
+          const effectiveDiagnoseClinician = (eidMatchedMemberID && eidMatchedMemberID !== memberID) ? '' : row.clinician;
+          const failureReason = diagnoseEligibilityFailure(eligMap, claimDate, lookupMemberID, effectiveDiagnoseClinician, row.department);
+          remarks.push(failureReason || 'Eligibility Not Taken');
+        } else {
+          remarks.push('Eligibility Not Taken');
+        }
       }
     } else if (eligibility.Status?.toLowerCase() === 'eligible') {
       const categoryCheck = isServiceCategoryValid(eligibility['Service Category'], eligibility['Consultation Status'], (row.department || '').toLowerCase());
