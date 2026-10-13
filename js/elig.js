@@ -1013,22 +1013,24 @@ function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians =
 
 
     const eligClinician = (elig.Clinician || '').trim();
-    const hasClaimClinician = claimClinicians.some(c => c && c.trim());
-    const clinicianMismatch = eligClinician && hasClaimClinician && !claimClinicians.includes(eligClinician);
+    const normalizedEligClinician = normalizeClinician(eligClinician);
+    const normalizedClaimClinicians = claimClinicians
+      .map(c => normalizeClinician(c || ''))
+      .filter(Boolean);
+    const hasClaimClinician = normalizedClaimClinicians.length > 0;
+    const clinicianMismatch =
+      !eligClinician ||
+      !hasClaimClinician ||
+      !normalizedClaimClinicians.includes(normalizedEligClinician);
 
-
-    // Eligible eligibilities require a clinician match.
-    // Blocked/Cancelled eligibilities are included even when the clinician doesn't match —
-    // they take priority over Eligible eligibilities when both exist for the same date
-    // (the scenario where the wrong clinician was entered on the claim but the
-    // Blocked/Cancelled eligibility is the correct one for that visit).
-    if (clinicianMismatch && !isBlockedOrCancelled) {
-      if (shouldLog) console.log(`      ❌ Clinician mismatch: has "${eligClinician}" but need: ${claimClinicians.join(', ')}`);
+    // Clinician is the one strict matching field. If the eligibility clinician
+    // is not the exact same clinician as the claim, this eligibility cannot be used.
+    // No separate clinician-mismatch remark is emitted; if no exact clinician match
+    // remains, the claim falls through to Eligibility Not Taken.
+    if (clinicianMismatch) {
+      if (shouldLog) console.log(`      ❌ Clinician mismatch: has "${eligClinician || '(blank)'}" but need: ${claimClinicians.join(', ')}`);
       continue;
     }
-
-
-    if (clinicianMismatch && shouldLog) console.log(`      ⚠️ Clinician mismatch for Blocked/Cancelled eligibility (including anyway — takes priority): has "${eligClinician}" but need: ${claimClinicians.join(', ')}`);
 
 
     const serviceCategory = (elig['Service Category'] || '').trim();
@@ -1057,7 +1059,7 @@ function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians =
     // _clinicianMatch: true  = elig has a non-empty clinician AND it positively matched the claim's clinician
     // _clinicianMatch: false = not a positive clinician match
     //                         NOTE: when _clinicianMismatch is true, _clinicianMatch is always false
-    const clinicianPositivelyMatched = eligClinician && hasClaimClinician && claimClinicians.includes(eligClinician);
+    const clinicianPositivelyMatched = !clinicianMismatch;
     matchingEligs.push({...elig, _isUsed: isUsed, _clinicianMismatch: clinicianMismatch, _clinicianMatch: clinicianPositivelyMatched});
   }
   
@@ -1083,11 +1085,9 @@ function checkClinicianMatch(claimClinicians, eligClinician) {
 /**
  * Select the best matching eligibility from multiple options
  * Ranks by:
- * 1. Eligible with a positive clinician match (elig clinician non-empty and equals claim
- *    clinician) — always preferred over Blocked/Cancelled.
- * 2. Blocked/Cancelled — preferred over Eligible when no Eligible has a positive clinician
- *    match.  This handles the scenario where the correct eligibility was blocked/cancelled
- *    and an unrelated Eligible (with a blank clinician field) was otherwise being selected.
+ * 1. All candidates have already passed exact clinician matching.
+ * 2. Eligible records are preferred; Blocked/Cancelled remain usable only when the
+ *    clinician is the exact same clinician as the claim.
  * 3. Valid (passes all validation checks) over invalid
  * 4. Not already used (prefer unused over used)
  * 5. Service category/consultation status match specificity
@@ -1400,6 +1400,18 @@ function diagnoseEligibilityFailure(eligMap, claimDate, normalizedMemberID, clai
  * @param {string} claimPackage - Package name from the claim row
  * @returns {{ eligibility: Object|null, matchedMemberID: string }|null}
  */
+function normalizeEidForComparison(value) {
+  return String(value || '').replace(/\D/g, '').trim();
+}
+
+function buildWrongEmiratesIDRemark(correctEid) {
+  const corrected = String(correctEid || '').trim();
+  return corrected
+    ? `Wrong Emirates ID (should be ${corrected})`
+    : 'Wrong Emirates ID';
+}
+
+
 function buildWrongMemberIDRemark(correctMemberID) {
   const corrected = String(correctMemberID || '').trim();
   return corrected
@@ -1841,10 +1853,26 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
     let eidMismatchWithoutValidEligibility = false;
     let finalStatus = 'invalid', remarks = [];
 
-    // EID is authoritative for detecting a Wrong Member ID.
-    // Check it whenever the claim supplies an Emirates ID, even if the claim Member ID
-    // exists somewhere else in the eligibility sheet or produced a candidate match.
-    if (row.emiratesID) {
+    let wrongEmiratesIDRemark = null;
+
+    if (eligibility) {
+      // A valid eligibility found by Member ID + date + exact clinician is the
+      // reference record. Compare the claim EID only against this eligibility.
+      const eligibilityEid = String(eligibility['EID'] || '').trim();
+      const claimEidNormalized = normalizeEidForComparison(row.emiratesID);
+      const eligibilityEidNormalized = normalizeEidForComparison(eligibilityEid);
+
+      // Blank EID on the eligibility does not invalidate the claim EID.
+      if (
+        claimEidNormalized &&
+        eligibilityEidNormalized &&
+        claimEidNormalized !== eligibilityEidNormalized
+      ) {
+        wrongEmiratesIDRemark = buildWrongEmiratesIDRemark(eligibilityEid);
+      }
+    } else if (row.emiratesID) {
+      // No valid eligibility exists under the claim Member ID. Only now use EID
+      // as an identity fallback to determine whether the Member ID itself is wrong.
       const eidResult = findEligibilityByEID(
         eligMap, row.emiratesID, claimDate, [row.clinician], insurance, row.department, row.packageName
       );
@@ -1852,8 +1880,6 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
       if (eidResult && eidResult.matchedMemberID) {
         const resolvedMemberID = eidResult.matchedMemberID;
 
-        // A different Member ID only counts as "Wrong Member ID" when the EID
-        // also resolves to a valid eligibility for this claim context.
         if (resolvedMemberID !== memberID) {
           if (eidResult.eligibility) {
             eidMatchedMemberID = resolvedMemberID;
@@ -1868,9 +1894,6 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
               eidMatches.forEach(r => matchingEligibilities.push(r));
             }
           } else {
-            // EID identifies a different member, but there is no valid eligibility
-            // for the same claim date/clinician/package. The actionable result is
-            // Eligibility Not Taken, not Wrong Member ID.
             eidMismatchWithoutValidEligibility = true;
             eligibility = null;
             matchingEligibilities.length = 0;
@@ -1957,6 +1980,12 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
       } else {
         remarks.push(`Eligibility status: ${eligibility.Status}`);
       }
+    }
+
+
+    if (wrongEmiratesIDRemark && !eidMatchedMemberID) {
+      remarks = [wrongEmiratesIDRemark];
+      finalStatus = 'invalid';
     }
 
 
