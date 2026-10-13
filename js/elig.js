@@ -8,11 +8,13 @@
  * Behavior preserved; only function order changed.
  *******************************/
 
+
 /* ===========================
    Version & Initialization
    =========================== */
 const VERSION = '2026.02.15.35';
 console.log(`✅ Eligibility Checker v${VERSION} loaded successfully`);
+
 
 /* ===========================
    Constants & Application State
@@ -43,6 +45,7 @@ const DATE_KEYS = ['Date', 'On'];
 const MONTHS = ["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"];
 const MONTH_NAMES = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
+
 // Application state
 let xlsData = null;        // parsed & normalized report rows
 let eligData = null;       // eligibility sheet as array of arrays (raw) — keep raw rows for header detection
@@ -52,15 +55,19 @@ const usedEligibilities = new Set();
 let lastReportWasCSV = false;
 let sourceFileName = '';   // Track the source report filename for export
 
+
 // Keep last eligibility map so UI filters can re-render without rebuilding the map
 let lastEligMap = null;
+
 
 // Option to show/hide diagnostics buttons
 let showDiagnosticsButtons = false;
 
+
 // DOM Elements (lookups performed in initializeEventListeners)
 let reportInput, eligInput, processBtn, exportInvalidBtn, statusEl, resultsContainer, filterCheckbox, filterStatus, pasteTextarea, pasteBtn;
 let diagnosticsCheckbox, diagnosticsStatus;
+
 
 /* ===========================
    Small Utilities
@@ -70,7 +77,9 @@ function escapeHtml(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#x27;');
 }
 
+
 function escapeRegex(str) { return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+
 
 function normalizeMemberID(id) {
   if (!id) return "";
@@ -82,6 +91,7 @@ function normalizeMemberID(id) {
   return normalized;
 }
 
+
 /**
  * Build a stable comparison key for Claim IDs.
  *
@@ -92,12 +102,14 @@ function normalizeMemberID(id) {
 function normalizeClaimIDKey(value) {
   if (value === null || value === undefined) return '';
 
+
   return String(value)
     .normalize('NFKC')
     .replace(/[\u200B-\u200D\uFEFF]/g, '') // zero-width characters
     .replace(/\s+/g, '')                     // Claim IDs should not contain spaces
     .toUpperCase();
 }
+
 
 /**
  * Keep only the first row for each Claim ID.
@@ -109,27 +121,34 @@ function deduplicateClaimsByID(rows) {
   const seen = new Set();
   const uniqueRows = [];
 
+
   for (const row of rows || []) {
     if (!row) continue;
+
 
     const claimKey = normalizeClaimIDKey(row.claimID);
     if (!claimKey) continue;
     if (seen.has(claimKey)) continue;
 
+
     seen.add(claimKey);
     uniqueRows.push(row);
   }
 
+
   return uniqueRows;
 }
+
 
 function normalizeClinician(name) {
   if (!name) return '';
   return name.trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
+
 // Package matching configuration - loaded from external JSON
 let eligibilityMatchingConfig = null;
+
 
 /**
  * Load eligibility matching rules from external JSON configuration
@@ -161,6 +180,7 @@ async function loadEligibilityMatchingConfig() {
   }
 }
 
+
 /**
  * Check if a string contains any classification keyword from the specified classification group
  * @param {string} text - Lowercase text to check
@@ -172,6 +192,7 @@ function containsClassification(text, classificationType) {
   const classifications = eligibilityMatchingConfig.classifications[classificationType] || [];
   return classifications.some(classification => text.includes(classification));
 }
+
 
 /**
  * Check if package names match using rules from external JSON configuration
@@ -201,6 +222,7 @@ function packageNamesMatch(claimPackage, eligPackage) {
   
   return false;
 }
+
 
 /**
  * Check if a specific rule matches the claim and eligibility packages
@@ -263,6 +285,7 @@ function matchesRule(rule, claimLower, eligLower, claimPackage) {
   return true;
 }
 
+
 /**
  * Normalize package name to its tier level for display purposes
  * Converts specific plan names (e.g., "Sahtak", "Core-AUH-LG") to generic tier names (e.g., "Daman Enhanced")
@@ -313,6 +336,7 @@ function normalizePackageNameForDisplay(packageName) {
   return packageName;
 }
 
+
 /**
  * Extract display tier name from rule ID
  * @param {string} ruleId - Rule identifier (e.g., "daman-basic", "daman-enhanced-forward")
@@ -326,6 +350,7 @@ function extractTierNameFromRuleId(ruleId, rule) {
   // Fallback: No tier name available (e.g., for generic or non-display rules)
   return null;
 }
+
 
 /**
  * Check if a package name matches the eligibility patterns in a rule
@@ -355,6 +380,7 @@ function packageMatchesEligibilityPattern(packageLower, rule) {
   return false;
 }
 
+
 /* ===========================
    Date handling (DateHandler)
    =========================== */
@@ -366,6 +392,7 @@ const DateHandler = {
     if (input instanceof Date) return isNaN(input) ? null : input;
     if (typeof input === 'number') return this._parseExcelDate(input);
 
+
     // Check if string input is an Excel serial number BEFORE cleaning
     // This must happen first to preserve decimal precision (e.g., "46358.00013888889")
     // Otherwise, the period would be stripped, breaking Excel serial date conversion
@@ -375,11 +402,13 @@ const DateHandler = {
       if (!isNaN(numericValue)) return this._parseExcelDate(numericValue);
     }
 
+
     const cleanStr = inputStr.replace(/[,.]/g, '');
     const parsed = this._parseStringDate(cleanStr, preferMDY, debugLog) || new Date(cleanStr);
     if (isNaN(parsed)) return null; // Removed console warning - only log via debugLog flag
     return parsed;
   },
+
 
   format: function(date) {
     if (!(date instanceof Date) || isNaN(date)) return '';
@@ -390,6 +419,7 @@ const DateHandler = {
     return `${day} ${monthName} ${year}`;
   },
 
+
   formatForExport: function(date) {
     if (!(date instanceof Date) || isNaN(date)) return '';
     const day = date.getUTCDate();
@@ -398,12 +428,14 @@ const DateHandler = {
     return `${month}/${day}/${year}`;
   },
 
+
   isSameDay: function(date1, date2) {
     if (!date1 || !date2) return false;
     return date1.getUTCDate() === date2.getUTCDate() &&
            date1.getUTCMonth() === date2.getUTCMonth() &&
            date1.getUTCFullYear() === date2.getUTCFullYear();
   },
+
 
   _parseExcelDate: function(serial) {
     const utcDays = Math.floor(serial) - 25569;
@@ -412,6 +444,7 @@ const DateHandler = {
     // Get UTC components and return as-is (no swap logic)
     return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
   },
+
 
   _swapDayMonth: function(date) {
     // Helper function to swap day and month in a date
@@ -432,12 +465,14 @@ const DateHandler = {
     return date;
   },
 
+
   _normalizeTwoDigitYear: function(year) {
     // Handle 2-digit years: assume 2000s for years 0-99
     // This assumes medical records are from recent years (2000-2099)
     if (year < 100) return year + 2000;
     return year;
   },
+
 
   _parseStringDate: function(dateStr, preferMDY = false, debugLog = false) {
     if (!dateStr) return null;
@@ -448,6 +483,7 @@ const DateHandler = {
       if (debugLog) console.log(`    [Parse] Stripping timestamp: "${dateStr}" → "${dateStr.split(' ')[0]}"`);
       dateStr = dateStr.split(' ')[0];
     }
+
 
     // Try matching numeric date formats: DD/MM/YYYY, DD-MM-YYYY, etc.
     const dmyMdyMatch = dateStr.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
@@ -475,6 +511,7 @@ const DateHandler = {
       }
     }
 
+
     // Try matching text-based dates: "2-Dec-26", "12-Feb-2026", etc.
     const textMatch = dateStr.match(/^(\d{1,2})[\/\- ]([a-z]{3,})[\/\- ](\d{2,4})$/i);
     if (textMatch) {
@@ -492,6 +529,7 @@ const DateHandler = {
       }
     }
 
+
     // Try matching ISO format: YYYY-MM-DD or YYYY/MM/DD
     const isoMatch = dateStr.match(/^(\d{4})[\/\-](\d{2})[\/\-](\d{2})$/);
     if (isoMatch) {
@@ -504,12 +542,14 @@ const DateHandler = {
   }
 };
 
+
 /* ===========================
    Summary helper (used after files load)
    =========================== */
 function summarizeAndDisplayCounts() {
   try {
     const eligCount = Array.isArray(eligData) ? eligData.length : 0;
+
 
     // Ensure xlsData exists; if not but rawParsedReport exists try to normalize it now
     if ((!Array.isArray(xlsData) || xlsData.length === 0) && rawParsedReport) {
@@ -521,7 +561,9 @@ function summarizeAndDisplayCounts() {
       }
     }
 
+
     const claimCount = Array.isArray(xlsData) ? xlsData.length : 0;
+
 
     if (statusEl) statusEl.textContent = `Loaded ${eligCount} eligibilities, ${claimCount} claims — Ready to process files`;
   } catch (err) {
@@ -529,11 +571,13 @@ function summarizeAndDisplayCounts() {
   }
 }
 
+
 /* ===========================
    Header detection helper (array-of-arrays)
    =========================== */
 function findHeaderRowFromArrays(allRows, maxScan = 10) {
   if (!Array.isArray(allRows) || allRows.length === 0) { return { headerRowIndex: -1, headers: [], rows: [] }; }
+
 
   const tokens = [
     'pri. claim no', 'pri claim no', 'claimid', 'claim id', 'pri. claim id', 'pri claim id',
@@ -543,22 +587,27 @@ function findHeaderRowFromArrays(allRows, maxScan = 10) {
     'emirates id no', 'emirates id no.'
   ];
 
+
   const scanLimit = Math.min(maxScan, allRows.length);
   let bestIndex = 0;
   let bestScore = 0;
+
 
   for (let i = 0; i < scanLimit; i++) {
     const row = allRows[i] || [];
     const joined = row.map(c => (c === null || c === undefined) ? '' : String(c)).join(' ').toLowerCase();
 
+
     let score = 0;
     for (const t of tokens) { if (joined.includes(t)) score++; }
+
 
     if (score > bestScore) {
       bestScore = score;
       bestIndex = i;
     }
   }
+
 
   const headerRowIndex = bestScore > 0 ? bestIndex : 0;
   const rawHeaderRow = allRows[headerRowIndex] || [];
@@ -578,6 +627,7 @@ function findHeaderRowFromArrays(allRows, maxScan = 10) {
   const headers = headerMapping.map(h => h.name);
   const dataRows = allRows.slice(headerRowIndex + 1);
 
+
   const rows = dataRows.map(rowArray => {
     const obj = {};
     // Map only the non-empty header columns to the object
@@ -587,6 +637,7 @@ function findHeaderRowFromArrays(allRows, maxScan = 10) {
   
   return { headerRowIndex, headers, rows };
 }
+
 
 /* ===========================
    File parsing helpers
@@ -611,6 +662,7 @@ async function parseExcelFile(file) {
   });
 }
 
+
 function parseCsvFile(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -630,6 +682,7 @@ function parseCsvFile(file) {
   });
 }
 
+
 function parseCsvText(text) {
   return new Promise((resolve, reject) => {
     try {
@@ -644,6 +697,7 @@ function parseCsvText(text) {
   });
 }
 
+
 /* ===========================
    Eligibility map builders
    (Accepts array-of-arrays or array-of-objects)
@@ -651,12 +705,14 @@ function parseCsvText(text) {
 function prepareEligibilityMap(rawSheetArray) {
   if (!Array.isArray(rawSheetArray) || rawSheetArray.length === 0) return new Map();
 
+
   // If rows are arrays -> detect header and convert to objects
   if (Array.isArray(rawSheetArray[0])) {
     // find header row
     let headerRowIndex = rawSheetArray.findIndex(row => Array.isArray(row) && row.some(cell => String(cell || '').trim().toLowerCase().includes('eligibility request number')) );
     if (headerRowIndex === -1) headerRowIndex = rawSheetArray.findIndex(row => Array.isArray(row) && row.some(cell => String(cell || '').trim() !== ''));
     if (headerRowIndex === -1) return new Map();
+
 
     const headers = (rawSheetArray[headerRowIndex] || []).map(h => String(h || '').trim());
     const eligMap = new Map();
@@ -711,9 +767,11 @@ function prepareEligibilityMap(rawSheetArray) {
     }
     console.log(``);
 
+
     for (let i = headerRowIndex + 1; i < rawSheetArray.length; i++) {
       const row = rawSheetArray[i];
       if (!Array.isArray(row)) continue;
+
 
       const record = {};
       // For duplicate headers (e.g. "Package Name" repeating across policy blocks),
@@ -722,6 +780,7 @@ function prepareEligibilityMap(rawSheetArray) {
         const val = row[idx] !== undefined ? row[idx] : '';
         if (!Object.prototype.hasOwnProperty.call(record, h) || record[h] === '' || record[h] === null || record[h] === undefined) record[h] = val;
       });
+
 
       let rawMemberID = '';
       for (const k of idCandidates) {
@@ -743,6 +802,7 @@ function prepareEligibilityMap(rawSheetArray) {
         continue;
       }
 
+
       // Log first eligibility with column info
       if (recordCount === 0) {
         console.log(`📋 Using "${columnUsed}" column for member identification`);
@@ -756,6 +816,7 @@ function prepareEligibilityMap(rawSheetArray) {
       eligMap.get(memberID).push(record);
     }
 
+
     // Show skip statistics
     const totalSkipped = skippedNoMemberID + skippedEmptyMemberID;
     if (totalSkipped > 0) {
@@ -768,6 +829,7 @@ function prepareEligibilityMap(rawSheetArray) {
       }
     }
 
+
     // Show ALL unique member IDs
     const allKeys = Array.from(eligMap.keys());
     console.log(`\n✅ Map built with ${eligMap.size} unique member IDs`);
@@ -778,9 +840,11 @@ function prepareEligibilityMap(rawSheetArray) {
     return eligMap;
   }
 
+
   // Otherwise assume array-of-objects
   const eligMap = new Map();
   const idCandidatesObj = ['Card Number / DHA Member ID', 'Card Number', '_5', 'MemberID', 'Member ID', 'Patient Insurance Card No', 'PatientCardID'];
+
 
   rawSheetArray.forEach(e => {
     if (!e || typeof e !== 'object') return;
@@ -795,16 +859,20 @@ function prepareEligibilityMap(rawSheetArray) {
     const memberID = normalizeMemberID(rawMemberID);
     if (!memberID) return;
 
+
     if (!eligMap.has(memberID)) eligMap.set(memberID, []);
     eligMap.get(memberID).push(e);
   });
 
+
   return eligMap;
 }
+
 
 /* ===========================
    Matching & Validation Utilities
    =========================== */
+
 
 /**
  * Check if provider is Daman or Thiqa
@@ -816,6 +884,7 @@ function isDamanOrThiqa(provider) {
   const providerLower = provider.toString().toLowerCase();
   return providerLower.includes('daman') || providerLower.includes('thiqa');
 }
+
 
 /**
  * Find matching eligibility records for a claim
@@ -942,9 +1011,11 @@ function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians =
     const eligStatus = (elig.Status || '').toLowerCase();
     const isBlockedOrCancelled = eligStatus === 'blocked' || eligStatus === 'cancelled';
 
+
     const eligClinician = (elig.Clinician || '').trim();
     const hasClaimClinician = claimClinicians.some(c => c && c.trim());
     const clinicianMismatch = eligClinician && hasClaimClinician && !claimClinicians.includes(eligClinician);
+
 
     // Eligible eligibilities require a clinician match.
     // Blocked/Cancelled eligibilities are included even when the clinician doesn't match —
@@ -956,7 +1027,9 @@ function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians =
       continue;
     }
 
+
     if (clinicianMismatch && shouldLog) console.log(`      ⚠️ Clinician mismatch for Blocked/Cancelled eligibility (including anyway — takes priority): has "${eligClinician}" but need: ${claimClinicians.join(', ')}`);
+
 
     const serviceCategory = (elig['Service Category'] || '').trim();
     const consultationStatus = (elig['Consultation Status'] || '').trim();
@@ -999,11 +1072,13 @@ function findEligibilityForClaim(eligMap, claimDate, memberID, claimClinicians =
   return matchingEligs;
 }
 
+
 function checkClinicianMatch(claimClinicians, eligClinician) {
   if (!eligClinician || !claimClinicians?.length) return true;
   const normElig = normalizeClinician(eligClinician);
   return claimClinicians.some(c => normalizeClinician(c) === normElig);
 }
+
 
 /**
  * Select the best matching eligibility from multiple options
@@ -1033,6 +1108,7 @@ function selectBestEligibility(eligibilities, claimDepartment = '', claimPackage
     const statusLower = (elig.Status || '').toLowerCase();
     const isBlockedOrCancelled = statusLower === 'blocked' || statusLower === 'cancelled';
 
+
     // Must have 'eligible', 'blocked', or 'cancelled' status
     if (statusLower !== 'eligible' && !isBlockedOrCancelled) return false;
     
@@ -1058,6 +1134,7 @@ function selectBestEligibility(eligibilities, claimDepartment = '', claimPackage
   
   const dept = (claimDepartment || '').toLowerCase().trim();
 
+
   // STATUS PRIORITY: Eligible eligibilities with a positive clinician match always win.
   // B/C eligibilities are preferred over Eligible eligibilities that passed only through
   // a neutral clinician check (blank eligibility clinician or blank claim clinician) —
@@ -1073,6 +1150,7 @@ function selectBestEligibility(eligibilities, claimDepartment = '', claimPackage
     eligiblesWithStrongClinician.length > 0 ? eligiblesWithStrongClinician :
     blockedCancelledEligs.length > 0 ? blockedCancelledEligs :
     eligsToConsider;
+
 
   // PRIORITY 2: Always prefer unused eligibilities over used ones
   // Separate unused and used eligibilities
@@ -1152,6 +1230,7 @@ function selectBestEligibility(eligibilities, claimDepartment = '', claimPackage
   return scored[0].elig;
 }
 
+
 // Helper function to extract numeric portion from Eligibility Request Number
 function extractRequestNumber(requestNumber) {
   if (!requestNumber) return null;
@@ -1159,6 +1238,7 @@ function extractRequestNumber(requestNumber) {
   const match = requestNumber.match(/(\d+)/);
   return match ? parseInt(match[1], 10) : null;
 }
+
 
 function isServiceCategoryValid(serviceCategory, consultationStatus, rawPackage) {
   if (!serviceCategory) return { valid: true };
@@ -1204,6 +1284,7 @@ function isServiceCategoryValid(serviceCategory, consultationStatus, rawPackage)
   return { valid: true };
 }
 
+
 function logNoEligibilityMatch(sourceType, claimSummary, memberID, parsedClaimDate, claimClinicians, eligMap) {
   try {
     const normalizedID = normalizeMemberID(memberID);
@@ -1239,6 +1320,7 @@ function logNoEligibilityMatch(sourceType, claimSummary, memberID, parsedClaimDa
   }
 }
 
+
 /**
  * When no eligibility match was found for a claim, diagnose the specific reasons
  * to provide a more targeted error message.
@@ -1258,6 +1340,7 @@ function diagnoseEligibilityFailure(eligMap, claimDate, normalizedMemberID, clai
   const eligList = eligMap.get(normalizedMemberID) || [];
   if (!eligList.length) return null;
 
+
   // Collect all eligibilities that match the date, have 'eligible' status,
   // and are not already consumed by a different claim.
   const dateMatches = eligList.filter(e => {
@@ -1268,7 +1351,9 @@ function diagnoseEligibilityFailure(eligMap, claimDate, normalizedMemberID, clai
       !usedEligibilities.has(reqNo);
   });
 
+
   if (!dateMatches.length) return null;
+
 
   // Only diagnose against eligibilities that are clinician-relevant to this claim.
   // This avoids reporting "Wrong Service Category" based solely on unrelated
@@ -1281,20 +1366,25 @@ function diagnoseEligibilityFailure(eligMap, claimDate, normalizedMemberID, clai
     return normalizeClinician(eligClinician) === normalizedClaimClinician;
   });
 
+
   if (!clinicianRelevantMatches.length) return null;
+
 
   // Gather every failure reason across all date-matching records
   const reasons = new Set();
   const dept = (claimDepartment || '').toLowerCase();
+
 
   for (const elig of clinicianRelevantMatches) {
     const categoryCheck = isServiceCategoryValid(elig['Service Category'], elig['Consultation Status'], dept);
     if (!categoryCheck.valid) reasons.add('Wrong Service Category');
   }
 
+
   if (!reasons.size) return null;
   return Array.from(reasons).join(', ');
 }
+
 
 /**
  * Scan all eligibility records for one whose EID matches rawEID.
@@ -1310,10 +1400,19 @@ function diagnoseEligibilityFailure(eligMap, claimDate, normalizedMemberID, clai
  * @param {string} claimPackage - Package name from the claim row
  * @returns {{ eligibility: Object|null, matchedMemberID: string }|null}
  */
+function buildWrongMemberIDRemark(correctMemberID) {
+  const corrected = String(correctMemberID || '').trim();
+  return corrected
+    ? `Wrong Member ID (should be ${corrected})`
+    : 'Wrong Member ID';
+}
+
+
 function findEligibilityByEID(eligMap, rawEID, claimDate, claimClinicians, insurance, claimDepartment, claimPackage) {
   if (!rawEID) return null;
   const strippedEID = String(rawEID).replace(/-/g, '').trim();
   if (!strippedEID) return null;
+
 
   // Collect all map keys whose records contain a matching EID
   const matchedMemberIDs = [];
@@ -1327,9 +1426,12 @@ function findEligibilityByEID(eligMap, rawEID, claimDate, claimClinicians, insur
     }
   }
 
+
   if (matchedMemberIDs.length === 0) return null;
 
+
   const firstMatchedMemberID = matchedMemberIDs[0];
+
 
   // Try to find a usable eligibility via the EID-matched member ID(s)
   for (const matchedMemberID of matchedMemberIDs) {
@@ -1338,13 +1440,16 @@ function findEligibilityByEID(eligMap, rawEID, claimDate, claimClinicians, insur
     if (best) return { eligibility: best, matchedMemberID };
   }
 
+
   // EID matched a record but no valid eligibility for this claim date/clinician
   return { eligibility: null, matchedMemberID: firstMatchedMemberID };
 }
 
+
 /* ===========================
    Report normalization & validation
    =========================== */
+
 
 /**
  * Detect report type from raw parsed data (before normalization)
@@ -1390,6 +1495,7 @@ function detectReportType(rawData) {
   return 'Generic';
 }
 
+
 /**
  * Read a clinician license value from a raw spreadsheet cell.
  * Preserves Excel boolean FALSE (and the text "FALSE") as the sentinel
@@ -1404,8 +1510,10 @@ function readClinicianLicense(val) {
   return String(val);
 }
 
+
 function normalizeReportData(rawData) {
   if (!rawData) return [];
+
 
   // If the input is an array-of-arrays (what XLSX.utils.sheet_to_json(..., {header:1}) returns),
   // convert it into a { headers, rows } shape using the helper so downstream mapping can work.
@@ -1417,6 +1525,7 @@ function normalizeReportData(rawData) {
       rows: detection.rows
     };
   }
+
 
   // If rawData is an array of plain objects (not the {headers, rows} shape), handle that too.
   if (Array.isArray(rawData) && rawData.length > 0 && !rawData.headers && typeof rawData[0] === 'object' && !Array.isArray(rawData[0])) {
@@ -1502,8 +1611,10 @@ function normalizeReportData(rawData) {
     });
   }
 
+
   const rows = rawData.rows || [];
   const headers = rawData.headers || [];
+
 
   function getField(obj, candidates) {
     for (const k of candidates) {
@@ -1512,10 +1623,12 @@ function normalizeReportData(rawData) {
     return '';
   }
 
+
   return rows.map(r => {
     const isCombined = Object.prototype.hasOwnProperty.call(r, 'Pri. Claim No') && Object.prototype.hasOwnProperty.call(r, 'Total Amount');
     const isInsta = Object.prototype.hasOwnProperty.call(r, 'Pri. Claim No') && !isCombined;
     const isOdoo = Object.prototype.hasOwnProperty.call(r, 'Pri. Claim ID');
+
 
     if (isCombined) {
       return {
@@ -1596,6 +1709,7 @@ function normalizeReportData(rawData) {
         emiratesID: getField(r, ['Emirates ID No', 'Emirates ID No.']) || ''
       };
 
+
       if (!out.memberID) {
         for (const h of headers) {
           const val = r[h];
@@ -1612,6 +1726,7 @@ function normalizeReportData(rawData) {
     }
   });
 }
+
 
 function validateReportClaims(reportDataArray, eligMap, reportType) {
   const results = [];
@@ -1631,6 +1746,7 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
     
     const claimKey = normalizeClaimIDKey(claimID);
 
+
     // Skip duplicate claim IDs - keep only first occurrence
     if (seenClaimIDs.has(claimKey)) {
       if (i < 3) console.log(`  Row ${i}: Skipped - duplicate claimID ${claimID}`);
@@ -1639,12 +1755,14 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
     seenClaimIDs.add(claimKey);
     claimIndex++; // Increment for every non-duplicate claim
 
+
     const rawMemberID = String(row.memberID || '').trim();
     if (!rawMemberID) {
       if (claimIndex <= 3) console.log(`  Claim #${claimIndex} (${claimID}): Skipped - no memberID`);
       continue;
     }
     const memberID = normalizeMemberID(rawMemberID);
+
 
     let insurance = (row.insuranceCompany || '').trim();
     
@@ -1669,6 +1787,7 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
       continue;
     }
     const formattedDate = DateHandler.format(claimDate);
+
 
     if (memberID.startsWith('(VVIP)')) {
       if (claimIndex <= 3) console.log(`  Claim #${claimIndex} (${claimID}): VVIP member, skipping eligibility check`);
@@ -1697,8 +1816,10 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
       continue;
     }
 
+
     // Detect garbage / multi-field paste: real member IDs never contain whitespace
     const hasWhitespaceMemberID = /\s/.test(rawMemberID);
+
 
     // Check for leading zeroes in original memberID
     // Use /^0/ to detect any ID starting with zero (including all-zeroes like "0000")
@@ -1727,6 +1848,7 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
     let eligibility = selectedEligibility;
     let eidMatchedMemberID = null;
     let finalStatus = 'invalid', remarks = [];
+
 
     // EID fallback — only when member ID was not found at all and Emirates ID is available
     if (!eligibility && row.emiratesID && !eligMap.has(memberID)) {
@@ -1758,10 +1880,15 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
     }
     const packageLower = (row.packageName || '').toLowerCase();
 
+
     // Clinician license is 'FALSE' — not found in our database
     if (hasWhitespaceMemberID) {
-      finalStatus = 'unknown';
-      remarks.push('Member ID appears to contain extra data; please recheck this claim.');
+      const correctedMemberID =
+        eligibility?.['Card Number / DHA Member ID'] ||
+        eidMatchedMemberID ||
+        '';
+      finalStatus = 'invalid';
+      remarks.push(buildWrongMemberIDRemark(correctedMemberID));
     } else if (row.clinician === 'FALSE') {
       finalStatus = 'unknown';
       remarks.push("This clinician hasn't been added to our database yet.");
@@ -1774,7 +1901,9 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
       finalStatus = 'unknown';
       remarks.push('Member ID has a leading zero; marked as unknown.');
     } else if (!eligibility) {
-      if (eidMatchedMemberID && eidMatchedMemberID !== memberID) remarks.push('Wrong Member ID');
+      if (eidMatchedMemberID && eidMatchedMemberID !== memberID) {
+        remarks.push(buildWrongMemberIDRemark(eidMatchedMemberID));
+      }
       const lookupMemberID = eidMatchedMemberID || memberID;
       const rawEligList = eligMap.get(lookupMemberID) || [];
       if (rawEligList.length > 0) {
@@ -1818,13 +1947,16 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
       }
     }
 
+
     // If EID fallback resolved a different member ID, the claim had the wrong member ID.
     // Mark it invalid and surface "Wrong Member ID" regardless of which branch above ran
     // (e.g. the leading-zero branch sets finalStatus = 'invalid' without adding this remark).
     if (eidMatchedMemberID && eidMatchedMemberID !== memberID) {
-      if (!remarks.includes('Wrong Member ID')) remarks.push('Wrong Member ID');
+      const wrongMemberRemark = buildWrongMemberIDRemark(eidMatchedMemberID);
+      if (!remarks.includes(wrongMemberRemark)) remarks.push(wrongMemberRemark);
       finalStatus = 'invalid';
     }
+
 
     results.push({
       claimID, 
@@ -1843,7 +1975,10 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
       status: eligibility?.Status || '',
       claimStatus: row.claimStatus || '',
       remarks, finalStatus,
-      wrongMemberID: !!(eidMatchedMemberID && eidMatchedMemberID !== memberID),
+      wrongMemberID: !!(
+        hasWhitespaceMemberID ||
+        (eidMatchedMemberID && eidMatchedMemberID !== memberID)
+      ),
       fullEligibilityRecord: eligibility,
       allEligibilityRecords: matchingEligibilities, // Store ALL matches
       fileNo: row.fileNo || '',
@@ -1857,6 +1992,7 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
   return results;
 }
 
+
 /* ===========================
    Display helpers & rendering
    =========================== */
@@ -1866,6 +2002,7 @@ const activeStatusFilters = {
   invalid: true,
   unknown: true
 };
+
 
 function getDisplayedResultsFromStored(results) {
   const raw = results || window.lastValidationResults || [];
@@ -1879,25 +2016,31 @@ function getDisplayedResultsFromStored(results) {
   });
 }
 
+
 function renderResults(results, eligMap, totalResults = null) {
   if (!resultsContainer) return;
   resultsContainer.innerHTML = '';
+
 
   // totalResults is used for calculating total counts, while results is what's displayed
   // If not provided, assume all results are being displayed
   const allResults = totalResults || results;
   const displayedRows = results;
 
+
   if (!displayedRows || displayedRows.length === 0) {
     resultsContainer.innerHTML = '<div class="text-muted">No claims to display</div>';
     return;
   }
 
+
   const tableContainer = document.createElement('div');
   tableContainer.className = 'table-responsive analysis-results';
 
+
   const table = document.createElement('table');
   table.className = 'table table-sm table-striped table-hover shared-table';
+
 
   const thead = document.createElement('thead');
   thead.innerHTML = `
@@ -1917,9 +2060,11 @@ function renderResults(results, eligMap, totalResults = null) {
   `;
   table.appendChild(thead);
 
+
   const tbody = document.createElement('tbody');
   const statusCounts = { valid: 0, invalid: 0, unknown: 0 };
   let processedRows = 0;
+
 
   // Calculate total counts from ALL results (not just displayed ones)
   allResults.forEach((result) => {
@@ -1932,11 +2077,13 @@ function renderResults(results, eligMap, totalResults = null) {
     if (result.finalStatus && statusCounts.hasOwnProperty(result.finalStatus)) statusCounts[result.finalStatus]++;
   });
 
+
   const finalStatusToBootstrap = {
     valid: 'table-success',
     invalid: 'table-danger',
     unknown: 'table-warning'
   };
+
 
   // Render only the displayed rows
   displayedRows.forEach((result, index) => {
@@ -1947,7 +2094,9 @@ function renderResults(results, eligMap, totalResults = null) {
       .toLowerCase();
     if (statusToCheck === 'not seen') return;
 
+
     const row = document.createElement('tr');
+
 
     const finalStatus = (result.finalStatus || '').toString().toLowerCase();
     if (finalStatus) {
@@ -1956,19 +2105,24 @@ function renderResults(results, eligMap, totalResults = null) {
       if (bs) row.classList.add(bs);
     }
 
+
     const provider = (result.provider || result.insuranceCompany || result.packageName || '').toString().toLowerCase();
     if (provider.includes('daman')) row.classList.add('daman-only');
     else if (provider.includes('thiqa')) row.classList.add('thiqa-only');
 
+
     if ((result.finalStatus || '').toLowerCase() === 'vvip' || (result.status || '').toString().toLowerCase() === 'vvip') row.classList.add('selected');
+
 
     const statusBadge = result.status
       ? `<span class="badge ${result.status.toString().toLowerCase() === 'eligible' ? 'bg-success' : 'bg-danger'}">${escapeHtml(result.status)}</span>`
       : '';
 
+
     const remarksHTML = result.remarks && result.remarks.length > 0
       ? result.remarks.map(r => `<div>${escapeHtml(r)}</div>`).join('')
       : '<div class="source-note">No remarks</div>';
+
 
     // Build details button html without truncation
     let detailsCellHtml = '<div class="source-note">N/A</div>';
@@ -2000,6 +2154,7 @@ function renderResults(results, eligMap, totalResults = null) {
       }
     }
 
+
     row.innerHTML = `
       <td>${escapeHtml(result.claimID)}</td>
       <td>${escapeHtml(result.rawMemberID || result.memberID)}</td>
@@ -2014,13 +2169,16 @@ function renderResults(results, eligMap, totalResults = null) {
       <td>${detailsCellHtml}</td>
     `;
 
+
     tbody.appendChild(row);
     processedRows++;
   });
 
+
   table.appendChild(tbody);
   tableContainer.appendChild(table);
   resultsContainer.appendChild(tableContainer);
+
 
   // Update results title to show report type with displayed count
   const resultsTitle = document.getElementById('resultsTitle');
@@ -2032,6 +2190,7 @@ function renderResults(results, eligMap, totalResults = null) {
     resultsTitle.textContent = `${displayedRows.length} ${reportTypeText}`;
   }
 
+
   // Update filter buttons to show counts (totals, never change)
   const filterValid = document.querySelector('#filterValid .badge');
   const filterInvalid = document.querySelector('#filterInvalid .badge');
@@ -2041,11 +2200,14 @@ function renderResults(results, eligMap, totalResults = null) {
   if (filterInvalid) filterInvalid.textContent = `Invalid (${statusCounts.invalid})`;
   if (filterUnknown) filterUnknown.textContent = `Unknown (${statusCounts.unknown})`;
 
+
   initEligibilityModal(results, lastEligMap);
+
 
   resultsContainer.setAttribute('tabindex', '-1');
   resultsContainer.focus();
 }
+
 
 /* ===========================
    Modal, details rendering, debug utility
@@ -2072,6 +2234,7 @@ function initEligibilityModal(results, eligMap) {
     `;
     document.body.insertAdjacentHTML("beforeend", modalHtml);
 
+
     const overlay = document.getElementById("modalOverlay");
     const closeBtn = document.getElementById("modalCloseBtn");
     closeBtn.addEventListener('click', hideModal);
@@ -2083,12 +2246,14 @@ function initEligibilityModal(results, eligMap) {
       }
     });
 
+
     const debugBtn = document.getElementById('modalDebugBtn');
     debugBtn.addEventListener('click', () => {
       const ctx = window.__elig_current_debug || null;
       generateAndSendDebugLog(ctx, results, eligMap);
     });
   }
+
 
   document.querySelectorAll(".eligibility-details").forEach(btn => {
     btn.onclick = null;
@@ -2109,10 +2274,12 @@ function initEligibilityModal(results, eligMap) {
       const modalTable = document.getElementById("modalTable");
       const debugBtn = document.getElementById('modalDebugBtn');
 
+
       // Determine which record is selected/matched
       const selectedEligNumber = result.fullEligibilityRecord
         ? result.fullEligibilityRecord['Eligibility Request Number']
         : null;
+
 
       // Find the default tab (the selected/matched elig, or first)
       let defaultTabIdx = 0;
@@ -2122,6 +2289,7 @@ function initEligibilityModal(results, eligMap) {
         );
         if (found >= 0) defaultTabIdx = found;
       }
+
 
       window.__elig_current_debug = {
         mode: result.allEligibilityRecords.length === 1 ? 'single' : 'list',
@@ -2133,8 +2301,10 @@ function initEligibilityModal(results, eligMap) {
       };
       if (debugBtn) debugBtn.style.display = '';
 
+
       // Build Chrome-style tabbed interface for all eligibility records
       let tabsHtml = `<div class="elig-modal-tabs-wrapper">`;
+
 
       // Tab bar
       tabsHtml += `<ul class="nav elig-modal-tab-bar" role="tablist">`;
@@ -2155,6 +2325,7 @@ function initEligibilityModal(results, eligMap) {
       });
       tabsHtml += `</ul>`;
 
+
       // Tab content panels
       tabsHtml += `<div class="elig-modal-tab-content">`;
       result.allEligibilityRecords.forEach((rec, idx) => {
@@ -2165,7 +2336,9 @@ function initEligibilityModal(results, eligMap) {
       });
       tabsHtml += `</div></div>`;
 
+
       modalTable.innerHTML = tabsHtml;
+
 
       // Wire up tab switching
       modalTable.querySelectorAll('.elig-tab-btn').forEach(tabBtn => {
@@ -2185,9 +2358,11 @@ function initEligibilityModal(results, eligMap) {
         });
       });
 
+
       showModal();
     });
   });
+
 
   document.querySelectorAll(".show-all-eligibilities").forEach(btn => {
     btn.onclick = null;
@@ -2204,13 +2379,16 @@ function initEligibilityModal(results, eligMap) {
       window.__elig_current_debug = { mode: 'list', member, claimDate: result ? result.encounterStart : '', listSnapshot: list.slice(0,200) };
       const debugBtn = document.getElementById('modalDebugBtn'); if (debugBtn) debugBtn.style.display = '';
 
+
       if (!list.length) {
         modalTable.innerHTML = `<div class="p-3">No eligibilities found for <strong>${escapeHtml(member)}</strong></div>`;
         showModal();
         return;
       }
 
+
       const claimInfo = { claimClinician, claimPackage };
+
 
       // Pre-compute match status for each record to determine tab badge and default tab
       const recordMeta = list.map(rec => {
@@ -2227,12 +2405,15 @@ function initEligibilityModal(results, eligMap) {
         return { isMatch: reasons.length === 0 };
       });
 
+
       // Default tab: first record that fully matches, else first
       let defaultTabIdx = recordMeta.findIndex(m => m.isMatch);
       if (defaultTabIdx < 0) defaultTabIdx = 0;
 
+
       // Build Chrome-style tabbed interface
       let tabsHtml = `<div class="elig-modal-tabs-wrapper">`;
+
 
       tabsHtml += `<ul class="nav elig-modal-tab-bar" role="tablist">`;
       list.forEach((rec, idx) => {
@@ -2250,6 +2431,7 @@ function initEligibilityModal(results, eligMap) {
       });
       tabsHtml += `</ul>`;
 
+
       tabsHtml += `<div class="elig-modal-tab-content">`;
       list.forEach((rec, idx) => {
         const isActive = idx === defaultTabIdx;
@@ -2259,7 +2441,9 @@ function initEligibilityModal(results, eligMap) {
       });
       tabsHtml += `</div></div>`;
 
+
       modalTable.innerHTML = tabsHtml;
+
 
       // Wire up tab switching
       modalTable.querySelectorAll('.elig-tab-btn').forEach(tabBtn => {
@@ -2279,9 +2463,11 @@ function initEligibilityModal(results, eligMap) {
         });
       });
 
+
       showModal();
     });
   });
+
 
   // Add handler for diagnostics buttons
   document.querySelectorAll(".show-diagnostics").forEach(btn => {
@@ -2320,6 +2506,7 @@ function initEligibilityModal(results, eligMap) {
     });
   });
 
+
   function showModal() {
     const overlay = document.getElementById("modalOverlay");
     if (!overlay) return;
@@ -2330,6 +2517,7 @@ function initEligibilityModal(results, eligMap) {
     if (focusable.length) focusable[0].focus();
   }
 }
+
 
 /* Debug log generator (used by modal debug button) */
 function generateAndSendDebugLog(ctx, results, eligMap) {
@@ -2343,6 +2531,7 @@ function generateAndSendDebugLog(ctx, results, eligMap) {
       viewport: { width: window.innerWidth, height: window.innerHeight }
     };
 
+
     const payload = {
       env,
       context: ctx || null,
@@ -2351,13 +2540,16 @@ function generateAndSendDebugLog(ctx, results, eligMap) {
       lastValidationSample: (window.lastValidationResults && Array.isArray(window.lastValidationResults)) ? window.lastValidationResults.slice(0,50) : []
     };
 
+
     if (ctx && ctx.member && eligMap && typeof eligMap.get === 'function') {
       const memberKey = normalizeMemberID(ctx.member);
       const memberEntries = eligMap.get(memberKey) || [];
       payload.memberEligibilities = memberEntries.slice(0,200);
     }
 
+
     const text = JSON.stringify(payload, null, 2);
+
 
     const blob = new Blob([text], { type: 'application/json' });
     const filename = `eligibility-debug-${timestamp.replace(/[:.]/g,'-')}.json`;
@@ -2370,9 +2562,11 @@ function generateAndSendDebugLog(ctx, results, eligMap) {
     a.remove();
     URL.revokeObjectURL(url);
 
+
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(text).catch(() => {/* ignore */});
     }
+
 
     const modalTable = document.getElementById('modalTable');
     if (modalTable) {
@@ -2388,14 +2582,17 @@ function generateAndSendDebugLog(ctx, results, eligMap) {
   }
 }
 
+
 /* Modal hide helper */
 function hideModal() { const overlay = document.getElementById("modalOverlay"); if (overlay) overlay.style.display = "none"; }
+
 
 /* Details formatter for a single eligibility record.
    Optional claimDate param can be used to colour date rows.
    claimInfo param can include: claimClinician, claimPackage to show mismatch reasons */
 function formatEligibilityDetails(record, memberID, claimDate, claimInfo = {}) {
   if (!record) return '<div>No details</div>';
+
 
   const status = (record.Status || '').toString();
   const statusClass = status.toLowerCase() === 'eligible' ? 'status-badge eligible' : 'status-badge ineligible';
@@ -2408,6 +2605,7 @@ function formatEligibilityDetails(record, memberID, claimDate, claimInfo = {}) {
       + (correctID ? ` <span style="color:#6c757d;font-size:0.875em;">→ correct ID: <strong>${escapeHtml(correctID)}</strong></span>` : '');
   }
   let html = `<div class="mb-2"><strong>Member:</strong> ${memberDisplay} <span class="${statusClass}" style="margin-left:8px;">${escapeHtml(status)}</span></div>`;
+
 
   // Generate mismatch reasons
   const mismatches = [];
@@ -2450,15 +2648,19 @@ function formatEligibilityDetails(record, memberID, claimDate, claimInfo = {}) {
     html += '</ul></div>';
   }
 
+
   const isAccepted = mismatches.length === 0;
 
+
   html += '<table class="eligibility-details"><tbody>';
+
 
   const preferredKeys = [
     'Eligibility Request Number', 'Card Number / DHA Member ID', 'Answered On', 'Ordered On',
     'Status', 'Clinician', 'Payer Name', 'Service Category', 'Package Name'
   ];
   const used = new Set();
+
 
   preferredKeys.forEach(key => {
     if (Object.prototype.hasOwnProperty.call(record, key)) {
@@ -2493,6 +2695,7 @@ function formatEligibilityDetails(record, memberID, claimDate, claimInfo = {}) {
       html += `<tr class="${rowClass}"><th>${escapeHtml(key)}</th><td>${escapeHtml(String(disp))}</td></tr>`;
     }
   });
+
 
   Object.keys(record).forEach(key => {
     if (used.has(key)) return;
@@ -2534,9 +2737,11 @@ function formatEligibilityDetails(record, memberID, claimDate, claimInfo = {}) {
     html += `<tr class="${rowClass}"><th>${escapeHtml(key)}</th><td>${escapeHtml(String(disp))}</td></tr>`;
   });
 
+
   html += '</tbody></table>';
   return html;
 }
+
 
 /* ===========================
    Export helpers
@@ -2576,6 +2781,7 @@ function exportInvalidEntries(results) {
   XLSX.utils.book_append_sheet(wb, ws, 'Invalid Claims');
   XLSX.writeFile(wb, `invalid_claims_${new Date().toISOString().slice(0,10)}.xlsx`);
 }
+
 
 /* ===========================
    Event handlers & flow
@@ -2620,6 +2826,7 @@ async function handleFileUpload(event, type) {
   }
 }
 
+
 async function handlePasteCsvClick() {
   if (!pasteTextarea) return alert('Paste area not found');
   const text = pasteTextarea.value;
@@ -2651,16 +2858,20 @@ async function handlePasteCsvClick() {
   }
 }
 
+
 async function handleProcessClick() {
   try {
     if (!eligData) { updateStatus('Processing stopped: Eligibility file missing'); return; }
     if (!xlsData || !xlsData.length) { updateStatus('Processing stopped: Report file missing'); return; }
 
+
     updateStatus('Processing...');
     usedEligibilities.clear();
 
+
     const eligMap = prepareEligibilityMap(eligData);
     lastEligMap = eligMap;
+
 
     // Use the report type that was detected during file upload (before normalization)
     const reportType = detectedReportType;
@@ -2686,6 +2897,7 @@ async function handleProcessClick() {
       return; // Stop processing
     }
 
+
     // Update results header title based on report type
     const resultsTitle = document.getElementById('resultsTitle');
     if (resultsTitle) {
@@ -2700,7 +2912,9 @@ async function handleProcessClick() {
       }
     }
 
+
     const results = validateReportClaims(xlsData, eligMap, reportType);
+
 
     let outputResults = results;
     if (filterCheckbox && filterCheckbox.checked) {
@@ -2709,6 +2923,7 @@ async function handleProcessClick() {
         return insurance.includes('daman') || insurance.includes('thiqa');
       });
     }
+
 
     window.lastValidationResults = outputResults;
     const displayedResults = getDisplayedResultsFromStored(outputResults);
@@ -2719,6 +2934,7 @@ async function handleProcessClick() {
   }
 }
 
+
 function updateProcessButtonState() {
   const hasEligibility = Array.isArray(eligData) && eligData.length > 0;
   const hasReport = Array.isArray(xlsData) && xlsData.length > 0;
@@ -2726,7 +2942,9 @@ function updateProcessButtonState() {
   if (exportInvalidBtn) exportInvalidBtn.disabled = !(hasEligibility && hasReport);
 }
 
+
 function updateStatus(msg) { if (statusEl) statusEl.textContent = msg || 'Ready'; }
+
 
 function onFilterToggle() {
   if (!filterStatus) return;
@@ -2734,6 +2952,7 @@ function onFilterToggle() {
   filterStatus.textContent = on ? 'ON' : 'OFF';
   filterStatus.classList.toggle('active', on);
   if (!window.lastValidationResults) return;
+
 
   let base = window.lastValidationResults.slice();
   if (on) {
@@ -2743,10 +2962,12 @@ function onFilterToggle() {
     });
   }
 
+
   const displayed = getDisplayedResultsFromStored(base);
   const eligMap = lastEligMap || (eligData ? prepareEligibilityMap(eligData) : new Map());
   renderResults(displayed, eligMap, base);
 }
+
 
 function onDiagnosticsToggle() {
   if (!diagnosticsStatus) return;
@@ -2765,6 +2986,7 @@ function onDiagnosticsToggle() {
   }
 }
 
+
 /* ===========================
    Initialization
    =========================== */
@@ -2782,6 +3004,7 @@ function initializeEventListeners() {
   pasteTextarea = document.getElementById('pasteCsvTextarea');
   pasteBtn = document.getElementById('pasteCsvBtn');
 
+
   if (eligInput) eligInput.addEventListener('change', (e) => handleFileUpload(e, 'eligibility'));
   if (reportInput) reportInput.addEventListener('change', (e) => handleFileUpload(e, 'report'));
   if (processBtn) processBtn.addEventListener('click', handleProcessClick);
@@ -2796,10 +3019,12 @@ function initializeEventListeners() {
     diagnosticsCheckbox.addEventListener('change', onDiagnosticsToggle);
   }
 
+
   // Setup status filter buttons
   const filterValid = document.getElementById('filterValid');
   const filterInvalid = document.getElementById('filterInvalid');
   const filterUnknown = document.getElementById('filterUnknown');
+
 
   const setupStatusFilter = (btn, status) => {
     if (!btn) return;
@@ -2826,14 +3051,17 @@ function initializeEventListeners() {
     });
   };
 
+
   setupStatusFilter(filterValid, 'valid');
   setupStatusFilter(filterInvalid, 'invalid');
   setupStatusFilter(filterUnknown, 'unknown');
+
 
   if (pasteBtn) pasteBtn.addEventListener('click', handlePasteCsvClick);
   if (filterStatus) onFilterToggle();
   if (diagnosticsStatus) onDiagnosticsToggle();
 }
+
 
 document.addEventListener('DOMContentLoaded', async () => {
   // Load eligibility matching configuration first
