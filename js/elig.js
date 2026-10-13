@@ -1953,7 +1953,7 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
     // (e.g. the leading-zero branch sets finalStatus = 'invalid' without adding this remark).
     if (eidMatchedMemberID && eidMatchedMemberID !== memberID) {
       const wrongMemberRemark = buildWrongMemberIDRemark(eidMatchedMemberID);
-      if (!remarks.includes(wrongMemberRemark)) remarks.push(wrongMemberRemark);
+      remarks = [wrongMemberRemark];
       finalStatus = 'invalid';
     }
 
