@@ -1829,53 +1829,59 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
       console.log(`  Claim #${claimIndex} (${claimID}): Processing - Member ${memberID}, Date ${formattedDate}`);
     }
     
-    // Pass claimIndex to enable logging for first 3 claims
-    const matchingEligibilities = findEligibilityForClaim(eligMap, claimDate, memberID, [row.clinician], insurance, false, claimIndex);
+    // First try the claim Member ID so normal claims keep the existing matching behavior.
+    const matchingEligibilities = findEligibilityForClaim(
+      eligMap, claimDate, memberID, [row.clinician], insurance, false, claimIndex
+    );
     
-    // Select the BEST match from all available eligibilities
-    // Pass package name and department for validation filtering
-    const selectedEligibility = selectBestEligibility(matchingEligibilities, row.department, row.packageName);
-    
-    // Mark the selected eligibility as used (only mark the one we actually use)
-    if (selectedEligibility && selectedEligibility['Eligibility Request Number']) {
-      if (!usedEligibilities.has(selectedEligibility['Eligibility Request Number'])) {
-        usedEligibilities.add(selectedEligibility['Eligibility Request Number']);
-        console.log(`   📌 Marked eligibility #${selectedEligibility['Eligibility Request Number']} as USED`);
-      }
-    }
-    
-    // Use selected eligibility for validation
-    let eligibility = selectedEligibility;
+    let eligibility = selectBestEligibility(
+      matchingEligibilities, row.department, row.packageName
+    );
     let eidMatchedMemberID = null;
     let finalStatus = 'invalid', remarks = [];
 
-
-    // EID fallback — only when member ID was not found at all and Emirates ID is available
-    if (!eligibility && row.emiratesID && !eligMap.has(memberID)) {
+    // EID is authoritative for detecting a Wrong Member ID.
+    // Check it whenever the claim supplies an Emirates ID, even if the claim Member ID
+    // exists somewhere else in the eligibility sheet or produced a candidate match.
+    if (row.emiratesID) {
       const eidResult = findEligibilityByEID(
         eligMap, row.emiratesID, claimDate, [row.clinician], insurance, row.department, row.packageName
       );
-      if (eidResult) {
-        eligibility = eidResult.eligibility;
+
+      if (eidResult && eidResult.matchedMemberID) {
         eidMatchedMemberID = eidResult.matchedMemberID;
-        // Repopulate matchingEligibilities from the EID-resolved member ID so the
-        // details modal has records to display (the original lookup returned empty).
-        if (eidMatchedMemberID) {
-          const eidMatches = findEligibilityForClaim(eligMap, claimDate, eidMatchedMemberID, [row.clinician], insurance, false, claimIndex);
+
+        // If EID resolves to a different Member ID, the claim Member ID is wrong.
+        // Use the EID-resolved eligibility/candidate records for validation and Details.
+        if (eidMatchedMemberID !== memberID) {
+          eligibility = eidResult.eligibility;
+
+          const eidMatches = findEligibilityForClaim(
+            eligMap, claimDate, eidMatchedMemberID, [row.clinician], insurance, false, claimIndex
+          );
+
+          matchingEligibilities.length = 0;
           if (eidMatches && eidMatches.length > 0) {
-            matchingEligibilities.length = 0;
             eidMatches.forEach(r => matchingEligibilities.push(r));
           } else {
-            // Filtered search returned nothing (date/status mismatch, etc.) —
-            // fall back to ALL raw records for this member so the details button
-            // is always shown whenever "Wrong Member ID" appears in remarks.
+            // Even when no EID-resolved record passes date/clinician/package filters,
+            // keep the raw records available so Wrong Member ID can still be shown
+            // with the correct Member ID in Details.
             const allEidRecords = eligMap.get(eidMatchedMemberID) || [];
-            if (allEidRecords.length > 0) {
-              matchingEligibilities.length = 0;
-              allEidRecords.forEach(r => matchingEligibilities.push({...r, _isUsed: usedEligibilities.has(r['Eligibility Request Number'])}));
-            }
+            allEidRecords.forEach(r => matchingEligibilities.push({
+              ...r,
+              _isUsed: usedEligibilities.has(r['Eligibility Request Number'])
+            }));
           }
         }
+      }
+    }
+
+    // Mark only the eligibility that remains selected after EID resolution.
+    if (eligibility && eligibility['Eligibility Request Number']) {
+      if (!usedEligibilities.has(eligibility['Eligibility Request Number'])) {
+        usedEligibilities.add(eligibility['Eligibility Request Number']);
+        console.log(`   📌 Marked eligibility #${eligibility['Eligibility Request Number']} as USED`);
       }
     }
     const packageLower = (row.packageName || '').toLowerCase();
