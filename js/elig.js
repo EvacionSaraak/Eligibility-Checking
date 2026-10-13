@@ -1404,14 +1404,6 @@ function normalizeEidForComparison(value) {
   return String(value || '').replace(/\D/g, '').trim();
 }
 
-function buildWrongEmiratesIDRemark(correctEid) {
-  const corrected = String(correctEid || '').trim();
-  return corrected
-    ? `Wrong Emirates ID (should be ${corrected})`
-    : 'Wrong Emirates ID';
-}
-
-
 function buildWrongMemberIDRemark(correctMemberID) {
   const corrected = String(correctMemberID || '').trim();
   return corrected
@@ -1853,22 +1845,23 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
     let eidMismatchWithoutValidEligibility = false;
     let finalStatus = 'invalid', remarks = [];
 
-    let wrongEmiratesIDRemark = null;
-
     if (eligibility) {
-      // A valid eligibility found by Member ID + date + exact clinician is the
-      // reference record. Compare the claim EID only against this eligibility.
+      // Member ID alone is not enough to establish that this eligibility belongs
+      // to the same patient. When both sides provide an EID and they disagree,
+      // discard the eligibility and treat the claim as Eligibility Not Taken.
       const eligibilityEid = String(eligibility['EID'] || '').trim();
       const claimEidNormalized = normalizeEidForComparison(row.emiratesID);
       const eligibilityEidNormalized = normalizeEidForComparison(eligibilityEid);
 
-      // Blank EID on the eligibility does not invalidate the claim EID.
+      // A blank eligibility EID cannot be used to disprove the claim identity.
       if (
         claimEidNormalized &&
         eligibilityEidNormalized &&
         claimEidNormalized !== eligibilityEidNormalized
       ) {
-        wrongEmiratesIDRemark = buildWrongEmiratesIDRemark(eligibilityEid);
+        eidMismatchWithoutValidEligibility = true;
+        eligibility = null;
+        matchingEligibilities.length = 0;
       }
     } else if (row.emiratesID) {
       // No valid eligibility exists under the claim Member ID. Only now use EID
@@ -1980,12 +1973,6 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
       } else {
         remarks.push(`Eligibility status: ${eligibility.Status}`);
       }
-    }
-
-
-    if (wrongEmiratesIDRemark && !eidMatchedMemberID) {
-      remarks = [wrongEmiratesIDRemark];
-      finalStatus = 'invalid';
     }
 
 
