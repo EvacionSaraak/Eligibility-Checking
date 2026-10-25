@@ -2106,8 +2106,8 @@ function renderResults(results, eligMap, totalResults = null) {
   let processedRows = 0;
 
 
-  // Calculate total counts from ALL results (not just displayed ones)
-  allResults.forEach((result) => {
+  // Count only rows that pass the active output filters.
+  displayedRows.forEach((result) => {
     if (!result.memberID || result.memberID.toString().trim() === '') return;
     const statusToCheck = (result.claimStatus || result.status || result.fullEligibilityRecord?.Status || '')
       .toString()
@@ -2232,7 +2232,7 @@ function renderResults(results, eligMap, totalResults = null) {
   }
 
 
-  // Update filter buttons to show counts (totals, never change)
+  // Update filter buttons to show the currently visible counts
   const filterValid = document.querySelector('#filterValid .badge');
   const filterInvalid = document.querySelector('#filterInvalid .badge');
   const filterUnknown = document.querySelector('#filterUnknown .badge');
