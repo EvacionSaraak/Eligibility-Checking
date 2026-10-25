@@ -1843,6 +1843,7 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
     );
     let eidMatchedMemberID = null;
     let eidMismatchWithoutValidEligibility = false;
+    let eidOnlyMismatch = false;
     let finalStatus = 'invalid', remarks = [];
 
     if (eligibility) {
@@ -1860,6 +1861,7 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
         claimEidNormalized !== eligibilityEidNormalized
       ) {
         eidMismatchWithoutValidEligibility = true;
+        eidOnlyMismatch = true;
         eligibility = null;
         matchingEligibilities.length = 0;
       }
@@ -1913,6 +1915,9 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
         '';
       finalStatus = 'invalid';
       remarks.push(buildWrongMemberIDRemark(correctedMemberID));
+    } else if (eidOnlyMismatch) {
+      finalStatus = 'unknown';
+      remarks.push('Kindly check the Emirates ID');
     } else if (row.clinician === 'FALSE') {
       finalStatus = 'unknown';
       remarks.push("This clinician hasn't been added to our database yet.");
@@ -2038,6 +2043,7 @@ function getDisplayedResultsFromStored(results) {
   // Filter based on active status filters
   return raw.filter(r => {
     if (!r || !r.finalStatus) return false;
+    if (document.getElementById('hideLabRadiology')?.checked && /\b(radiology|laboratory|lab)\b/i.test(String(r.department || ''))) return false;
     const status = r.finalStatus.toLowerCase();
     // Show the result if its status filter is active
     return activeStatusFilters[status] === true;
@@ -2953,7 +2959,7 @@ async function handleProcessClick() {
     }
 
 
-    window.lastValidationResults = outputResults;
+    window.lastValidationResults = results;
     const displayedResults = getDisplayedResultsFromStored(outputResults);
     renderResults(displayedResults, eligMap, outputResults);
     updateStatus(`Processed ${outputResults.length} claims successfully`);
@@ -3040,6 +3046,17 @@ function initializeEventListeners() {
   if (filterCheckbox) {
     filterCheckbox.checked = true;
     filterCheckbox.addEventListener('change', onFilterToggle);
+  }
+  const hideLabRadiology = document.getElementById('hideLabRadiology');
+  if (hideLabRadiology) {
+    hideLabRadiology.checked = true;
+    hideLabRadiology.addEventListener('change', () => {
+      const status = document.getElementById('labRadiologyStatus');
+      if (status) { status.textContent = hideLabRadiology.checked ? 'ON' : 'OFF'; status.classList.toggle('active', hideLabRadiology.checked); }
+      onFilterToggle();
+    });
+    const status = document.getElementById('labRadiologyStatus');
+    if (status) { status.textContent = 'ON'; status.classList.add('active'); }
   }
   if (diagnosticsCheckbox) {
     // Default to false (unchecked) to hide diagnostics buttons by default
