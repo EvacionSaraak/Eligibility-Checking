@@ -2044,6 +2044,10 @@ function getDisplayedResultsFromStored(results) {
   // Filter based on active status filters
   return raw.filter(r => {
     if (!r || !r.finalStatus) return false;
+    if (filterCheckbox?.checked) {
+      const provider = String(r.insuranceCompany || r.provider || r.packageName || r['Payer Name'] || r['Insurance Company'] || '').toLowerCase();
+      if (!provider.includes('daman') && !provider.includes('thiqa')) return false;
+    }
     if (document.getElementById('hideLabRadiology')?.checked && /\b(radiology|laboratory|lab)\b/i.test(String(r.department || ''))) return false;
     const status = r.finalStatus.toLowerCase();
     // Show the result if its status filter is active
@@ -2784,7 +2788,7 @@ function formatEligibilityDetails(record, memberID, claimDate, claimInfo = {}) {
    Export helpers
    =========================== */
 function exportInvalidEntries(results) {
-  const invalidEntries = (results || []).filter(r => r && r.finalStatus === 'invalid');
+  const invalidEntries = getDisplayedResultsFromStored(results || []).filter(r => r.finalStatus === 'invalid');
   if (!invalidEntries.length) { alert('No invalid entries to export.'); return; }
   const exportData = invalidEntries.map((entry, index) => {
     // Convert date to Date object for Excel to recognize it as a date
