@@ -1996,6 +1996,7 @@ function validateReportClaims(reportDataArray, eligMap, reportType) {
       visitID: row.visitID || '',
       memberID,
       rawMemberID,
+      claimEmiratesID: row.emiratesID || '',
       encounterStart: formattedDate,
       encounterDate: claimDate, // Store original Date object to avoid re-parsing issues
       packageName: eligibility?.['Package Name'] || row.packageName || '',
@@ -2081,6 +2082,7 @@ function renderResults(results, eligMap, totalResults = null) {
     <tr>
       <th>Claim ID</th>
       <th>Member ID</th>
+      <th>Emirates ID</th>
       <th>Encounter Date</th>
       <th>Package</th>
       <th>Provider</th>
@@ -2192,6 +2194,7 @@ function renderResults(results, eligMap, totalResults = null) {
     row.innerHTML = `
       <td>${escapeHtml(result.claimID)}</td>
       <td>${escapeHtml(result.rawMemberID || result.memberID)}</td>
+      <td>${escapeHtml(result.claimEmiratesID || '')}</td>
       <td>${escapeHtml(result.encounterStart)}</td>
       <td class="description-col">${escapeHtml(result.packageName)}</td>
       <td class="description-col">${escapeHtml(result.provider)}</td>
