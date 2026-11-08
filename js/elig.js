@@ -2788,9 +2788,18 @@ function formatEligibilityDetails(record, memberID, claimDate, claimInfo = {}) {
    Export helpers
    =========================== */
 function exportInvalidEntries(results) {
-  const invalidEntries = getDisplayedResultsFromStored(results || []).filter(r => r.finalStatus === 'invalid');
-  if (!invalidEntries.length) { alert('No invalid entries to export.'); return; }
-  const exportData = invalidEntries.map((entry, index) => {
+  const includeUnknown = document.getElementById('includeUnknownExport')?.checked === true;
+  // Export follows the current on-screen provider, department and status filters.
+  // The optional Unknown checkbox expands the eligible export statuses.
+  const exportEntries = getDisplayedResultsFromStored(results || []).filter(r => {
+    const status = String(r.finalStatus || '').toLowerCase();
+    return status === 'invalid' || (includeUnknown && status === 'unknown');
+  });
+  if (!exportEntries.length) {
+    alert(includeUnknown ? 'No invalid or unknown entries to export under the current filters.' : 'No invalid entries to export under the current filters.');
+    return;
+  }
+  const exportData = exportEntries.map((entry, index) => {
     // Convert date to Date object for Excel to recognize it as a date
     let exportDate = entry.encounterStart || '';
     if (exportDate) {
@@ -2808,6 +2817,7 @@ function exportInvalidEntries(results) {
       'Date': exportDate,
       'Member ID': entry.rawMemberID || entry.memberID || '',
       'Clinician Name': entry.clinicianName || '',
+      'Status': String(entry.finalStatus || '').toUpperCase(),
       'Verdict': (entry.remarks || []).join('; '),
       'Opened By': entry.openedBy || '',
       'Price': entry.price ?? '',
@@ -2819,8 +2829,9 @@ function exportInvalidEntries(results) {
   });
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.json_to_sheet(exportData);
-  XLSX.utils.book_append_sheet(wb, ws, 'Invalid Claims');
-  XLSX.writeFile(wb, `invalid_claims_${new Date().toISOString().slice(0,10)}.xlsx`);
+  XLSX.utils.book_append_sheet(wb, ws, includeUnknown ? 'Invalid and Unknown' : 'Invalid Claims');
+  const filePrefix = includeUnknown ? 'invalid_unknown_claims' : 'invalid_claims';
+  XLSX.writeFile(wb, `${filePrefix}_${new Date().toISOString().slice(0,10)}.xlsx`);
 }
 
 
