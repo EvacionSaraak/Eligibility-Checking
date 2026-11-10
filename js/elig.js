@@ -584,7 +584,9 @@ function findHeaderRowFromArrays(allRows, maxScan = 10) {
     'center name', 'card number', 'card number / dha member id', 'member id', 'patientcardid',
     'pri. patient insurance card no', 'institution', 'facility id', 'mr no.', 'pri. claim id',
     'clinician license', 'encounter date', 'visit id', 'total amount', 'source file',
-    'emirates id no', 'emirates id no.'
+    'emirates id no', 'emirates id no.',
+    'patient/insurance', 'performing clinician', 'member/id', 'identity number',
+    'payment mode', 'consultation state'
   ];
 
 
