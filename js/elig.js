@@ -1460,6 +1460,30 @@ function findEligibilityByEID(eligMap, rawEID, claimDate, claimClinicians, insur
  * @param {Array|Object} rawData - Raw data from Excel/CSV parser
  * @returns {string} - 'Insta', 'Odoo', 'Combined', or 'Generic'
  */
+// Dedicated HMS Visit export schema.
+function isVisitEncounterReport(row) {
+  return !!row && ['Reference', 'Patient/Insurance', 'Member/ID', 'Date', 'License']
+    .every(key => Object.prototype.hasOwnProperty.call(row, key));
+}
+function normalizeVisitEncounterRow(row) {
+  const rawInsurance = String(row['Patient/Insurance'] || '').trim();
+  const match = /^\s*\[([^\]]+)\]\s*(.*)$/.exec(rawInsurance);
+  const visitID = String(row.Reference || '').trim();
+  const plan = match ? match[2].trim() : rawInsurance;
+  return {
+    claimID: visitID, visitID, memberID: match ? match[1].trim() : '',
+    claimDate: row.Date || '', clinician: readClinicianLicense(row.License),
+    clinicianName: String(row['Performing Clinician'] || '').trim(),
+    department: String(row.Department || '').trim(), packageName: plan,
+    insuranceCompany: plan, claimStatus: String(row.State || '').trim(),
+    fileNo: String(row['Member/ID'] ?? '').trim(),
+    admittingDoctor: String(row['Performing Clinician'] || '').trim(),
+    openedBy: String(row['Created by'] || '').trim(), price: '',
+    facilityID: String(row.Branch || '').trim(),
+    emiratesID: String(row['Identity Number'] || '').trim()
+  };
+}
+
 function detectReportType(rawData) {
   if (!rawData) return 'Generic';
   
@@ -1468,6 +1492,7 @@ function detectReportType(rawData) {
     const detection = findHeaderRowFromArrays(rawData, 50);
     if (detection.rows && detection.rows.length > 0) {
       const sample = detection.rows[0];
+      if (isVisitEncounterReport(sample)) return 'Visit';
       // Check for Combined report first (has Pri. Claim No + Total Amount; 'Visit Id' alone is not enough since Insta reports also have it)
       if (sample.hasOwnProperty('Pri. Claim No') && sample.hasOwnProperty('Total Amount')) return 'Combined';
       if (sample.hasOwnProperty('Pri. Claim No')) return 'Insta';
@@ -1479,6 +1504,7 @@ function detectReportType(rawData) {
   // If it's already an array of objects
   if (Array.isArray(rawData) && rawData.length > 0 && typeof rawData[0] === 'object' && !Array.isArray(rawData[0])) {
     const sample = rawData[0];
+    if (isVisitEncounterReport(sample)) return 'Visit';
     // Check for Combined report first (has Pri. Claim No + Total Amount; 'Visit Id' alone is not enough since Insta reports also have it)
     if (sample.hasOwnProperty('Pri. Claim No') && sample.hasOwnProperty('Total Amount')) return 'Combined';
     if (sample.hasOwnProperty('Pri. Claim No')) return 'Insta';
@@ -1489,6 +1515,7 @@ function detectReportType(rawData) {
   // If it has a {headers, rows} shape
   if (rawData.rows && Array.isArray(rawData.rows) && rawData.rows.length > 0) {
     const sample = rawData.rows[0];
+    if (isVisitEncounterReport(sample)) return 'Visit';
     // Check for Combined report first (has Pri. Claim No + Total Amount; 'Visit Id' alone is not enough since Insta reports also have it)
     if (sample.hasOwnProperty('Pri. Claim No') && sample.hasOwnProperty('Total Amount')) return 'Combined';
     if (sample.hasOwnProperty('Pri. Claim No')) return 'Insta';
@@ -1537,7 +1564,9 @@ function normalizeReportData(rawData) {
     const isCombined = sample.hasOwnProperty('Pri. Claim No') && sample.hasOwnProperty('Total Amount');
     const isInsta = sample.hasOwnProperty('Pri. Claim No') && !isCombined;
     const isOdoo = sample.hasOwnProperty('Pri. Claim ID');
+    const isVisit = isVisitEncounterReport(sample);
     return rawData.map(row => {
+      if (isVisit) return normalizeVisitEncounterRow(row);
       if (isCombined) {
         return {
           claimID: row['Pri. Claim No'] || '',
@@ -1633,6 +1662,7 @@ function normalizeReportData(rawData) {
     const isInsta = Object.prototype.hasOwnProperty.call(r, 'Pri. Claim No') && !isCombined;
     const isOdoo = Object.prototype.hasOwnProperty.call(r, 'Pri. Claim ID');
 
+    if (isVisitEncounterReport(r)) return normalizeVisitEncounterRow(r);
 
     if (isCombined) {
       return {
@@ -2935,12 +2965,12 @@ async function handleProcessClick() {
                        `  • Insta report must have: "Pri. Claim No"\n` +
                        `  • Odoo report must have: "Pri. Claim ID"\n` +
                        `  • Combined report must have: "Pri. Claim No" and "Total Amount"\n\n` +
-                       `These columns were not found in your file.\n` +
+                       `These columns were not found in your file. HMS Visit reports require Reference, Patient/Insurance, Member/ID, Date, and License.\n` +
                        `Please verify you're uploading a valid Insta, Odoo, or Combined export.`;
       console.error(errorMsg);
       updateStatus('Error: Unknown report type - see console for details');
       alert(`Cannot process report file.\n\n` +
-            `This file does not appear to be a valid Insta, Odoo, or Combined report.\n\n` +
+            `This file does not appear to be a valid Insta, Odoo, Combined, or Visit report.\n\n` +
             `Expected columns in original file:\n` +
             `  • Insta reports must have: "Pri. Claim No"\n` +
             `  • Odoo reports must have: "Pri. Claim ID"\n` +
