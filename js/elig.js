@@ -2964,7 +2964,8 @@ async function handleProcessClick() {
                        `Expected original columns in file:\n` +
                        `  • Insta report must have: "Pri. Claim No"\n` +
                        `  • Odoo report must have: "Pri. Claim ID"\n` +
-                       `  • Combined report must have: "Pri. Claim No" and "Total Amount"\n\n` +
+                       `  • Combined report must have: "Pri. Claim No" and "Total Amount"\n` +
+                       `  • Visit report must have: "Reference", "Patient/Insurance", "Member/ID", "Date", "License"\n\n` +
                        `These columns were not found in your file. HMS Visit reports require Reference, Patient/Insurance, Member/ID, Date, and License.\n` +
                        `Please verify you're uploading a valid Insta, Odoo, or Combined export.`;
       console.error(errorMsg);
@@ -2974,7 +2975,8 @@ async function handleProcessClick() {
             `Expected columns in original file:\n` +
             `  • Insta reports must have: "Pri. Claim No"\n` +
             `  • Odoo reports must have: "Pri. Claim ID"\n` +
-            `  • Combined reports must have: "Pri. Claim No" and "Total Amount"\n\n` +
+            `  • Combined reports must have: "Pri. Claim No" and "Total Amount"\n` +
+             `  • Visit reports must have: "Reference", "Patient/Insurance", "Member/ID", "Date", "License"\n\n` +
             `Please check your file and try again.`);
       return; // Stop processing
     }
@@ -2989,6 +2991,8 @@ async function handleProcessClick() {
         resultsTitle.textContent = 'Odoo Report Results';
       } else if (reportType === 'Combined') {
         resultsTitle.textContent = 'Combined Report Results';
+      } else if (reportType === 'Visit') {
+        resultsTitle.textContent = 'Visit Report Results';
       } else {
         resultsTitle.textContent = 'Results';
       }
