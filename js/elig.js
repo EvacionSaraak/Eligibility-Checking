@@ -54,6 +54,7 @@ let detectedReportType = 'Generic'; // detected report type before normalization
 const usedEligibilities = new Set();
 let lastReportWasCSV = false;
 let sourceFileName = '';   // Track the source report filename for export
+let excludedSelfPayCount = 0; // Never count Self-Pay as eligibility candidates
 
 
 // Keep last eligibility map so UI filters can re-render without rebuilding the map
@@ -565,7 +566,7 @@ function summarizeAndDisplayCounts() {
     const claimCount = Array.isArray(xlsData) ? xlsData.length : 0;
 
 
-    if (statusEl) statusEl.textContent = `Loaded ${eligCount} eligibilities, ${claimCount} claims — Ready to process files`;
+    if (statusEl) statusEl.textContent = `Loaded ${eligCount} eligibilities, ${claimCount} claims${getSelfPayExclusionLabel()} — Ready to process files`;
   } catch (err) {
     // Removed console error - fails silently
   }
@@ -1544,9 +1545,32 @@ function readClinicianLicense(val) {
 }
 
 
-function normalizeReportData(rawData) {
-  if (!rawData) return [];
+// Self-Pay exclusions apply to every report type when either column is present.
+function isSelfPayReportRow(row) {
+  if (!row || typeof row !== 'object') return false;
+  return Object.entries(row).some(([header, value]) => {
+    const key = String(header).trim().replace(/\s+/g, ' ').toLowerCase();
+    if (key !== 'payment mode' && key !== 'payment category') return false;
+    return String(value == null ? '' : value).trim().replace(/[\s_-]+/g, '').toLowerCase() === 'selfpay';
+  });
+}
 
+function excludeSelfPayReportRows(rows) {
+  const sourceRows = Array.isArray(rows) ? rows : [];
+  const eligibleRows = sourceRows.filter(row => !isSelfPayReportRow(row));
+  excludedSelfPayCount = sourceRows.length - eligibleRows.length;
+  return eligibleRows;
+}
+
+function getSelfPayExclusionLabel() {
+  return excludedSelfPayCount ? ` (${excludedSelfPayCount} Self-Pay excluded)` : '';
+}
+
+function normalizeReportData(rawData) {
+  if (!rawData) {
+    excludedSelfPayCount = 0;
+    return [];
+  }
 
   // If the input is an array-of-arrays (what XLSX.utils.sheet_to_json(..., {header:1}) returns),
   // convert it into a { headers, rows } shape using the helper so downstream mapping can work.
@@ -1567,7 +1591,7 @@ function normalizeReportData(rawData) {
     const isInsta = sample.hasOwnProperty('Pri. Claim No') && !isCombined;
     const isOdoo = sample.hasOwnProperty('Pri. Claim ID');
     const isVisit = isVisitEncounterReport(sample);
-    return rawData.map(row => {
+    return excludeSelfPayReportRows(rawData).map(row => {
       if (isVisit) return normalizeVisitEncounterRow(row);
       if (isCombined) {
         return {
@@ -1647,7 +1671,7 @@ function normalizeReportData(rawData) {
   }
 
 
-  const rows = rawData.rows || [];
+  const rows = excludeSelfPayReportRows(rawData.rows || []);
   const headers = rawData.headers || [];
 
 
@@ -2896,10 +2920,10 @@ async function handleFileUpload(event, type) {
       const normalized = normalizeReportData(parsed);
       xlsData = deduplicateClaimsByID(normalized);
       if (!xlsData || xlsData.length === 0) {
-        // Reset report type if no valid data
-        detectedReportType = 'Generic';
+        // A recognized all-Self-Pay report has nothing requiring eligibility.
+        if (excludedSelfPayCount === 0) detectedReportType = 'Generic';
       }
-      updateStatus(`Loaded ${xlsData.length} report rows`);
+      updateStatus(`Loaded ${xlsData.length} report rows${getSelfPayExclusionLabel()}`);
       updateProcessButtonState();
       if (eligData && (rawParsedReport || xlsData)) summarizeAndDisplayCounts();
       return;
@@ -2927,10 +2951,10 @@ async function handlePasteCsvClick() {
     const normalized = normalizeReportData(parsed);
     xlsData = deduplicateClaimsByID(normalized);
     if (xlsData.length === 0) {
-      // Reset report type if no valid data
-      detectedReportType = 'Generic';
+      // A recognized all-Self-Pay report has nothing requiring eligibility.
+      if (excludedSelfPayCount === 0) detectedReportType = 'Generic';
     }
-    updateStatus(`Loaded ${xlsData.length} rows from pasted CSV`);
+    updateStatus(`Loaded ${xlsData.length} rows from pasted CSV${getSelfPayExclusionLabel()}`);
     updateProcessButtonState();
     if (eligData && (rawParsedReport || xlsData)) summarizeAndDisplayCounts();
   } catch (err) {
